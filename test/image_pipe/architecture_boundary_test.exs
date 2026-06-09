@@ -274,7 +274,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     telemetry = boundary_declaration(ImagePipe.Telemetry)
 
     assert_boundary_deps(telemetry, [])
-    assert_boundary_exports(telemetry, [])
+    # ImagePipe.Telemetry.Trace is the opt-in span-tracer facade; the Plug edge calls
+    # Trace.maybe_extract_inbound/1, so it is exported. The boundary stays dependency-free.
+    assert_boundary_exports(telemetry, [ImagePipe.Telemetry.Trace])
   end
 
   test "error boundary remains a dependency-free helper" do

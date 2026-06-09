@@ -10,7 +10,7 @@ defmodule ImagePipe.Telemetry do
   use Boundary,
     top_level?: true,
     deps: [],
-    exports: []
+    exports: [Trace]
 
   alias ImagePipe.Telemetry.Logger, as: DefaultLogger
   alias ImagePipe.Telemetry.Trace
@@ -105,6 +105,7 @@ defmodule ImagePipe.Telemetry do
     prefix = Keyword.get(opts, :prefix, default_prefix())
 
     Trace.set_exporter(exporter)
+    Trace.set_extract_inbound(Keyword.get(opts, :extract_inbound, false))
     Capture.attach(%{prefix: prefix, exporter: exporter})
   end
 
@@ -112,6 +113,7 @@ defmodule ImagePipe.Telemetry do
   def detach_tracer do
     Capture.detach()
     Trace.set_exporter(nil)
+    Trace.set_extract_inbound(false)
     :ok
   end
 

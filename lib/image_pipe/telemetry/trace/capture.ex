@@ -1,6 +1,6 @@
 defmodule ImagePipe.Telemetry.Trace.Capture do
   @moduledoc false
-  alias ImagePipe.Telemetry.Trace.{Id, Span, Stack}
+  alias ImagePipe.Telemetry.Trace.{Context, Id, Inbound, Span, Stack}
 
   @handler_id {__MODULE__, :spans}
 
@@ -203,8 +203,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   # Inbound root context (W3C traceparent) is consumed once at the root span; falls
   # back to minting a fresh trace when no inbound context is present.
   defp root_ids(_config) do
-    case ImagePipe.Telemetry.Trace.Inbound.take() do
-      %ImagePipe.Telemetry.Trace.Context{trace_id: t, span_id: s, trace_flags: f} -> {t, s, f}
+    case Inbound.take() do
+      %Context{trace_id: t, span_id: s, trace_flags: f} -> {t, s, f}
       nil -> {Id.trace_id(), nil, 1}
     end
   end
