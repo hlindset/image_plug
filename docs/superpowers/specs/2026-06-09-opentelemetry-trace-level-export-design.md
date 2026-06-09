@@ -111,11 +111,22 @@ context, so **our** trace_id wins. (`OpenTelemetry.Tracer.start_span/3` is a mac
   hand-build a span_ctx.
 - **Pass the W3C codec explicitly** to `extract_to/3` (`:otel_propagator_trace_context`)
   so we don't depend on the host having configured a global propagator.
-- **Timestamps are native monotonic.** `start_time`/`end_span` want
-  `erlang:monotonic_time()`-frame values. #175's `Trace.Span.start_time` is `system_time`
-  (= monotonic + offset), so `native = start_time - :erlang.time_offset()`, and
-  `end = native + duration_native`. (Same conversion the prior design used — it's just a
-  time value now, not a record field.)
+- **Timestamps are native monotonic — but two #175 fields live in DIFFERENT frames, and
+  only one gets converted.** OTel wants `erlang:monotonic_time()`-frame native values.
+  - **Span `start_time`/`end_time`:** #175's `Trace.Span.start_time` is `system_time`
+    (= monotonic + offset), so it **must** be converted: `native_start = start_time -
+    :erlang.time_offset()`, `native_end = native_start + duration_native`.
+  - **Oneshot event `:time`:** #175 sets this to `meta[:monotonic_time]` — *already* raw
+    `monotonic_time`, i.e. already in OTel's native frame. It must be **passed through
+    UNCONVERTED** (do NOT subtract `time_offset()`). Applying the span conversion to it
+    would skew events by the offset (potentially hours). This asymmetry is the subtlest
+    trap in the mapping — §7 includes a test that an oneshot event lands inside its span's
+    window.
+  - **Exception event (no `:time`):** fall back to the **converted** `native_end` (so it
+    shares the span's frame), not the raw `system_time` end.
+  - Note: absolute wall-clock placement carries a sub-tick `time_offset()` drift between
+    capture and replay (we read the offset at replay); negligible for a span replayed
+    microseconds later. The **duration** is offset-independent and exact.
 - **Attribute coercion still required.** The public `set_attributes`/`add_event` path
   *validates and silently drops* non-primitive values, so to keep an opaque operation
   struct (as an `inspect`-ed string) we coerce to primitives first — same `coerce/1` logic
@@ -179,15 +190,27 @@ Export only `OpenTelemetryExporter` from the telemetry boundary (host-named in
 ## 5. Activation, deps, absence
 
 - Host: `attach_tracer(exporter: OpenTelemetryExporter, extract_inbound: true)` — the #175
-  entry point, unchanged. `attach_tracer` probes `ready?/0` and raises a clear
-  `ArgumentError` if `:opentelemetry_api` isn't loaded.
+  entry point, unchanged.
+- **Two distinct absence modes — keep them separate:**
+  1. **`:opentelemetry_api` not loaded** (compile guard took the `else` branch) → `ready?/0`
+     returns `false` → `attach_tracer` **raises** a clear `ArgumentError`. This probe in
+     `attach_tracer` is **load-bearing**: today `attach_tracer` (`telemetry.ex:135`) only
+     checks `export/1` is exported; the build-order step that adds the `ready?/0` probe is
+     what turns "API absent" into a loud startup error instead of a silently-attached
+     no-op exporter. Not optional.
+  2. **API present but the SDK not started** (host added `:opentelemetry_api` transitively
+     but never booted the SDK, or booted a noop provider) → `ready?/0` **cannot** detect
+     this (the API is loaded), so attach succeeds and `extract_to`/`start_span` degrade to a
+     noop tracer producing nothing — **no crash, documented.** This is the host's
+     responsibility (start the SDK + a processor/exporter), same contract as everything else.
 - Deps (`mix.exs`): `{:opentelemetry_api, "~> 1.x", optional: true}` only — **not** the SDK.
   For our own tests we add `{:opentelemetry, "~> 1.x", only: :test}` (the SDK, to actually
   record/export and assert) + the simple-processor test config. The host brings the SDK in
-  their own deps.
-- The host must have **started the OTel SDK** (processor + exporter). If not, the API
-  degrades to a noop tracer and `extract_to`/`start_span` produce nothing — no crash,
-  documented.
+  their own deps (it pulls `:opentelemetry_api` transitively, which our optional-dep edge
+  reconciles + orders before us). **Compile-time-presence caveat:** the guard keys on
+  `Code.ensure_loaded?(OpenTelemetry.Tracer)` evaluated at *ImagePipe compile time*; a host
+  that adds the SDK must (re)compile ImagePipe for the active branch to take effect — Mix
+  does this automatically on `deps.get` + compile; only a stale `_build` would bite.
 
 ## 6. The mapping (`export/1`)
 
@@ -195,11 +218,11 @@ Export only `OpenTelemetryExporter` from the telemetry boundary (host-named in
 |---|---|
 | `trace_id` / `parent_span_id` (hex, `parent` may be `nil`) | synthetic `traceparent` → `extract_to/3` parent context. Root (`nil` parent) uses `span.span_id` as the synthetic parent (§2.2). |
 | own `span_id` | **discarded** (OTel mints its own) |
-| `name`, `kind` (`:internal`/`:server`/`:client`) | `start_span` opts (`name`, `kind` 1:1) |
-| `start_time` / `duration_native` | `start_time: start - time_offset()`; `end_span(_, start - time_offset() + duration_native)` |
-| `status` (`:unset`/`:ok`/`:error`) + `status_message` | `OpenTelemetry.status/2` → `set_status` |
-| `attributes` | coerced to primitives → `set_attributes` (drop/`inspect` non-primitives; add `image_pipe.pid`/`image_pipe.node`) |
-| `events` (`%{name:, time:, attributes:}`) | `OpenTelemetry.event/3` (explicit native ts) → `add_events`; exception event has no `:time` → fall back to end |
+| `name`, `kind` (`:internal`/`:server`/`:client`/`nil`) | `start_span` opts; `kind` `nil`/unknown → `:internal` (no `nil` test — no producer emits it) |
+| `start_time` / `duration_native` | `start_time: native_start`; `end_span(_, native_start + duration_native)` where `native_start = start_time - time_offset()` (§2.1) |
+| `status` (`:unset`/`:ok`/`:error`) + `status_message` | `OpenTelemetry.status(code, msg)` → `Span.set_status/2` |
+| `attributes` | coerced to primitives → `Span.set_attributes/2` (drop/`inspect` non-primitives; add `image_pipe.pid`/`image_pipe.node`) |
+| `events` (`%{name:, time:, attributes:}`) | `OpenTelemetry.event(timestamp, name, attrs)` (**timestamp-FIRST**) → `Span.add_events/2`. Oneshot `:time` is raw `monotonic_time` → **pass through unconverted** (§2.1). Exception event (no `:time`) → `native_end`; map its `kind`/`reason` to OTel `exception.type`/`exception.message`. |
 | `links` | `[]` today (#175 emits none) |
 
 Instrumentation scope: tracer `:image_pipe` via `:opentelemetry.get_tracer/1` (or
@@ -215,7 +238,15 @@ self())`; spans arrive as `{:span, rec}`). Read the exported `#span{}` in tests 
 - **Canary / id behavior:** export one `%Trace.Span{}`, assert the received span carries
   **our** `trace_id` (integer-decoded) and an OTel-minted `span_id` that is **non-zero and
   not equal** to our span_id (proves OTel minted its own — the opposite of the old design's
-  assertion). Assert name/kind/status/duration map correctly.
+  assertion). Assert name/kind/status map correctly.
+- **Duration fidelity:** decode the exported span's `end_time − start_time` and assert it
+  equals `duration_native` exactly (the native delta must survive the conversion — guards
+  the §2.1 time-frame handling).
+- **Oneshot event lands inside its span's window (the frame-trap guard):** export a span
+  carrying a oneshot event (`%{name:, time: <monotonic>, attributes:}`) and assert the
+  exported event's timestamp is within `[start_time, end_time]`. A uniform
+  `- time_offset()` applied to the event time (the §2.1 trap) would push it hours outside
+  the window and fail this — the test that makes the asymmetry safe.
 - **Cross-consumer correlation (the product requirement, relaxed):** fan one span to
   `LogExporter` + `OpenTelemetryExporter`; assert the **trace_id** matches (log `trace=` ↔
   OTel trace_id), and explicitly assert the **span_ids differ** (documents the accepted
