@@ -395,7 +395,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
 
         false
 
-      not otel_version_ok?() ->
+      not version_supported?(otel_vsn()) ->
         Logger.warning(
           "OpenTelemetryExporter disabled: OpenTelemetry #{otel_vsn()} is outside the tested " <>
             "range #{@tested_range}; refusing to emit possibly-malformed spans."
@@ -412,12 +412,10 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
   @spec export(Span.t()) :: :ok
   def export(%Span{} = span), do: SpanRecord.export(span)
 
-  defp otel_version_ok? do
-    case otel_vsn() do
-      nil -> false
-      vsn -> Version.match?(vsn, @tested_range)
-    end
-  end
+  @doc "Whether an OTel version string falls in ImagePipe's canary-tested range."
+  @spec version_supported?(String.t() | nil) :: boolean()
+  def version_supported?(nil), do: false
+  def version_supported?(vsn) when is_binary(vsn), do: Version.match?(vsn, @tested_range)
 
   defp otel_vsn do
     case Application.spec(:opentelemetry, :vsn) do
@@ -445,7 +443,83 @@ git add lib/image_pipe/telemetry/trace/open_telemetry/span_record.ex lib/image_p
 git commit -m "feat(telemetry): OpenTelemetry exporter — inject #span{} preserving our ids"
 ```
 
-> **Remaining folds for this revision (full code in design §8/§10 — executor adds as steps):** (a) **structural-contract tests** in the exporter test — assert `:opentelemetry.get_tracer(:image_pipe)` returns `{:otel_tracer_default, t}` with `is_function(elem(t, 3), 1)`, `:opentelemetry.status(:error, "x") == {:status, :error, "x"}`, and the extracted `:span` record exposes the fields `build_record/1` sets; (b) **version-range gate test** — stub `otel_vsn` out of `@tested_range` → `ready?/0` false → `attach_tracer` raises; (c) **cross-consumer correlation test** (Task 5) — fan one `%Trace.Span{}` to both `LogExporter` (capture the log line) and `OpenTelemetryExporter`, assert the logged `trace=`/`span=` equal the OTel span's ids; (d) **currency tooling** (`otel-compat.yml` scheduled job + Renovate config) per §10.
+- [ ] **Step 7: Add the structural-contract tests (FFI tripwires).** Append to `open_telemetry_exporter_test.exs`. These pin each internal assumption so an OTel upgrade fails with a *localized* message:
+
+```elixir
+  describe "structural contract (FFI tripwires — fail loudly on an OTel shape change)" do
+    test "tracer exposes the on_end closure at tuple position 3" do
+      assert {:otel_tracer_default, tracer} = :opentelemetry.get_tracer(:image_pipe)
+      assert is_function(elem(tracer, 3), 1)
+    end
+
+    test "status/2 returns the {:status, code, message} shape we map onto" do
+      assert {:status, :error, "boom"} = :opentelemetry.status(:error, "boom")
+      assert {:status, :unset, _} = :opentelemetry.status(:unset, "")
+    end
+
+    test "instrumentation_scope/3 returns the record shape we build" do
+      assert {:instrumentation_scope, "image_pipe", "9.9.9", :undefined} =
+               :opentelemetry.instrumentation_scope("image_pipe", "9.9.9", :undefined)
+    end
+
+    test "the :span record still exposes every field build_record/1 sets" do
+      fields =
+        Keyword.keys(Record.extract(:span, from_lib: "opentelemetry/include/otel_span.hrl"))
+
+      for f <- [
+            :trace_id, :span_id, :parent_span_id, :name, :kind, :start_time, :end_time,
+            :attributes, :events, :links, :status, :trace_flags, :is_recording,
+            :instrumentation_scope
+          ] do
+        assert f in fields, "OTel #span{} dropped field #{inspect(f)} — SpanRecord must adapt"
+      end
+    end
+  end
+```
+
+Run: `mise exec -- mix test test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs -v`
+Expected: PASS against the pinned OTel; if one fails after an upgrade, its message names exactly what moved.
+
+- [ ] **Step 8: Add the cross-consumer correlation test (the product requirement).** Append. This proves logs and OTel join on `{trace_id, span_id}` — the whole reason we preserve ids:
+
+```elixir
+  test "LogExporter and OTel export of one span carry the SAME {trace_id, span_id}" do
+    import ExUnit.CaptureLog
+    alias ImagePipe.Telemetry.Trace.LogExporter
+
+    span = %Span{
+      trace_id: "0123456789abcdef0123456789abcdef",
+      span_id: "89abcdef01234567",
+      name: "image_pipe.request",
+      kind: :server,
+      start_time: System.system_time(),
+      duration_native: 1,
+      status: :ok,
+      trace_flags: 1
+    }
+
+    assert :ok = OpenTelemetryExporter.export(span)
+    assert_receive {:span, rec}, 1_000
+
+    log = capture_log(fn -> LogExporter.export(span) end)
+
+    # LogExporter prints our hex ids; OTel carries the integer decode of the same ids.
+    assert log =~ "trace=#{span.trace_id}"
+    assert log =~ "span=#{span.span_id}"
+    assert String.to_integer(span.trace_id, 16) == otel_span(rec, :trace_id)
+    assert String.to_integer(span.span_id, 16) == otel_span(rec, :span_id)
+  end
+```
+
+Run: `mise exec -- mix test test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs -v`
+Expected: PASS — the log line's ids and the OTel span's ids are the same logical pair.
+
+- [ ] **Step 9: Commit.**
+
+```bash
+git add test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs
+git commit -m "test(telemetry): structural-contract tripwires + cross-consumer id correlation"
+```
 
 ---
 
@@ -744,11 +818,33 @@ Expected: FAIL — currently `attach_tracer` would attach NotReadyExporter witho
 Run: `mise exec -- mix test test/image_pipe/telemetry/trace/attach_test.exs -v`
 Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 5: Add the version-range gate test.** Append to `open_telemetry_exporter_test.exs`. We test the pure `version_supported?/1` seam directly (we can't fake the running app's OTel version), which is what `ready?/0` consults:
+
+```elixir
+  describe "version gate" do
+    test "version_supported?/1 accepts the tested range and rejects outside it" do
+      # @tested_range is "~> 1.7"
+      assert OpenTelemetryExporter.version_supported?("1.7.0")
+      assert OpenTelemetryExporter.version_supported?("1.7.3")
+      refute OpenTelemetryExporter.version_supported?("1.6.9")
+      refute OpenTelemetryExporter.version_supported?("2.0.0")
+      refute OpenTelemetryExporter.version_supported?(nil)
+    end
+
+    test "ready?/0 is true in this env (OTel present and in range)" do
+      assert OpenTelemetryExporter.ready?()
+    end
+  end
+```
+
+Run: `mise exec -- mix test test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs -v`
+Expected: PASS. (An untested-version host hits `version_supported?/1 == false` → `ready?/0 == false` → `attach_tracer` raises the §6 version message.)
+
+- [ ] **Step 6: Commit.**
 
 ```bash
-git add lib/image_pipe/telemetry.ex test/image_pipe/telemetry/trace/attach_test.exs
-git commit -m "feat(telemetry): attach_tracer raises on a not-ready exporter"
+git add lib/image_pipe/telemetry.ex test/image_pipe/telemetry/trace/attach_test.exs test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs
+git commit -m "feat(telemetry): attach_tracer raises on not-ready/untested-version exporter"
 ```
 
 ---
@@ -903,7 +999,85 @@ git commit -m "docs(telemetry): OTel export docs, Jaeger cookbook, boundary expo
 
 ---
 
-## Task 8: Full gate
+## Task 8: Currency tooling (stay current with OpenTelemetry)
+
+The runtime `@tested_range` gate (Task 3) is the defensive layer. This task adds the
+reactive (bump PRs) and proactive (scheduled latest-OTel CI) layers so an upstream
+shape change is caught before a host hits it. See design §10 "Staying current".
+
+**Files:**
+- Create: `.github/dependabot.yml`
+- Create: `.github/workflows/otel-compat.yml`
+
+- [ ] **Step 1: Add Dependabot for the OTel deps (reactive).** Create `.github/dependabot.yml` (Dependabot natively supports the `mix` ecosystem; scoped to the two deps so it doesn't churn the rest):
+
+```yaml
+version: 2
+updates:
+  - package-ecosystem: "mix"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    allow:
+      - dependency-name: "opentelemetry"
+      - dependency-name: "opentelemetry_api"
+    commit-message:
+      prefix: "build(deps)"
+```
+
+A bump PR runs the normal Elixir CI; the structural-contract + correlation tests are the gate. Green → widen `@tested_range` (and the `mix.exs` constraint if needed) in the same PR; red → adapt `SpanRecord`, then bless.
+
+- [ ] **Step 2: Add the scheduled latest-OTel job (proactive).** Create `.github/workflows/otel-compat.yml`. Reuse the **same pinned action SHAs** as `.github/workflows/elixir.yml` (copy the `actions/checkout` and `jdx/mise-action` `uses:` lines verbatim — do not invent SHAs):
+
+```yaml
+name: OTel compatibility
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  otel-latest:
+    name: Bridge vs latest OpenTelemetry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          mise_toml: |
+            [tools]
+            erlang = "27"
+            elixir = "1.18.4-otp-27"
+      - run: mise exec -- mix local.hex --force
+      - run: mise exec -- mix local.rebar --force
+      - run: mise exec -- mix deps.get
+      - name: Force latest OpenTelemetry (ignore lock)
+        run: mise exec -- mix deps.update opentelemetry opentelemetry_api
+      - name: Run the OTel bridge tests against latest
+        run: |
+          mise exec -- mix test \
+            test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs \
+            test/image_pipe/telemetry/trace/open_telemetry_integration_test.exs
+        env:
+          MIX_ENV: test
+```
+
+Red here is a heads-up (a new OTel release moved something), not a release blocker — the runtime gate already protects hosts.
+
+- [ ] **Step 3: Commit.**
+
+```bash
+git add .github/dependabot.yml .github/workflows/otel-compat.yml
+git commit -m "ci(telemetry): dependabot + scheduled latest-OTel compatibility job"
+```
+
+---
+
+## Task 9: Full gate
 
 - [ ] **Step 1: Run the focused telemetry tests.**
 
@@ -926,7 +1100,8 @@ git commit -m "chore(telemetry): precommit clean for OTel exporter"
 
 ## Self-review notes (carried into execution)
 
-- **Compile-time optionality** (Task 1 `only: [:dev,:test]` + Task 3 `Code.ensure_loaded?(:otel_span)` guard) is what keeps hosts-without-OTel compiling. If a step ever moves OTel code outside the `if` branch, the prod build breaks — keep all `:otel_*`/`Record.extract` references inside it.
-- **Canary discipline** (Tasks 3/5): the `Record.extract(:span, from_lib:)` + `elem(tracer, 3)` are the only internal-shape couplings. Both are exercised by tests, so an OTel upgrade that changes them fails CI rather than silently mis-exporting. Keep `:opentelemetry` pinned `~> 1.7`.
-- **Safety test must not be vacuous** (Task 5): the signed-URL helpers must drive a real request; a stub returning `[]` makes `refute Enum.any?(...)` pass for the wrong reason.
-- **Type consistency:** `available?/0`, `ready?/0`, `export/1` are defined in both `if`/`else` branches with identical signatures; `ready?/0` is the `@optional_callbacks` member added in Task 2.
+- **Compile-time optionality** (Task 1 `optional: true`, **no `only:`** + the `SpanRecord` `Code.ensure_loaded?(:otel_span)` guard) keeps hosts-without-OTel compiling *and* lets a host-provided OTel activate (the optional-dep edge orders its compile before ours). All `:otel_*`/`Record.extract`/`elem(tracer, 3)` references live **inside `SpanRecord`'s `if` branch** — the one quarantined module. If a step moves any of them out (into the exporter or outside the `if`), the prod build breaks. The exporter itself has no compile guard (it only delegates + checks versions).
+- **Canary discipline** (Tasks 3/5): the only internal-shape couplings are `Record.extract(:span, from_lib:)` and `elem(tracer, 3)`, both in `SpanRecord`. The structural-contract tests (Task 3 Step 7) pin them with localized messages; the integration test exercises them end-to-end. The runtime `@tested_range` gate + Task 8 currency tooling are the upgrade-safety net.
+- **Safety test must not be vacuous** (Task 5): the signed-URL helper must drive a real request; the `raise`-not-`[]` stub + the `assert values != []` guard enforce this.
+- **Cross-consumer correlation** (Task 3 Step 8) is the test for the *whole point* — one `Trace.Span` → LogExporter and OTel share `{trace_id, span_id}`. If it goes red, the product requirement (span-level log↔trace join) is broken.
+- **Type consistency:** `SpanRecord` defines `available?/0` + `export/1` in **both** `if`/`else` branches (identical signatures); `OpenTelemetryExporter` defines `available?/0`, `ready?/0`, `export/1`, `version_supported?/1` (no guard — delegates to `SpanRecord`). `ready?/0` is the `@optional_callbacks` member from Task 2. Only `OpenTelemetryExporter` is boundary-exported; `SpanRecord` is not.
