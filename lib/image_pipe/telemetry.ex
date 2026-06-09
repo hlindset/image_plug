@@ -15,6 +15,7 @@ defmodule ImagePipe.Telemetry do
   alias ImagePipe.Telemetry.Logger, as: DefaultLogger
   alias ImagePipe.Telemetry.Trace
   alias ImagePipe.Telemetry.Trace.Capture
+  alias ImagePipe.Telemetry.Trace.FinchCapture
 
   @default_prefix [:image_pipe]
 
@@ -107,11 +108,18 @@ defmodule ImagePipe.Telemetry do
     Trace.set_exporter(exporter)
     Trace.set_extract_inbound(Keyword.get(opts, :extract_inbound, false))
     Capture.attach(%{prefix: prefix, exporter: exporter})
+
+    if Keyword.get(opts, :finch_spans, true) do
+      FinchCapture.attach(%{exporter: exporter})
+    end
+
+    :ok
   end
 
   @spec detach_tracer() :: :ok
   def detach_tracer do
     Capture.detach()
+    FinchCapture.detach()
     Trace.set_exporter(nil)
     Trace.set_extract_inbound(false)
     :ok
