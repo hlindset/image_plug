@@ -94,5 +94,8 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
 
         :ok
     end
+  rescue
+    # A tracer must never crash the request path; drop the span on any exporter error.
+    _ -> :ok
   end
 end

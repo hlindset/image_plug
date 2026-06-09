@@ -1,7 +1,16 @@
+defmodule ImagePipe.Telemetry.Trace.RaisingExporter do
+  @moduledoc false
+  @behaviour ImagePipe.Telemetry.Trace.Exporter
+
+  @impl true
+  def export(_span), do: raise("boom")
+end
+
 defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{ReqStep, Span, TestExporter}
+  alias ImagePipe.Telemetry.Trace
+  alias ImagePipe.Telemetry.Trace.{RaisingExporter, ReqStep, Span, TestExporter}
 
   setup do
     TestExporter.set_receiver(self())
@@ -74,5 +83,24 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     end)
 
     refute_receive {:span, %Span{name: "image_pipe.http.client"}}
+  end
+
+  test "a raising exporter does not break the request" do
+    Telemetry.detach_tracer()
+    Trace.set_exporter(RaisingExporter)
+
+    on_exit(fn ->
+      Trace.set_exporter(nil)
+    end)
+
+    req =
+      Req.new(
+        adapter: fn req ->
+          {req, Req.Response.new(status: 200, body: "ok")}
+        end
+      )
+      |> ReqStep.attach()
+
+    assert {:ok, %Req.Response{status: 200}} = Req.request(req)
   end
 end
