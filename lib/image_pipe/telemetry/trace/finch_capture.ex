@@ -23,16 +23,19 @@ defmodule ImagePipe.Telemetry.Trace.FinchCapture do
     [:finch, :recv, :exception]
   ]
 
-  @spec attach(%{exporter: module()}) :: :ok | {:error, :already_exists}
+  @spec attach(%{exporter: module()}) :: :ok
   def attach(%{exporter: exporter}) do
     _ = :telemetry.detach(@handler_id)
 
-    :telemetry.attach_many(
-      @handler_id,
-      @events,
-      &__MODULE__.handle_event/4,
-      %{exporter: exporter}
-    )
+    _ =
+      :telemetry.attach_many(
+        @handler_id,
+        @events,
+        &__MODULE__.handle_event/4,
+        %{exporter: exporter}
+      )
+
+    :ok
   end
 
   @spec detach() :: :ok
