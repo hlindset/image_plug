@@ -25,10 +25,15 @@ defmodule ImagePipe.Request.SourceSession.Producer do
   @spec start_link(Request.t(), keyword()) :: {:ok, pid()}
   def start_link(%Request{} = request, opts \\ []) do
     caller_chain = Keyword.get(opts, :caller_chain, Process.get(:"$callers", []))
+    trace_context = Keyword.get(opts, :trace_context)
 
     pid =
       spawn_link(fn ->
         Process.put(:"$callers", caller_chain)
+        # Hop B: adopt the request's trace context (passed as data, since the spawned
+        # process does not inherit the caller's trace stack) so producer-process spans
+        # (source.fetch_decode, transform.execute, …) nest under the request root.
+        ImagePipe.Telemetry.Trace.Stack.adopt(trace_context)
         loop(%__MODULE__{request: request})
       end)
 

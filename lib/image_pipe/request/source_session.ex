@@ -24,6 +24,7 @@ defmodule ImagePipe.Request.SourceSession do
     :owner,
     :owner_monitor,
     :parent,
+    :trace_context,
     :producer,
     :producer_monitor,
     :producer_request_ref,
@@ -70,15 +71,16 @@ defmodule ImagePipe.Request.SourceSession do
   defp start_server(kind, %Request{} = request, opts, default_parent) do
     owner = Keyword.get(opts, :owner, self())
     parent = Keyword.get(opts, :parent, default_parent)
+    trace_context = Keyword.get(opts, :trace_context)
 
     case kind do
-      :start -> GenServer.start(__MODULE__, {request, owner, parent})
-      :start_link -> GenServer.start_link(__MODULE__, {request, owner, parent})
+      :start -> GenServer.start(__MODULE__, {request, owner, parent, trace_context})
+      :start_link -> GenServer.start_link(__MODULE__, {request, owner, parent, trace_context})
     end
   end
 
   @impl GenServer
-  def init({%Request{} = request, owner, parent}) when is_pid(owner) do
+  def init({%Request{} = request, owner, parent, trace_context}) when is_pid(owner) do
     Process.flag(:trap_exit, true)
     # Preserve request ownership for Tasks spawned by downstream image/source code.
     Process.put(:"$callers", [owner | Process.get(:"$callers", [])])
@@ -88,7 +90,8 @@ defmodule ImagePipe.Request.SourceSession do
        request: request,
        owner: owner,
        owner_monitor: Process.monitor(owner),
-       parent: parent
+       parent: parent,
+       trace_context: trace_context
      }}
   end
 
@@ -244,7 +247,12 @@ defmodule ImagePipe.Request.SourceSession do
   defp start_producer(%{request: %Request{} = request} = state) do
     caller_chain = Process.get(:"$callers", [])
     fetch_started_at = System.monotonic_time(:microsecond)
-    {:ok, producer} = Producer.start_link(request, caller_chain: caller_chain)
+
+    {:ok, producer} =
+      Producer.start_link(request,
+        caller_chain: caller_chain,
+        trace_context: state.trace_context
+      )
     ref = Process.monitor(producer)
     %{state | producer: producer, producer_monitor: ref, fetch_started_at: fetch_started_at}
   end
