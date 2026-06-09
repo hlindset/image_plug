@@ -10,7 +10,7 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace
-  alias ImagePipe.Telemetry.Trace.{RaisingExporter, ReqStep, Span, TestExporter}
+  alias ImagePipe.Telemetry.Trace.{Context, RaisingExporter, ReqStep, Span, Stack, TestExporter}
 
   setup do
     TestExporter.set_receiver(self())
@@ -31,7 +31,8 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
         Req.new(
           adapter: fn req ->
             assert [tp] = Req.Request.get_header(req, "traceparent")
-            assert tp =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]\z/
+            # Sampled (default mint) parent → outbound flags -01.
+            assert tp =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-01\z/
             {req, Req.Response.new(status: 200, body: "ok")}
           end
         )
@@ -43,6 +44,33 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
 
     assert_receive {:span, %Span{name: "image_pipe.http.client", kind: :client} = s}
     assert s.attributes[:"http.status_code"] == 200
+  end
+
+  test "inbound unsampled flags=0 reaches the outbound traceparent and exported span" do
+    # Simulate a producer that adopted an unsampled remote request context.
+    Stack.adopt(%Context{
+      trace_id: "0af7651916cd43dd8448eb211c80319c",
+      span_id: "b7ad6b7169203331",
+      trace_flags: 0
+    })
+
+    on_exit(fn -> Stack.clear() end)
+
+    req =
+      Req.new(
+        adapter: fn req ->
+          assert [tp] = Req.Request.get_header(req, "traceparent")
+          # Unsampled parent → outbound flags -00.
+          assert tp =~ ~r/\A00-[0-9a-f]{32}-[0-9a-f]{16}-00\z/
+          {req, Req.Response.new(status: 200, body: "ok")}
+        end
+      )
+      |> ReqStep.attach()
+
+    {:ok, _} = Req.request(req)
+
+    assert_receive {:span, %Span{name: "image_pipe.http.client", kind: :client} = s}
+    assert s.trace_flags == 0
   end
 
   test "emits a client span with status :error on transport error" do
