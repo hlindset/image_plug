@@ -275,8 +275,16 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_deps(telemetry, [])
     # ImagePipe.Telemetry.Trace is the opt-in span-tracer facade; the Plug edge calls
-    # Trace.maybe_extract_inbound/1, so it is exported. The boundary stays dependency-free.
-    assert_boundary_exports(telemetry, [ImagePipe.Telemetry.Trace])
+    # Trace.maybe_extract_inbound/1, so it is exported. Trace.Stack/Trace.Context are
+    # exported because request/source code threads + adopts the trace context across the
+    # request->SourceSession (hop A) and request->Producer (hop B) process seams (it
+    # calls only these generic Trace.* modules, never concrete transform ops). The
+    # boundary stays dependency-free.
+    assert_boundary_exports(telemetry, [
+      ImagePipe.Telemetry.Trace,
+      ImagePipe.Telemetry.Trace.Stack,
+      ImagePipe.Telemetry.Trace.Context
+    ])
   end
 
   test "error boundary remains a dependency-free helper" do

@@ -8,6 +8,7 @@ defmodule ImagePipe.Request.SourceSession do
   alias ImagePipe.Request.SourceSession.Producer
   alias ImagePipe.Request.SourceSession.Request
   alias ImagePipe.Source.StreamError
+  alias ImagePipe.Telemetry.Trace
 
   # Backstop for a wedged producer, not an input-safety bound (real liveness is
   # bounded by origin_receive_timeout and the decoded-pixel limit). `prepare`/`next`
@@ -84,6 +85,9 @@ defmodule ImagePipe.Request.SourceSession do
     Process.flag(:trap_exit, true)
     # Preserve request ownership for Tasks spawned by downstream image/source code.
     Process.put(:"$callers", [owner | Process.get(:"$callers", [])])
+    # Hop A: adopt the request's trace context so spans emitted from THIS process
+    # (e.g. [:cache, :write] during commit) nest under the request root.
+    Trace.Stack.adopt(trace_context)
 
     {:ok,
      %__MODULE__{
@@ -253,6 +257,7 @@ defmodule ImagePipe.Request.SourceSession do
         caller_chain: caller_chain,
         trace_context: state.trace_context
       )
+
     ref = Process.monitor(producer)
     %{state | producer: producer, producer_monitor: ref, fetch_started_at: fetch_started_at}
   end

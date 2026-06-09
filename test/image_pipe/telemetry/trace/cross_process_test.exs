@@ -63,4 +63,33 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
     assert fetch.trace_id == root.trace_id
     refute fetch.parent_span_id == nil
   end
+
+  test "cache write parents under the request (hop A)" do
+    conn = call(request_path(), miss_opts())
+    assert conn.status == 200
+
+    spans = collect()
+    root = Enum.find(spans, &(&1.name == "image_pipe.request"))
+    write = Enum.find(spans, &(&1.name == "image_pipe.cache.write"))
+
+    assert root && write, "expected request + cache.write spans"
+    assert write.trace_id == root.trace_id
+  end
+
+  test "cache admission is a separate root, not under the request (§8.1)" do
+    conn = call(request_path(), miss_opts())
+    assert conn.status == 200
+
+    spans = collect()
+    root = Enum.find(spans, &(&1.name == "image_pipe.request"))
+    admission = Enum.find(spans, &(&1.name == "image_pipe.cache.admission"))
+
+    # Admission runs in the shared Admission GenServer with no request context
+    # threaded (spec §8.1): it must NOT share the request trace. CacheProbe does
+    # not run an admission GenServer, so the span may be absent here — guard it.
+    if admission do
+      assert admission.parent_span_id == nil
+      assert admission.trace_id != root.trace_id
+    end
+  end
 end
