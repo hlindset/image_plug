@@ -65,10 +65,9 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     end
   end
 
-  # Route OTel spans to the test process and tear it down after each test.
+  # Route OTel spans to the test process; next test's setup re-points the exporter.
   setup do
     :otel_simple_processor.set_exporter(:otel_exporter_pid, self())
-    on_exit(fn -> :otel_simple_processor.set_exporter(:none, []) end)
     :ok
   end
 

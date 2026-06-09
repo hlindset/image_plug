@@ -581,3 +581,8 @@ is a real child of the caller. As the originator, the root carries a synthetic
 "remote parent" — cosmetic. If `:opentelemetry_api` is absent, `attach_tracer/1`
 raises; if present but the SDK isn't started, spans are silently dropped by the noop
 tracer (start the SDK). See `docs/cookbook/opentelemetry-jaeger.md`.
+
+**Forced sampled flag:** the OTel exporter always emits spans with the W3C `-01`
+sampled flag set — trace-level correlation requires every span to reach the SDK.
+Host-side `trace_flags` sampling does not apply on this path; do sampling in your
+downstream OTel collector instead.

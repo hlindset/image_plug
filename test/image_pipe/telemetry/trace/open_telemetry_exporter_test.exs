@@ -27,7 +27,6 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporterTest do
 
   setup do
     :otel_simple_processor.set_exporter(:otel_exporter_pid, self())
-    on_exit(fn -> :otel_simple_processor.set_exporter(:none, []) end)
     :ok
   end
 
