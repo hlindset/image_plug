@@ -521,8 +521,10 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
 
   # trim:%threshold:%color:%equal_hor:%equal_ver — enabled iff threshold is set.
-  defp parse_trim(["" | _rest], _segment), do: {:ok, []}
   defp parse_trim([], _segment), do: {:ok, []}
+  # Empty threshold disables trim, but the arity cap still applies (imgproxy runs
+  # ensureMaxArgs before the threshold check), so >4 args is rejected even here.
+  defp parse_trim(["" | rest], _segment) when length(rest) <= 3, do: {:ok, []}
 
   defp parse_trim(args, _segment) when length(args) <= 4 do
     [threshold | rest] = args

@@ -424,6 +424,12 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
       assert {:error, _} = OptionGrammar.parse("trim:10:ff00ff:1:1:0")
     end
 
+    test "rejects more than 4 args even when threshold is empty" do
+      # imgproxy runs ensureMaxArgs before the threshold check, so over-arity is
+      # rejected regardless of whether trim is enabled.
+      assert {:error, _} = OptionGrammar.parse("trim:::::")
+    end
+
     test "rejects a bad threshold" do
       assert {:error, _} = OptionGrammar.parse("trim:nope")
     end
