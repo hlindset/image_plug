@@ -433,9 +433,20 @@ automated process — three layers, defense in depth:
    localized structural-contract failure points at exactly what moved; adapt
    `SpanRecord`, re-verify, then bless the version.
 3. **Proactive (scheduled).** A weekly CI job (`otel-compat.yml`) that resolves the
-   **latest** `:opentelemetry` (ignoring the lock) and runs the bridge tests — so we
-   learn a new release broke us *before* a host's Renovate PR or bug report does. Red
-   here is a heads-up, not a release blocker.
+   **latest** `:opentelemetry` and runs the bridge tests — so we learn a new release
+   broke us *before* a host's bug report does. Red here is a heads-up, not a release
+   blocker.
+
+**The major-version trap (important).** Both the runtime `@tested_range` gate *and*
+Dependabot are bounded by the `mix.exs` dep constraint (`~> 1.7` → `< 2.0.0`), so
+neither can see a breaking **2.0**. That's correct for the gate (refuse the untested
+major) and acceptable for Dependabot (a major bump is a human decision), but it means
+the **proactive job is the *only* layer that can catch a major break** — and to do so
+it must **loosen the constraint in-job** (rewrite the requirement to `>= 0.0.0` in the
+ephemeral checkout) before resolving, with a guard step that fails if the loosen didn't
+apply (literal drift). Without that, the job silently reverts to the capped behavior
+and passes for the wrong reason. When it goes red on a new major, that's the signal to
+evaluate and widen the dep constraint **and** `@tested_range` together.
 
 The discipline: **bumping the tested range is a deliberate act backed by green
 structural-contract tests**, never an automatic merge. The gate + the localized tests

@@ -384,6 +384,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
   @spec available?() :: boolean()
   def available?, do: SpanRecord.available?()
 
+  # NOTE: side-effecting — logs the specific disable reason. Called once, at
+  # attach_tracer time (host startup); never in a hot path. Don't call speculatively.
   @impl true
   @spec ready?() :: boolean()
   def ready? do
@@ -412,10 +414,23 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
   @spec export(Span.t()) :: :ok
   def export(%Span{} = span), do: SpanRecord.export(span)
 
-  @doc "Whether an OTel version string falls in ImagePipe's canary-tested range."
+  @doc """
+  Whether an OTel version string falls in ImagePipe's canary-tested range.
+
+  Returns `false` (never raises) for `nil`, a malformed/non-SemVer version, or a
+  pre-release (e.g. `1.7.0-rc.1`) — all "not blessed" → loud-disable, not a crash.
+  `Version.match?/2` would otherwise raise `Version.InvalidVersionError` on a 2-part
+  version, which would escape `attach_tracer` instead of degrading cleanly.
+  """
   @spec version_supported?(String.t() | nil) :: boolean()
   def version_supported?(nil), do: false
-  def version_supported?(vsn) when is_binary(vsn), do: Version.match?(vsn, @tested_range)
+
+  def version_supported?(vsn) when is_binary(vsn) do
+    case Version.parse(vsn) do
+      {:ok, _parsed} -> Version.match?(vsn, @tested_range)
+      :error -> false
+    end
+  end
 
   defp otel_vsn do
     case Application.spec(:opentelemetry, :vsn) do
@@ -823,12 +838,21 @@ Expected: PASS.
 ```elixir
   describe "version gate" do
     test "version_supported?/1 accepts the tested range and rejects outside it" do
-      # @tested_range is "~> 1.7"
+      # @tested_range is "~> 1.7" → >= 1.7.0 and < 2.0.0, release versions only.
       assert OpenTelemetryExporter.version_supported?("1.7.0")
       assert OpenTelemetryExporter.version_supported?("1.7.3")
+      assert OpenTelemetryExporter.version_supported?("1.9.0")  # upper edge: any 1.x ≥ 1.7
       refute OpenTelemetryExporter.version_supported?("1.6.9")
-      refute OpenTelemetryExporter.version_supported?("2.0.0")
+      refute OpenTelemetryExporter.version_supported?("2.0.0")  # major break: not blessed
       refute OpenTelemetryExporter.version_supported?(nil)
+    end
+
+    test "version_supported?/1 loud-disables (never raises) on pre-release / malformed" do
+      # A pre-release is "not blessed" → false (not a crash). OTel ships RCs.
+      refute OpenTelemetryExporter.version_supported?("1.7.0-rc.1")
+      # A 2-part / non-SemVer string would make Version.match?/2 RAISE; we return false.
+      refute OpenTelemetryExporter.version_supported?("1.7")
+      refute OpenTelemetryExporter.version_supported?("garbage")
     end
 
     test "ready?/0 is true in this env (OTel present and in range)" do
@@ -1054,9 +1078,33 @@ jobs:
             elixir = "1.18.4-otp-27"
       - run: mise exec -- mix local.hex --force
       - run: mise exec -- mix local.rebar --force
-      - run: mise exec -- mix deps.get
-      - name: Force latest OpenTelemetry (ignore lock)
-        run: mise exec -- mix deps.update opentelemetry opentelemetry_api
+      - name: Loosen the OTel constraint so the resolver can reach the TRUE latest
+        # CRITICAL: mix.exs pins `~> 1.7`, which caps `mix deps.*` at < 2.0.0 — so
+        # without this the job is blind to the breaking-MAJOR it exists to catch
+        # (Dependabot is capped the same way; this job is the only major-aware tripwire).
+        # The checkout is ephemeral, so we rewrite the requirement in-job; never committed.
+        # Keep these literals in sync with Task 1's deps lines.
+        run: |
+          mise exec -- elixir -e '
+            f = "mix.exs"
+            s = File.read!(f)
+            s = String.replace(s, ~s({:opentelemetry, "~> 1.7", optional: true}), ~s({:opentelemetry, ">= 0.0.0", optional: true}))
+            s = String.replace(s, ~s({:opentelemetry_api, "~> 1.5", optional: true}), ~s({:opentelemetry_api, ">= 0.0.0", optional: true}))
+            File.write!(f, s)'
+      - name: Guard — fail if the loosen did not apply (literal drift)
+        # If Task 1's dep literals ever change, the rewrite above silently no-ops and
+        # the job rots back to the capped behavior. Catch that here.
+        run: |
+          if grep -q 'opentelemetry, "~> 1.7"' mix.exs; then
+            echo "::error::loosen step did not match mix.exs — update otel-compat.yml literals"
+            exit 1
+          fi
+      - name: Resolve the latest published OpenTelemetry (ignore the lock)
+        run: |
+          mise exec -- mix deps.unlock opentelemetry opentelemetry_api
+          mise exec -- mix deps.get
+      - name: Show the resolved version (heads-up in the log)
+        run: mise exec -- elixir -e 'IO.puts("resolved opentelemetry: " <> to_string(Application.spec(:opentelemetry, :vsn)))'
       - name: Run the OTel bridge tests against latest
         run: |
           mise exec -- mix test \
@@ -1066,7 +1114,7 @@ jobs:
           MIX_ENV: test
 ```
 
-Red here is a heads-up (a new OTel release moved something), not a release blocker — the runtime gate already protects hosts.
+Red here is a heads-up (a new OTel release moved something), not a release blocker — the runtime gate already protects hosts. **Note the layering:** Dependabot (Step 1) and the runtime `@tested_range` gate are both capped at `< 2.0.0` by our dep constraint, so **this job is the only layer that sees a breaking major** — hence the in-job constraint loosening. When it goes red on a new major, that's the deliberate signal to evaluate + widen the dep constraint and `@tested_range` together.
 
 - [ ] **Step 3: Commit.**
 
