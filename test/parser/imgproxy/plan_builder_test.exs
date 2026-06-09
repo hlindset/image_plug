@@ -1228,6 +1228,39 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     end
   end
 
+  test "trim is emitted first in geometry order" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
+             plan_pipeline(
+               trim: [threshold: 10.0, background: :auto, equal_hor: false, equal_ver: false],
+               width: {:pixels, 100},
+               height: {:pixels, 100}
+             )
+
+    assert [%Operation.Trim{threshold: 10.0} | _rest] = ops
+  end
+
+  test "trim is emitted before orientation and resize operations" do
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
+             plan_pipeline(
+               trim: [threshold: 10.0, background: :auto, equal_hor: false, equal_ver: false],
+               width: {:pixels, 100},
+               height: {:pixels, 100},
+               rotate: 90
+             )
+
+    assert [%Operation.Trim{}, %Operation.Rotate{}, %Operation.Resize{}] = ops
+  end
+
+  test "trim with dimensionless fill is rejected (fill requires at least one dimension)" do
+    assert {:error, {:missing_dimensions, :fill}} =
+             plan_pipeline(
+               trim: [threshold: 10.0, background: :auto, equal_hor: false, equal_ver: false],
+               resizing_type: :fill,
+               width: nil,
+               height: nil
+             )
+  end
+
   defp objw_guide(pairs) do
     {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = resize]}]}} =
       plan_pipeline(

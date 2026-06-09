@@ -225,6 +225,9 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
         {:background_alpha, alpha}, pipeline ->
           apply_background_alpha(pipeline, alpha)
 
+        {:trim, trim_assignments}, pipeline ->
+          %{pipeline | trim: trim_assignments}
+
         {field, _value} = assignment, pipeline when field in @effect_fields ->
           %{pipeline | effects: struct!(pipeline.effects, [assignment])}
 

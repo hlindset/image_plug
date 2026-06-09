@@ -514,7 +514,50 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_duotone(args, segment)
   end
 
+  defp parse_special_option(name, args, segment) when name in ["trim", "t"] do
+    parse_trim(args, segment)
+  end
+
   defp parse_special_option(name, _args, _segment), do: {:error, {:unknown_option, name}}
+
+  # trim:%threshold:%color:%equal_hor:%equal_ver — enabled iff threshold is set.
+  defp parse_trim(["" | _rest], _segment), do: {:ok, []}
+  defp parse_trim([], _segment), do: {:ok, []}
+
+  defp parse_trim(args, _segment) when length(args) <= 4 do
+    [threshold | rest] = args
+
+    with {:ok, threshold} <- parse_float(threshold),
+         {:ok, background} <- parse_trim_color(Enum.at(rest, 0)),
+         {:ok, equal_hor} <- parse_trim_flag(Enum.at(rest, 1)),
+         {:ok, equal_ver} <- parse_trim_flag(Enum.at(rest, 2)) do
+      {:ok,
+       [
+         trim: [
+           threshold: threshold,
+           background: background,
+           equal_hor: equal_hor,
+           equal_ver: equal_ver
+         ]
+       ]}
+    end
+  end
+
+  defp parse_trim(_args, segment), do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_trim_color(nil), do: {:ok, :auto}
+  defp parse_trim_color(""), do: {:ok, :auto}
+
+  defp parse_trim_color(hex) do
+    case Color.rgb_hex(hex) do
+      {:ok, color} -> {:ok, color}
+      {:error, {:invalid_color, _}} -> {:error, {:invalid_trim_color, hex}}
+    end
+  end
+
+  defp parse_trim_flag(nil), do: {:ok, false}
+  defp parse_trim_flag(""), do: {:ok, false}
+  defp parse_trim_flag(value), do: parse_boolean(value)
 
   defp parse_monochrome([intensity], _segment) when intensity != "" do
     with {:ok, intensity} <- parse_intensity(intensity) do
