@@ -1,5 +1,12 @@
 # OpenTelemetry Exporter Implementation Plan
 
+> **⛔ SUPERSEDED / REVERTED (2026-06-09).** This plan implemented the span-id-preserving
+> FFI design (`2026-06-09-opentelemetry-exporter-design.md`). Tasks 1–4 were executed and
+> then **reverted** (`git reset`) when the decision relaxed to trace-level-only
+> correlation. The replacement is
+> `2026-06-09-opentelemetry-trace-level-export-design.md` and its plan. Do not implement
+> from this document. Kept as the execution/reasoning trail.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship an opt-in, optional-dependency `Trace.Exporter` that maps #175's finished `Trace.Span` structs into the host's OpenTelemetry SDK, preserving our trace/span IDs so exported spans stitch to the `traceparent` `ReqStep` already injects.

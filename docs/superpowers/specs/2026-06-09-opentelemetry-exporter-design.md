@@ -1,7 +1,18 @@
 # OpenTelemetry Exporter (opt-in, optional-dependency bridge) — Design
 
+> **⛔ SUPERSEDED (2026-06-09) by
+> `2026-06-09-opentelemetry-trace-level-export-design.md`.** This design preserved
+> ImagePipe's `span_id` into OTel (for span-level log↔trace correlation), which forced
+> hand-building SDK-internal `#span{}` records — the quarantined FFI, version gate, and
+> currency tooling below. The decision was later **relaxed to trace-level-only
+> correlation** (logs and OTel share the `trace_id`, not the `span_id`), which removes
+> the need to set a span's own id and lets the exporter use the **public** OTel API
+> only. The FFI implementation was reverted. **Kept as the reasoning trail** — it is the
+> full justification for *why* trace-level was chosen and what span-level would have
+> cost. Do not implement from this document.
+
 - **Date:** 2026-06-09
-- **Status:** Approved design, pre-implementation
+- **Status:** SUPERSEDED — see banner above (reverted, not implemented)
 - **Scope:** One new `Trace.Exporter` implementation + a small `Trace.Exporter`
   contract extension + docs/cookbook/guideline sync. Single plan.
 - **Builds on:** `2026-06-09-telemetry-span-tracer-design.md` (#175). That layer
