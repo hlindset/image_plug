@@ -2,8 +2,10 @@
 
 ImagePipe emits telemetry spans for the request lifecycle and its major runtime
 stages. Host applications can attach their own logging, metrics, or tracing
-integration to those events. ImagePipe doesn't depend on
-AppSignal, OpenTelemetry, or any other tracing system.
+integration to those events. ImagePipe doesn't *hard*-depend on
+AppSignal, OpenTelemetry, or any other tracing system; it ships an optional,
+opt-in OTel exporter (API-only at compile time) — see
+[OpenTelemetry export](#opentelemetry-export) below.
 
 ## Configuration
 
@@ -556,3 +558,26 @@ parents to the inbound span; otherwise it mints a fresh root.
 not implement a sampler. A host that wants head- or tail-based sampling does it in
 its exporter (e.g. drop spans whose `trace_flags` indicate "not sampled", or
 batch and sample in the downstream collector).
+
+### OpenTelemetry export
+
+`ImagePipe.Telemetry.Trace.OpenTelemetryExporter` replays captured spans into a
+host-running OpenTelemetry SDK via the public OTel API. Optional dependency: ImagePipe
+compiles against `:opentelemetry_api` only (declared `optional: true`); the **host**
+adds `:opentelemetry` (+ an OTLP exporter) and starts the SDK.
+
+```elixir
+# host deps: {:opentelemetry, "~> 1.7"}, {:opentelemetry_exporter, "~> 1.8"}
+ImagePipe.Telemetry.attach_tracer(
+  exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
+  extract_inbound: true
+)
+```
+
+**Correlation is trace-level:** logs and OTel spans share the `trace_id` (so a trace
+groups across logs and traces); OTel mints its own `span_id`. When ImagePipe is *not*
+the originating tracer (`extract_inbound: true` behind a traced caller), the root span
+is a real child of the caller. As the originator, the root carries a synthetic
+"remote parent" — cosmetic. If `:opentelemetry_api` is absent, `attach_tracer/1`
+raises; if present but the SDK isn't started, spans are silently dropped by the noop
+tracer (start the SDK). See `docs/cookbook/opentelemetry-jaeger.md`.

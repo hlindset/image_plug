@@ -28,6 +28,7 @@ defmodule ImagePipe.MixProject do
           "docs/cache.md",
           "docs/operational_notes.md",
           "docs/telemetry.md",
+          {"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"},
           "docs/imgproxy_path_api.md",
           "docs/imgproxy_support_matrix.md",
           "docs/transform_operations.md"
@@ -86,6 +87,7 @@ defmodule ImagePipe.MixProject do
         "docs/imgproxy_support_matrix.md",
         "docs/operational_notes.md",
         "docs/telemetry.md",
+        "docs/cookbook/opentelemetry-jaeger.md",
         "docs/transform_operations.md",
         "mix.exs",
         "README.md",
