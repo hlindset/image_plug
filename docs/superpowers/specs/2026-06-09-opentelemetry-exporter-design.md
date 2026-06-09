@@ -98,9 +98,9 @@ tradeoff, not an oversight.
 
 ```elixir
 # mix.exs — first use of the optional: true pattern in this repo
-{:opentelemetry, "~> 1.x", optional: true},      # SDK: span record + processor
-{:opentelemetry_api, "~> 1.x", optional: true},  # transitive; pinned explicitly
-# version line pinned during planning against the installed OTel
+{:opentelemetry, "~> 1.7", optional: true},      # SDK: #span{} record + processors
+{:opentelemetry_api, "~> 1.5", optional: true},  # transitive; pinned explicitly
+# tight range: we read internal records (§7/§10); the canary test (§8) guards upgrades
 ```
 
 Present when *we* compile/test (so the exporter compiles and the round-trip test
@@ -193,27 +193,74 @@ actionable error, and it's reusable by any future optional-dep exporter.
   contract as everything else here). If they configured the noop provider, our
   spans are dropped by the SDK — expected, documented, not our bug.
 
-## 7. The one spike to retire before implementation
+## 7. Injection mechanism (spike retired — verified against opentelemetry-erlang)
 
-**Confirm the exact `:opentelemetry` API for injecting a span with pre-chosen
-trace/span IDs, explicit start/end timestamps, and a set parent, into the host's
-configured span processor.** This is the only unverified mechanic and it gates
-the whole approach.
+Researched against `open-telemetry/opentelemetry-erlang` source (current hex:
+`:opentelemetry` 1.7.0, `:opentelemetry_api` 1.5.0). **Finding: there is no
+public API to record a span with a caller-supplied `span_id`.** Every public path
+(`OpenTelemetry.Tracer.start_span`, `otel_tracer:start_span`, `otel_span:*`) mints
+IDs through the per-provider-global `otel_id_generator` (callbacks take no args, so
+they can't target "the span whose id I pre-published"). The `start_opts()` map has
+no `span_id`/`trace_id` key. So the bridge **must construct the SDK's internal
+`#span{}` record and run the host's configured span processors over it.** This is
+how internal SDK code and other bridges do it; it means coupling to internal
+records — recorded as the top risk (§10).
 
-- **Candidate:** construct the SDK `span` record (`opentelemetry/include/otel_span.hrl`)
-  with our IDs as integers and our timestamps in the SDK's representation, then
-  submit it to the registered span processor's `on_end/2` (via the tracer
-  provider). Pin field names and the timestamp representation against the
-  *installed* OTel version — exactly the "check against real upstream source, not
-  just internal correctness" discipline the review-cycle rule requires.
-- **Timestamp representation** is the subtle sub-part: the SDK stores span times
-  in a native/offset form it converts to unix-nanos at export. We must hand it
-  times in that form derived from our `start_time`/`end_time` (and `duration_native`
-  for honesty), not naive nanos, or durations will be wrong.
-- **Fallback if the SDK injection path proves too brittle across versions:** the
-  brainstormed escape hatch is the "DIY OTLP writer" (build OTLP `ResourceSpans`
-  ourselves). It preserves IDs trivially but reimplements batching/transport, so
-  it is the fallback, not the plan. The spike's job is to confirm we don't need it.
+**The mechanism (all verified):**
+
+1. **Construct `#span{}`** (`opentelemetry/include/otel_span.hrl`) via
+   `Record.extract(:span, from: "deps/opentelemetry/include/otel_span.hrl")` — by
+   field name, so field reordering doesn't break us. Key fields:
+   - `trace_id` / `span_id` / `parent_span_id` — **plain integers** (128-bit /
+     64-bit / 64-bit). Decode our hex with `String.to_integer(hex, 16)`. **These
+     are written to the wire verbatim** (`<<TraceId:128>>` / `<<SpanId:64>>` in
+     `otel_otlp_traces.erl`, no re-minting) — the whole point.
+   - `kind` — the `?SPAN_KIND_*` atoms (`:INTERNAL`/`:SERVER`/`:CLIENT`).
+   - `status` — a `#status{code, message}` record (`opentelemetry.hrl`).
+   - `attributes` / `events` / `links` — **wrapper records, not bare
+     maps/lists**; build via `:otel_attributes.new/3`, `:otel_events.new/3` +
+     `:opentelemetry.event/3`, `:otel_links.new/4` + `:opentelemetry.link/4`.
+     Never hand-build these (their internal shape is a known migration boundary).
+   - `trace_flags: 1` — **must have the sampled bit set or the processor silently
+     drops the span** (`?IS_SAMPLED` guard in `otel_simple_processor.on_end`).
+   - `is_recording: false` (the span is finished).
+   - `instrumentation_scope` — set the `#instrumentation_scope{name, version}`
+     record field directly (name `"image_pipe"`, version from `Application.spec`);
+     with the inject approach `start_span` never stamps it for us.
+2. **Run the host's processors.** `:opentelemetry.get_tracer(:image_pipe)` returns
+   `{:otel_tracer_default, tracer_record}` (or `{:otel_tracer_noop, []}` if the SDK
+   isn't running — see below). Read the `on_end_processors` closure off the
+   `#tracer{}` record (`Record.extract(:tracer, from:
+   "deps/opentelemetry/src/otel_tracer.hrl")`) and call it with our `#span{}`. That
+   closure folds over **whatever** processors the host configured (simple in tests,
+   batch in prod) — so the same code path serves both; we don't hard-code a
+   processor.
+3. **Noop / SDK-not-started guard.** If `get_tracer` returns the noop tuple (dep
+   present but SDK app not started, or noop provider configured), drop the span —
+   `available?/0` (`Code.ensure_loaded?(:otel_span)`) only proves the dep is
+   *loaded*, not that a real provider is running. `export/1` matches the tracer
+   tuple and no-ops on noop. Documented, not a bug.
+
+**Timestamp conversion (the subtle correctness point).** The `#span{}`
+`start_time`/`end_time` are **Erlang native-unit `monotonic_time` values**, and
+the OTLP exporter re-adds `:erlang.time_offset()` at export. We hold wall-clock
+times, so convert:
+
+```elixir
+offset = :erlang.time_offset()
+start_native = :erlang.convert_time_unit(start_unix_ns, :nanosecond, :native) - offset
+end_native   = :erlang.convert_time_unit(end_unix_ns,   :nanosecond, :native) - offset
+```
+
+Then `timestamp_to_nano(start_native)` recovers our wall-clock, and the duration
+`end_native - start_native` is offset-independent (exports correctly regardless of
+offset drift). Event timestamps (`#event{}.system_time_native`) use the same frame.
+
+**No fallback needed.** The brainstormed DIY-OTLP escape hatch (§10) is no longer
+on the table for the happy path — the bridge is verified. DIY-OTLP would also
+couple to internal OTLP encoding *and* lose the host's batching/resource pipeline,
+so it is strictly worse; it remains only a theoretical exit if a future OTel major
+removes the `#span{}`/processor seam entirely.
 
 ## 8. Testing strategy
 
@@ -277,10 +324,18 @@ an afterthought:
 
 ## 10. Risks & tradeoffs
 
-- **SDK-internals coupling (highest).** Injecting a span record with our IDs uses
-  SDK-level structures, not the stable API. Mitigation: the §7 spike pins it
-  against the installed version; the integration test catches breakage on upgrade;
-  the DIY-OTLP fallback exists if the path closes off.
+- **SDK-internals coupling (highest, confirmed).** There is no public injection
+  API (§7), so we depend on two internal headers: `#span{}`
+  (`opentelemetry/include/otel_span.hrl`) and the `on_end_processors` closure on
+  `#tracer{}` (`opentelemetry/src/otel_tracer.hrl` — in `src/`, the more internal
+  of the two). Mitigations: (a) read both via `Record.extract(… from: <dep path>)`
+  **by field name**, so field reordering is harmless; (b) build
+  attributes/events/links only through their constructor functions, never literals
+  (their shape is the known migration boundary); (c) pin `:opentelemetry` to a
+  tight range (`~> 1.7`); (d) the §8 integration test is the **canary** — if a
+  record/closure shape changes on upgrade, span injection fails and the test
+  catches it before release. The `#span{}` record + processor `on_end/2` have been
+  stable across the 1.x line.
 - **Depending on the SDK, not just the API (§3).** Unusual for a library;
   accepted because it's optional and OTLP hosts run the SDK anyway. Recorded so a
   future reader doesn't "fix" it down to `:opentelemetry_api` and silently break
@@ -295,11 +350,12 @@ an afterthought:
 
 ## 11. Build order — single plan
 
-1. `mix.exs`: add `:opentelemetry` / `:opentelemetry_api` as `optional: true`
-   (pin versions); confirm they resolve in dev/test.
-2. **Spike (§7):** prove span-record injection with our IDs + timestamps into the
-   test span processor. Land it as the first integration test so the mechanic is
-   verified before the mapping is fleshed out.
+1. `mix.exs`: add `:opentelemetry` (`~> 1.7`) / `:opentelemetry_api` (`~> 1.5`) as
+   `optional: true`; confirm they resolve in dev/test.
+2. **Injection canary first (§7):** land the `#span{}`-construct → `on_end_processors`
+   path with a minimal injected span and a `:otel_simple_processor` + `:otel_exporter_pid`
+   test asserting our exact `trace_id`/`span_id` arrive. Verified mechanism, but
+   build it first so the internal-record coupling is proven before the mapping grows.
 3. `OpenTelemetryExporter` `export/1` + the §5 mapping + §5.1 coercion; unit tests.
 4. `Trace.Exporter` `c:ready?/0` optional callback + `attach_tracer/1` probe +
    the clear `ArgumentError`; `available?/0`/`ready?/0` on the exporter; gate test.
