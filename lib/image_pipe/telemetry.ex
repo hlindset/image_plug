@@ -148,6 +148,7 @@ defmodule ImagePipe.Telemetry do
     :ok
   end
 
+  @doc "Remove the opt-in span tracer attached with `attach_tracer/1`."
   @spec detach_tracer() :: :ok
   def detach_tracer do
     Capture.detach()

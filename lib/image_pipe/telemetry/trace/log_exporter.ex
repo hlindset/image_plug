@@ -16,9 +16,15 @@ defmodule ImagePipe.Telemetry.Trace.LogExporter do
   @spec export(Span.t()) :: :ok
   def export(%Span{} = span) do
     Logger.info(fn ->
+      status =
+        case span.status do
+          nil -> "unset"
+          other -> to_string(other)
+        end
+
       "image_pipe.trace " <>
         "trace=#{span.trace_id} span=#{span.span_id} parent=#{span.parent_span_id || "-"} " <>
-        "#{span.name} dur=#{span.duration_native || "-"} status=#{span.status || "unset"}"
+        "#{span.name} dur=#{span.duration_native || "-"} status=#{status}"
     end)
 
     :ok
