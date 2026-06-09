@@ -57,9 +57,23 @@ processors; `end_span/2` takes it and runs on-end processors — both keyed by t
 not the context stack). This is the same code path `with_span` uses internally, minus the
 attach/detach. All calls live in **`:opentelemetry_api`**.
 
+**Use the Elixir API surface.** `:opentelemetry_api` ships both the Elixir modules
+(`OpenTelemetry.Tracer`, `OpenTelemetry.Span`, `OpenTelemetry`) and the Erlang modules they
+wrap — same package. We use the idiomatic Elixir wrappers for tracer/span/status/event. The
+**only** Erlang-direct call is the synthetic-traceparent extraction
+(`:otel_propagator_text_map.extract_to/3` + the W3C codec), which has **no** Elixir wrapper —
+it's the one piece of the API that only ships as an Erlang function (not a drop to a
+different library).
+
 **Per-span replay shape** (parent and root identical except the synthetic parent id):
 
 ```elixir
+require OpenTelemetry.Tracer, as: Tracer
+alias OpenTelemetry.Span
+
+# Remote-parent context carrying OUR trace_id. extract_to/3 has no Elixir wrapper — the
+# one Erlang-direct call (same :opentelemetry_api package). The Tracer.start_span macro
+# resolves the instrumentation scope from our app (get_application_tracer) → "image_pipe".
 parent_ctx =
   :otel_propagator_text_map.extract_to(
     :otel_ctx.new(),
@@ -68,20 +82,22 @@ parent_ctx =
   )
 
 span_ctx =
-  :otel_tracer.start_span(
-    parent_ctx,
-    :opentelemetry.get_tracer(:image_pipe),
-    span.name,
-    %{start_time: native_start, kind: kind, attributes: attrs, links: links}
-  )
+  Tracer.start_span(parent_ctx, span.name, %{
+    start_time: native_start,
+    kind: kind,
+    attributes: attrs,
+    links: links
+  })
 
-:otel_span.set_status(span_ctx, status)       # build with OpenTelemetry.status/1,2 (or set_status/3)
-:otel_span.add_events(span_ctx, events)        # events via OpenTelemetry.event/3 for explicit timestamps
-:otel_span.end_span(span_ctx, native_end)      # explicit end time
+Span.set_status(span_ctx, OpenTelemetry.status(status_code, status_message))
+Span.add_events(span_ctx, events)              # events built via OpenTelemetry.event/3 (explicit timestamps)
+Span.end_span(span_ctx, native_end)            # explicit end time
 ```
 
 The minted `span_id` is discarded (we don't need it). The trace_id comes from the parent
-context, so **our** trace_id wins.
+context, so **our** trace_id wins. (`OpenTelemetry.Tracer.start_span/3` is a macro — hence
+`require` — that injects `get_application_tracer(__MODULE__)`, giving the span the
+`image_pipe` instrumentation scope automatically; no manual `get_tracer` call needed.)
 
 ### 2.1 Constraints the spike pinned (load-bearing)
 - **`extract_to/3`, not `extract/2`.** `extract/2` calls `otel_ctx:attach/1` and mutates
@@ -136,13 +152,15 @@ So `opentelemetry_telemetry` is the right tool for a library that *doesn't* alre
 One module, no FFI quarantine needed (there are no internals to quarantine):
 
 `ImagePipe.Telemetry.Trace.OpenTelemetryExporter` — `@behaviour Trace.Exporter`. Inside the
-`telemetry` boundary (`deps: []` unchanged; calls only external `:otel_*`/`:opentelemetry`
-apps and `Trace.Span`). A **compile guard** `if Code.ensure_loaded?(:otel_tracer)` wraps the
-public-API calls so a host *without* `:opentelemetry_api` still compiles ImagePipe; the
-`else` branch makes `export/1` a no-op and `available?/0` false. Surface:
+`telemetry` boundary (`deps: []` unchanged; calls only the external `:opentelemetry_api`
+package — `OpenTelemetry.*` + the two propagation Erlang functions — and `Trace.Span`). A
+**compile guard** `if Code.ensure_loaded?(OpenTelemetry.Tracer)` wraps the public-API calls
+(the `require OpenTelemetry.Tracer` macro and the `extract_to` call) so a host *without*
+`:opentelemetry_api` still compiles ImagePipe; the `else` branch makes `export/1` a no-op
+and `available?/0` false. Surface:
 
 - `@impl export/1` — replay (§2), or no-op when OTel absent.
-- `available?/0` — `Code.ensure_loaded?(:otel_tracer)`.
+- `available?/0` — `Code.ensure_loaded?(OpenTelemetry.Tracer)`.
 - `@impl ready?/0` — `available?/0`. **No version gate** — the public API is stable across
   the OTel 1.x line, unlike the internal records the prior design rode. (Re-adds the
   optional `c:ready?/0` callback on `Trace.Exporter`, as the prior design did.)
