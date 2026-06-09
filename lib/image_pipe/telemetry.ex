@@ -10,7 +10,15 @@ defmodule ImagePipe.Telemetry do
   use Boundary,
     top_level?: true,
     deps: [],
-    exports: [Trace, Trace.Stack, Trace.Context, Trace.Span, Trace.Exporter, Trace.ReqStep]
+    exports: [
+      Trace,
+      Trace.Stack,
+      Trace.Context,
+      Trace.Span,
+      Trace.Exporter,
+      Trace.ReqStep,
+      Trace.OpenTelemetryExporter
+    ]
 
   alias ImagePipe.Telemetry.Logger, as: DefaultLogger
   alias ImagePipe.Telemetry.Trace
