@@ -63,9 +63,6 @@ transform execution, output negotiation, encoding, and send streaming spans.
 [:image_pipe, :send, ...]
 ```
 
-(`[:cache, :stage]` and the HTTP-cache decisions are one-shot `Telemetry.execute/4`
-events, not spans — see [Measurements](#measurements).)
-
 For example, the cache lookup stop event with the default prefix is:
 
 ```text
