@@ -14,6 +14,7 @@ import {
   type Rotate,
   type SourceImage,
   type ObjSubMode,
+  type TrimBackgroundMode,
 } from "./processing-path";
 
 // Classes offered in the demo's object-gravity UI. A subset of COCO-80 chosen
@@ -158,6 +159,10 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
     case "ar":
       return parseAutoRotate(currentState, args);
 
+    case "t":
+    case "trim":
+      return parseTrim(currentState, args);
+
     case "fl":
       return parseFlip(currentState, args);
 
@@ -289,6 +294,59 @@ function parseAutoRotate(currentState: DemoState, args: string[]): DemoState | n
   }
 
   return { ...currentState, autoRotateEnabled: true };
+}
+
+function parseTrim(currentState: DemoState, args: string[]): DemoState | null {
+  // trim:%threshold[:%color[:%equal_hor[:%equal_ver]]]
+  // threshold is required; color, equal_hor, equal_ver are optional.
+  if (args.length < 1 || args.length > 4) {
+    return null;
+  }
+
+  const threshold = parseNumber(args[0]);
+
+  if (threshold === null || threshold < 0) {
+    return null;
+  }
+
+  const colorArg = args[1] ?? "";
+  const ehArg = args[2];
+  const evArg = args[3];
+
+  let trimBackgroundMode: TrimBackgroundMode = "auto";
+  let trimColor = defaultDemoState.trimColor;
+
+  if (colorArg !== "") {
+    const parsed = hexColor(colorArg);
+
+    if (parsed === null) {
+      return null;
+    }
+
+    trimBackgroundMode = "color";
+    trimColor = parsed;
+  }
+
+  const trimEqualHor = ehArg === "1";
+  const trimEqualVer = evArg === "1";
+
+  if (ehArg !== undefined && ehArg !== "0" && ehArg !== "1") {
+    return null;
+  }
+
+  if (evArg !== undefined && evArg !== "0" && evArg !== "1") {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    trimEnabled: true,
+    trimThreshold: threshold,
+    trimBackgroundMode,
+    trimColor,
+    trimEqualHor,
+    trimEqualVer,
+  };
 }
 
 function parseFlip(currentState: DemoState, args: string[]): DemoState | null {

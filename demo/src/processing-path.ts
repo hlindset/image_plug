@@ -102,6 +102,8 @@ export const cocoClasses = [
 
 export type CocoClass = (typeof cocoClasses)[number];
 
+export type TrimBackgroundMode = "auto" | "color";
+
 export type DemoState = {
   signatureMode: SignatureMode;
   signatureKey: string;
@@ -110,6 +112,12 @@ export type DemoState = {
   autoRotateEnabled: boolean;
   flip: Flip;
   rotate: Rotate;
+  trimEnabled: boolean;
+  trimThreshold: number;
+  trimBackgroundMode: TrimBackgroundMode;
+  trimColor: string;
+  trimEqualHor: boolean;
+  trimEqualVer: boolean;
   resizeEnabled: boolean;
   resizeMode: ResizeMode;
   resizeWidthUnit: ResizeDimensionUnit;
@@ -305,6 +313,12 @@ export const defaultDemoState: DemoState = {
   autoRotateEnabled: false,
   flip: "none",
   rotate: 0,
+  trimEnabled: false,
+  trimThreshold: 10,
+  trimBackgroundMode: "auto",
+  trimColor: "#ffffff",
+  trimEqualHor: false,
+  trimEqualVer: false,
   resizeEnabled: false,
   resizeMode: "fill",
   resizeWidthUnit: "px",
@@ -401,6 +415,12 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (currentState.rotate !== 0) {
     segments.push(`rot:${currentState.rotate}`);
+  }
+
+  const trimSeg = trimOptionSegment(currentState);
+
+  if (trimSeg !== null) {
+    segments.push(trimSeg);
   }
 
   const cropSegment = cropOptionSegment(currentState);
@@ -533,6 +553,29 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   return segments;
+}
+
+export function trimOptionSegment(currentState: DemoState): string | null {
+  if (!currentState.trimEnabled) {
+    return null;
+  }
+
+  const parts: string[] = ["trim", String(currentState.trimThreshold)];
+
+  const colorHex =
+    currentState.trimBackgroundMode === "color" ? currentState.trimColor.replace(/^#/, "") : "";
+
+  // Append color, equal_hor, equal_ver only when needed (drop trailing empty args).
+  const eh = currentState.trimEqualHor ? "1" : "0";
+  const ev = currentState.trimEqualVer ? "1" : "0";
+
+  if (currentState.trimEqualHor || currentState.trimEqualVer) {
+    parts.push(colorHex, eh, ev);
+  } else if (colorHex !== "") {
+    parts.push(colorHex);
+  }
+
+  return parts.join(":");
 }
 
 export function cropOptionSegment(currentState: DemoState): string | null {

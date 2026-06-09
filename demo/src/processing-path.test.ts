@@ -22,6 +22,7 @@ import {
   resolvedOutputLabel,
   signProcessingPath,
   signedPathForState,
+  trimOptionSegment,
 } from "./processing-path";
 import {
   demoPathForState,
@@ -197,6 +198,86 @@ describe("processing path generation", () => {
     expect(optionSegments({ ...defaultDemoState, rotate: 90 })).toEqual(["rot:90"]);
     expect(optionSegments({ ...defaultDemoState, rotate: 180 })).toEqual(["rot:180"]);
     expect(optionSegments({ ...defaultDemoState, rotate: 270 })).toEqual(["rot:270"]);
+  });
+
+  it("emits nothing for trim when disabled", () => {
+    expect(trimOptionSegment(defaultDemoState)).toBeNull();
+    expect(optionSegments(defaultDemoState)).toEqual([]);
+  });
+
+  it("emits trim with threshold only when background is auto and flags are off", () => {
+    const state = {
+      ...defaultDemoState,
+      trimEnabled: true,
+      trimThreshold: 10,
+      trimBackgroundMode: "auto" as const,
+      trimEqualHor: false,
+      trimEqualVer: false,
+    };
+
+    expect(trimOptionSegment(state)).toBe("trim:10");
+    expect(optionSegments(state)).toEqual(["trim:10"]);
+    expect(buildProcessingPath(state)).toBe("/_/trim:10/plain/local:///images/dog.jpg");
+  });
+
+  it("emits trim with color when background mode is color", () => {
+    const state = {
+      ...defaultDemoState,
+      trimEnabled: true,
+      trimThreshold: 10,
+      trimBackgroundMode: "color" as const,
+      trimColor: "#ff00ff",
+      trimEqualHor: false,
+      trimEqualVer: false,
+    };
+
+    expect(trimOptionSegment(state)).toBe("trim:10:ff00ff");
+  });
+
+  it("emits trim with empty color slot when auto background but flags are set", () => {
+    const state = {
+      ...defaultDemoState,
+      trimEnabled: true,
+      trimThreshold: 10,
+      trimBackgroundMode: "auto" as const,
+      trimEqualHor: true,
+      trimEqualVer: true,
+    };
+
+    expect(trimOptionSegment(state)).toBe("trim:10::1:1");
+  });
+
+  it("emits trim with color and flags", () => {
+    const state = {
+      ...defaultDemoState,
+      trimEnabled: true,
+      trimThreshold: 20,
+      trimBackgroundMode: "color" as const,
+      trimColor: "#ff00ff",
+      trimEqualHor: true,
+      trimEqualVer: false,
+    };
+
+    expect(trimOptionSegment(state)).toBe("trim:20:ff00ff:1:0");
+  });
+
+  it("emits trim before crop in the option segment order", () => {
+    const state = {
+      ...defaultDemoState,
+      trimEnabled: true,
+      trimThreshold: 10,
+      cropEnabled: true,
+      cropWidth: 320,
+      cropHeight: 240,
+    };
+
+    const segs = optionSegments(state);
+    const trimIdx = segs.findIndex((s) => s.startsWith("trim:"));
+    const cropIdx = segs.findIndex((s) => s.startsWith("c:"));
+
+    expect(trimIdx).toBeGreaterThanOrEqual(0);
+    expect(cropIdx).toBeGreaterThanOrEqual(0);
+    expect(trimIdx).toBeLessThan(cropIdx);
   });
 
   it("includes resize extend as the resize segment extend argument", () => {
@@ -1153,6 +1234,73 @@ describe("demo URL state", () => {
       qualityEnabled: true,
       quality: 85,
     });
+  });
+
+  it("round-trips trim with threshold only through the demo path", () => {
+    const parsed = parseDemoPath("/demo/trim:10/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      trimEnabled: true,
+      trimThreshold: 10,
+      trimBackgroundMode: "auto",
+      trimEqualHor: false,
+      trimEqualVer: false,
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/trim:10/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips trim with color through the demo path", () => {
+    const parsed = parseDemoPath("/demo/trim:10:ff00ff/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      trimEnabled: true,
+      trimThreshold: 10,
+      trimBackgroundMode: "color",
+      trimColor: "#ff00ff",
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/trim:10:ff00ff/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips trim with empty color slot and flags through the demo path", () => {
+    const parsed = parseDemoPath("/demo/trim:10::1:1/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      trimEnabled: true,
+      trimThreshold: 10,
+      trimBackgroundMode: "auto",
+      trimEqualHor: true,
+      trimEqualVer: true,
+    });
+
+    expect(demoPathForState(parsed)).toBe("/demo/trim:10::1:1/plain/local:///images/dog.jpg");
+  });
+
+  it("round-trips trim short alias (t) through the demo path", () => {
+    const parsed = parseDemoPath("/demo/t:15/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({
+      trimEnabled: true,
+      trimThreshold: 15,
+    });
+
+    // Re-emits using the long form "trim:"
+    expect(demoPathForState(parsed)).toBe("/demo/trim:15/plain/local:///images/dog.jpg");
+  });
+
+  it("rejects invalid trim values in demo routes", () => {
+    expect(parseDemoPath("/demo/trim:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/trim:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/demo/trim:10:zzz/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
+    expect(parseDemoPath("/demo/trim:10:ff00ff:2:0/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
+    expect(parseDemoPath("/demo/trim:10:ff00ff:0:2/plain/local:///images/dog.jpg")).toEqual(
+      defaultDemoState,
+    );
   });
 
   it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {
