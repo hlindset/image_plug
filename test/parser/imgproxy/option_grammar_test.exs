@@ -399,6 +399,46 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert {:error, _} = OptionGrammar.parse("dpr:#{huge}")
   end
 
+  describe "trim" do
+    test "parses threshold only (smart background)" do
+      assert {:ok, {:pipeline, [trim: trim]}} = OptionGrammar.parse("trim:15")
+      assert trim[:threshold] == 15.0
+      assert trim[:background] == :auto
+      assert trim[:equal_hor] == false
+      assert trim[:equal_ver] == false
+    end
+
+    test "alias t with color and equal flags" do
+      assert {:ok, {:pipeline, [trim: trim]}} = OptionGrammar.parse("t:10:ff00ff:1:1")
+      assert trim[:threshold] == 10.0
+      assert %ImagePipe.Plan.Color{} = trim[:background]
+      assert trim[:equal_hor] == true
+      assert trim[:equal_ver] == true
+    end
+
+    test "empty threshold disables trim (no assignment)" do
+      assert {:ok, {:pipeline, []}} = OptionGrammar.parse("trim:")
+    end
+
+    test "rejects more than 4 args" do
+      assert {:error, _} = OptionGrammar.parse("trim:10:ff00ff:1:1:0")
+    end
+
+    test "rejects more than 4 args even when threshold is empty" do
+      # imgproxy runs ensureMaxArgs before the threshold check, so over-arity is
+      # rejected regardless of whether trim is enabled.
+      assert {:error, _} = OptionGrammar.parse("trim:::::")
+    end
+
+    test "rejects a bad threshold" do
+      assert {:error, _} = OptionGrammar.parse("trim:nope")
+    end
+
+    test "rejects a bad boolean (stricter than imgproxy, like enlarge)" do
+      assert {:error, _} = OptionGrammar.parse("trim:10::x")
+    end
+  end
+
   defp color!(red, green, blue) do
     assert {:ok, color} = Color.rgb(red, green, blue)
     color

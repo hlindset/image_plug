@@ -27,6 +27,7 @@
     sampleImages,
     signProcessingPath,
     signedPathForState,
+    trimOptionSegment,
     resolvedOutputLabel,
     type DemoState,
     type ProcessedImageMetadata,
@@ -128,6 +129,7 @@
     ]
       .filter(Boolean)
       .join("/") || "Off";
+  $: trimSummary = state.trimEnabled ? (trimOptionSegment(state) ?? "Off") : "Off";
   $: resizeSummary = state.resizeEnabled ? (resizeOptionSegment(state) ?? "Off") : "Off";
   $: aspectCanvasSummary = state.aspectCanvasEnabled
     ? state.aspectCanvasGravity === "ce"
@@ -1133,6 +1135,49 @@
             </label>
           </Collapsible.Content>
         </Collapsible.Root>
+      </section>
+
+      <section class="tool-section">
+        <ToolToggleHeader title="Trim" summary={trimSummary} bind:checked={state.trimEnabled} />
+
+        {#if state.trimEnabled}
+          <RangeNumber
+            label="Threshold"
+            bind:value={state.trimThreshold}
+            min={0}
+            max={100}
+            step={1}
+          />
+
+          <label class="field">
+            <span>Background</span>
+            <select bind:value={state.trimBackgroundMode}>
+              <option value="auto">auto (smart detect)</option>
+              <option value="color">color</option>
+            </select>
+          </label>
+
+          {#if state.trimBackgroundMode === "color"}
+            <label class="field trim-color-field">
+              <span>Color</span>
+              <input class="color-input" type="color" bind:value={state.trimColor} />
+            </label>
+          {/if}
+
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.trimEqualHor}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Equal horizontal</span>
+          </label>
+
+          <label class="switch-field">
+            <Switch.Root class="switch-root" bind:checked={state.trimEqualVer}>
+              <Switch.Thumb class="switch-thumb" />
+            </Switch.Root>
+            <span>Equal vertical</span>
+          </label>
+        {/if}
       </section>
 
       <section class="tool-section">

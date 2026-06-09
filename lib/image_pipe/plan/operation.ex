@@ -21,6 +21,7 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
   alias ImagePipe.Plan.Operation.Sharpen
+  alias ImagePipe.Plan.Operation.Trim
 
   @enlargements [:allow, :deny]
   @right_angles [90, 180, 270]
@@ -53,6 +54,7 @@ defmodule ImagePipe.Plan.Operation do
   @crop_guided_keys [:x_offset, :y_offset, :aspect_ratio, :enlarge]
   @canvas_keys [:fill, :overflow, :x_offset, :y_offset]
   @padding_keys [:pixel_ratio, :fill]
+  @trim_keys [:threshold, :background, :equal_hor, :equal_ver]
   @effective_padding_modes [:resize, :canvas_preserving]
   @adjustment_range -100..100
   @type resize_operation :: Resize.t()
@@ -81,6 +83,8 @@ defmodule ImagePipe.Plan.Operation do
           | Contrast.t()
           | Saturation.t()
 
+  @type trim_operation :: Trim.t()
+
   @type semantic_operation ::
           resize_operation()
           | crop_operation()
@@ -89,6 +93,7 @@ defmodule ImagePipe.Plan.Operation do
           | background_operation()
           | orientation_operation()
           | effect_operation()
+          | trim_operation()
           | NormalizeColorProfile.t()
 
   @type error ::
@@ -282,6 +287,46 @@ defmodule ImagePipe.Plan.Operation do
 
   def background(color), do: invalid(:background, [color])
 
+  @spec trim(keyword()) :: {:ok, Trim.t()} | {:error, error()}
+  def trim(opts) when is_list(opts) do
+    with :ok <- validate_known_options(:trim, opts, @trim_keys),
+         {:ok, threshold} <- trim_threshold(Keyword.get(opts, :threshold)),
+         {:ok, background} <- trim_background(Keyword.get(opts, :background, :auto)),
+         {:ok, equal_hor} <- trim_flag(Keyword.get(opts, :equal_hor, false)),
+         {:ok, equal_ver} <- trim_flag(Keyword.get(opts, :equal_ver, false)) do
+      {:ok,
+       %Trim{
+         threshold: threshold,
+         background: background,
+         equal_hor: equal_hor,
+         equal_ver: equal_ver
+       }}
+    else
+      {:error, {:unknown_operation_options, _operation, _keys} = reason} ->
+        {:error, reason}
+
+      {:error, _reason} ->
+        invalid(:trim, [opts])
+    end
+  end
+
+  defp trim_threshold(value) when is_number(value), do: {:ok, value * 1.0}
+  defp trim_threshold(value), do: {:error, {:invalid_trim_threshold, value}}
+
+  defp trim_background(:auto), do: {:ok, :auto}
+
+  defp trim_background(%Color{} = color) do
+    case Color.valid?(color) do
+      true -> {:ok, color}
+      false -> {:error, {:invalid_trim_background, color}}
+    end
+  end
+
+  defp trim_background(value), do: {:error, {:invalid_trim_background, value}}
+
+  defp trim_flag(value) when is_boolean(value), do: {:ok, value}
+  defp trim_flag(value), do: {:error, {:invalid_trim_flag, value}}
+
   @spec resize(Resize.mode(), term(), term(), keyword()) ::
           {:ok, Resize.t()} | {:error, error()}
   def resize(mode, width, height, opts \\ [])
@@ -362,6 +407,7 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Brightness{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Contrast{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Saturation{} = operation), do: valid_adjustment_value?(operation.value)
+  def semantic?(%Trim{} = operation), do: valid_trim?(operation)
   def semantic?(_operation), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}
@@ -461,6 +507,15 @@ defmodule ImagePipe.Plan.Operation do
   end
 
   defp valid_background?(%Background{color: color}), do: Color.valid?(color)
+
+  defp valid_trim?(%Trim{threshold: threshold, background: background} = operation) do
+    is_number(threshold) and trim_background_valid?(background) and
+      is_boolean(operation.equal_hor) and is_boolean(operation.equal_ver)
+  end
+
+  defp trim_background_valid?(:auto), do: true
+  defp trim_background_valid?(%Color{} = color), do: Color.valid?(color)
+  defp trim_background_valid?(_), do: false
 
   defp valid_positive_float?(value) when is_float(value) and value > 0.0, do: true
   defp valid_positive_float?(_value), do: false

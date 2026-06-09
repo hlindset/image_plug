@@ -17,6 +17,7 @@ defmodule ImagePipe.Transform.DecodePlanner do
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
   alias ImagePipe.Plan.Operation.Rotate
+  alias ImagePipe.Plan.Operation.Trim, as: PlanTrim
 
   @type source_format() ::
           :jpeg | :webp | :png | :tiff | :jpeg2000 | :jpeg_xl | :heif | :avif | atom()
@@ -118,11 +119,18 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # The shrink is driven by the first resize sized against the extent that actually
   # feeds it: a preceding crop narrows that extent (per axis) to the cropped size.
   defp compute_load_shrink(chain, src_w, src_h) do
-    {crop_w, crop_h} = crop_extent_before_resize(chain, src_w, src_h)
+    if Enum.any?(chain, &match?(%PlanTrim{}, &1)) do
+      # Trim redefines source dimensions (imgproxy nils ImgData), so any shrink
+      # sized against the original would be wrong. Forgo shrink-on-load — only
+      # affects the first pipeline, matching imgproxy (trim disables scaleOnLoad).
+      1.0
+    else
+      {crop_w, crop_h} = crop_extent_before_resize(chain, src_w, src_h)
 
-    case Enum.find(chain, &match?(%PlanResize{}, &1)) do
-      nil -> 1.0
-      resize -> resize_load_shrink(resize, crop_w, crop_h)
+      case Enum.find(chain, &match?(%PlanResize{}, &1)) do
+        nil -> 1.0
+        resize -> resize_load_shrink(resize, crop_w, crop_h)
+      end
     end
   end
 

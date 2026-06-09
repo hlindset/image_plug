@@ -293,4 +293,23 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     opts = DecodePlanner.open_options([padding], :jpeg, {3000, 2000})
     assert opts[:access] == :sequential
   end
+
+  # --- Trim blocks shrink-on-load ---
+
+  test "a chain containing Trim blocks shrink-on-load" do
+    assert {:ok, trim} = Operation.trim(threshold: 10.0, background: :auto)
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 100}, {:px, 100})
+    chain = [trim, resize]
+
+    opts = DecodePlanner.open_options(chain, :jpeg, {800, 800})
+
+    refute Keyword.has_key?(opts, :shrink)
+    refute Keyword.has_key?(opts, :scale)
+  end
+
+  test "the same resize without Trim does shrink-on-load" do
+    assert {:ok, resize} = Operation.resize(:fit, {:px, 100}, {:px, 100})
+    opts = DecodePlanner.open_options([resize], :jpeg, {800, 800})
+    assert Keyword.get(opts, :shrink) >= 2
+  end
 end

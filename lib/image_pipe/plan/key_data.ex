@@ -25,6 +25,7 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
   alias ImagePipe.Plan.Operation.Sharpen
+  alias ImagePipe.Plan.Operation.Trim
 
   @crop_anchor_guides [
     :center,
@@ -122,6 +123,16 @@ defmodule ImagePipe.Plan.KeyData do
     [op: :background, color: Color.key_data(operation.color)]
   end
 
+  def data(%Trim{} = operation) do
+    [
+      op: :trim,
+      threshold: operation.threshold,
+      background: trim_background_data(operation.background),
+      equal_hor: operation.equal_hor,
+      equal_ver: operation.equal_ver
+    ]
+  end
+
   def data(%NormalizeColorProfile{}), do: [op: :normalize_color_profile]
   def data(%Rotate{angle: angle}), do: [op: :rotate, angle: angle]
   def data(%Flip{axis: axis}), do: [op: :flip, axis: axis]
@@ -180,6 +191,9 @@ defmodule ImagePipe.Plan.KeyData do
 
   defp fill_data(:transparent), do: :transparent
   defp fill_data({:solid, %Color{} = color}), do: [type: :solid, color: Color.key_data(color)]
+
+  defp trim_background_data(:auto), do: :auto
+  defp trim_background_data(%Color{} = color), do: Color.key_data(color)
 
   defp guide_data(:center), do: :center
 

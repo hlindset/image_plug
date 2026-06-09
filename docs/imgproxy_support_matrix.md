@@ -43,7 +43,7 @@ carry the detail.
 flowchart TD
     subgraph main["mainPipeline · applied per frame"]
         direction TB
-        A1["1 vectorGuardScale ⭕"] --> A2["2 trim ⭕"] --> A3["3 scaleOnLoad ✅"]
+        A1["1 vectorGuardScale ⭕"] --> A2["2 trim ✅"] --> A3["3 scaleOnLoad ✅"]
         A3 --> A4["4 colorspaceToProcessing ⚠️"] --> A5["5 crop ✅"] --> A6["6 scale ✅"]
         A6 --> A7["7 rotateAndFlip ✅"] --> A8["8 cropToResult ✅"] --> A9["9 applyFilters ✅"]
         A9 --> A10["10 extend ✅"] --> A11["11 extendAspectRatio ✅"] --> A12["12 padding ✅"]
@@ -61,9 +61,9 @@ flowchart TD
     classDef none fill:#f3f4f6,stroke:#9ca3af,color:#6b7280;
 
     class A3 decode;
-    class A4,A5,A6,A7,A8,A9,A10,A11,A12,A14,F1 chain;
+    class A2,A4,A5,A6,A7,A8,A9,A10,A11,A12,A14,F1 chain;
     class A13,F2 output;
-    class A1,A2,A15 none;
+    class A1,A15 none;
 ```
 
 **Colour = ImagePipe layer:** 🟦 decode planning · 🟩 transform chain · 🟧 output
@@ -77,7 +77,7 @@ imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:
 | # | imgproxy stage | Realized in ImagePipe | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | `vectorGuardScale` | — | ⭕ | Gated on SVG/vector input support, which isn't implemented yet (SVG is rejected after decode identifies an SVG loader, before transforms). In scope; this pre-scale stage follows once SVG input lands. (see "Source input formats") |
-| 2 | `trim` | — | ⭕ | `trim`/`t` not implemented (see "Resize, geometry, and orientation"). Needs full-image memory + a trim operation. |
+| 2 | `trim` | `lib/image_pipe/transform/operation/trim.ex` | ✅ | Replicates imgproxy `vips_trim`: (1) colourspace-convert to sRGB for detection; (2) flatten alpha onto magenta `{255,0,255}` before detecting; (3) smart bg = top-left pixel `getpoint(0,0)` of the prepared image; (4) `find_trim` to locate the border box; (5) equal_hor / equal_ver symmetrization — each pair of opposite margins is made equal to the *smaller* inset (trims less aggressively, symmetrically); (6) degenerate box (`width==0 \|\| height==0`) → image returned **unchanged**; (7) extract from the **original** image, preserving its colorspace/alpha. Materializing op (`requires_materialization?: true`). **Disables shrink-on-load when in the first pipeline** (mirrors imgproxy nil-ing `ImgData` at stage 2, before `scaleOnLoad` at stage 3). Trim in a later pipeline does not disable pipeline-1 scale-on-load. **Diverges — detection colorspace (folded into #124):** imgproxy converts to sRGB *for detection* inside `vips_trim` regardless of `scp`; ImagePipe detects in the source-profile space (its `NormalizeColorProfile` op stays positioned after geometry, gated on `scp`). Same root divergence as #124 — when #124 imports every image to a working space before processing, trim detection inherits the correct space. **#124's fix must include trim's detection step.** **Diverges — sRGB-skip uses stored header interpretation**, not imgproxy's `guess_interpretation` — at most an extra idempotent sRGB round-trip, no dimension effect. |
 | 3 | `scaleOnLoad` | **decode planning** — `lib/image_pipe/transform/decode_planner.ex` | ✅ | Shrink-on-load computed as a libvips load option (`shrink`/`scale`), not a transform op. Decode opens `:sequential`. |
 | 4 | `colorspaceToProcessing` | `lib/image_pipe/transform/operation/normalize_color_profile.ex` | ⚠️ | imgproxy color-manages **every** image into a working space; ImagePipe converts only when `scp` is on (issue #124). With `scp:0` + a tone effect on a wide-gamut source, effects run in the source profile space. **Also diverges in position:** imgproxy converts at stage 4, **before** crop/scale; ImagePipe positions `NormalizeColorProfile` **after** geometry (crop+resize) and before effects, so resize math runs in the source profile space rather than the working space. |
 | 5 | `crop` | `lib/image_pipe/transform/operation/crop.ex` | ✅ | Pre-resize crop with anchor / focal-point / smart / object gravity. |
@@ -124,8 +124,11 @@ save. ImagePipe realizes these at request and output boundaries:
 - **The standing divergence is color management (#124).** The host result cap now
   downscales to match imgproxy (#165), with a deliberate, strictly-safe superset:
   independent per-axis width/height + a result-pixel cap, and a composited-image
-  clamp point. Everything else either matches or is an explicitly missing/out-of-scope
-  surface documented in the tables below.
+  clamp point. The trim detection-colorspace divergence is the same root cause as
+  #124 and is tracked there (trim is now the only early-pipeline stage whose
+  detection runs in the source-profile space rather than the working space; it will
+  be resolved when #124 lands). Everything else either matches or is an explicitly
+  missing/out-of-scope surface documented in the tables below.
 
 ## Status legend
 
@@ -692,7 +695,7 @@ transforms or output encoding.
 | `objects_position` | `obj_pos`, `op` | Missing | Pro object-detection positioning. |
 | `crop` | `c` | Supported | Absolute, relative, or full-axis dimensions. Supports anchor, focal-point, smart gravity (`c:W:H:sm`), object gravity (`c:W:H:obj:face`, `c:W:H:obj:car:dog`, `c:W:H:obj`, `c:W:H:obj:all`), and per-class weighted object gravity (`c:W:H:objw:%c1:%w1:…`); smart gravity runs libvips attention smart crop, and object gravity uses optional `image_vision` detection with attention fallback. |
 | `crop_aspect_ratio` | `crop_ar`, `car` | Supported | Pro crop-area aspect-ratio correction. `aspect_ratio` zero is a no-op. `enlarge` grows the area then clamps to image bounds; default reduces. Corrects size only, not gravity. Wired through gravity crops. |
-| `trim` | `t` | Missing | Requires full-image memory behavior and trim operation. |
+| `trim` | `t` | Supported | Grammar: `trim:%threshold:%color:%equal_hor:%equal_ver` (max 4 args). **Empty/omitted threshold disables trim** (presence of threshold is the enable signal). arg1 color: 3/6-digit hex RGB; empty → smart auto-detect (top-left pixel). arg2 `equal_hor`, arg3 `equal_ver`: booleans, default `false`; symmetrize opposite margins to the smaller inset. **Diverges — bad-boolean strictness (codebase-wide, issue #173):** invalid `equal_hor`/`equal_ver` values return a parser error in ImagePipe vs coerce-to-false in imgproxy. This is a pre-existing ImagePipe stance across all imgproxy booleans (`enlarge`, `extend`, `flip`, …), not a trim-specific choice. |
 | `padding` | `pd` | Supported | CSS-style shorthand, sparse repeated options, effective DPR scaling, and `padding:` no-op compatibility. |
 | `auto_rotate` | `ar` | Supported | Omitted argument enables auto-orient; boolean form supported. URL `ar` overrides `imgproxy: [auto_rotate: ...]` request-wide, with last value in path order winning. |
 | `rotate` | `rot` | Supported | Right-angle multiples normalize to `0`, `90`, `180`, or `270`. |

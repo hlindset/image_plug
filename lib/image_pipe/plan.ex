@@ -35,7 +35,8 @@ defmodule ImagePipe.Plan do
       Operation.Rotate,
       Operation.Resize,
       Operation.Saturation,
-      Operation.Sharpen
+      Operation.Sharpen,
+      Operation.Trim
     ]
 
   alias ImagePipe.Plan.Operation

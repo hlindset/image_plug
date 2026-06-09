@@ -216,7 +216,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
        do: missing_dimensions(resizing_type)
 
   defp plan_geometry(%PipelineRequest{} = request) do
-    with {:ok, orientation_operations} <- orientation_operations(request),
+    with {:ok, trim_operations} <- trim_operations(request),
+         {:ok, orientation_operations} <- orientation_operations(request),
          {:ok, crop_operations} <- crop_operations(request),
          {:ok, resize_operations} <- resize_operations(request),
          {:ok, color_profile_operations} <- color_profile_operations(request),
@@ -225,7 +226,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
          {:ok, padding_operations} <- padding_operations(request),
          {:ok, background_operations} <- background_operations(request) do
       {:ok,
-       orientation_operations ++
+       trim_operations ++
+         orientation_operations ++
          crop_operations ++
          resize_operations ++
          color_profile_operations ++
@@ -243,6 +245,14 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   end
 
   defp color_profile_operations(%PipelineRequest{}), do: {:ok, []}
+
+  defp trim_operations(%PipelineRequest{trim: nil}), do: {:ok, []}
+
+  defp trim_operations(%PipelineRequest{trim: trim}) do
+    with {:ok, operation} <- Operation.trim(trim) do
+      {:ok, [operation]}
+    end
+  end
 
   defp crop_operations(%PipelineRequest{crop: nil}), do: {:ok, []}
 
