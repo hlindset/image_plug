@@ -525,6 +525,11 @@ A host implements `ImagePipe.Telemetry.Trace.Exporter`:
   (allowlist only — source URLs, request paths, signatures, and tokens are never
   copied in). Exporters that fan out to third parties remain responsible for
   their own egress policy.
+- The allowlist covers **attributes only**. A span's `status_message` and the
+  `reason` on a folded `exception` event carry the raw exception reason
+  (`inspect/1`, standard tracing behavior) and are **not** allowlist-filtered,
+  so an exporter that renders them to third parties should be aware they may
+  embed an exception message. (The bundled `LogExporter` renders neither.)
 
 ### `LogExporter`
 
