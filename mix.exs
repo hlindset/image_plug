@@ -28,6 +28,7 @@ defmodule ImagePipe.MixProject do
           "docs/cache.md",
           "docs/operational_notes.md",
           "docs/telemetry.md",
+          {"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"},
           "docs/imgproxy_path_api.md",
           "docs/imgproxy_support_matrix.md",
           "docs/transform_operations.md"
@@ -86,6 +87,7 @@ defmodule ImagePipe.MixProject do
         "docs/imgproxy_support_matrix.md",
         "docs/operational_notes.md",
         "docs/telemetry.md",
+        "docs/cookbook/opentelemetry-jaeger.md",
         "docs/transform_operations.md",
         "mix.exs",
         "README.md",
@@ -105,6 +107,12 @@ defmodule ImagePipe.MixProject do
     base = [
       {:plug, "~> 1.18"},
       {:telemetry, "~> 1.0"},
+      # Opt-in OpenTelemetry export. Compile against the lightweight API only
+      # (optional: true, NO `only:` — the optional edge orders a host-provided
+      # opentelemetry_api before image_pipe so the compile guard activates). The
+      # SDK is the host's at runtime; we pull it only for our own tests.
+      {:opentelemetry_api, "~> 1.5", optional: true},
+      {:opentelemetry, "~> 1.7", only: :test},
       {:nimble_options, "~> 1.1"},
       {:image, "~> 0.67"},
       {:vix,

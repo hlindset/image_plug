@@ -282,15 +282,18 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # Trace.ReqStep is exported because the source Req-client build site attaches it to
     # trace outbound fetches as a logical client span. Trace.Span and Trace.Exporter are
     # exported because a host implements the exporter behaviour (Trace.Exporter) and
-    # receives captured spans (Trace.Span) — that is the public exporter contract. The
-    # boundary stays dependency-free.
+    # receives captured spans (Trace.Span) — that is the public exporter contract.
+    # Trace.OpenTelemetryExporter is the built-in opt-in exporter a host names directly
+    # in attach_tracer/1, so it is a public entry point (it uses only the public
+    # OpenTelemetry API; the boundary stays dependency-free).
     assert_boundary_exports(telemetry, [
       ImagePipe.Telemetry.Trace,
       ImagePipe.Telemetry.Trace.Stack,
       ImagePipe.Telemetry.Trace.Context,
       ImagePipe.Telemetry.Trace.Span,
       ImagePipe.Telemetry.Trace.Exporter,
-      ImagePipe.Telemetry.Trace.ReqStep
+      ImagePipe.Telemetry.Trace.ReqStep,
+      ImagePipe.Telemetry.Trace.OpenTelemetryExporter
     ])
   end
 
