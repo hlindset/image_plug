@@ -61,7 +61,28 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
 
     assert_receive {:span, %Span{name: "image_pipe.http.client", kind: :client} = s}
     assert s.status == :error
-    assert Map.has_key?(s.attributes, :"http.error")
+    assert is_binary(s.attributes[:"error.type"])
+  end
+
+  test "error span carries the exception type, never the inspected message" do
+    Telemetry.span([], [:request], %{}, fn ->
+      req =
+        Req.new(
+          adapter: fn req ->
+            # An exception whose message embeds a fake signed source URL.
+            {req, %RuntimeError{message: "boom https://secret.example/x?sig=LEAK"}}
+          end
+        )
+        |> ReqStep.attach()
+
+      {:error, _exception} = Req.request(req)
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.http.client", kind: :client} = s}
+    assert s.attributes[:"error.type"] == "RuntimeError"
+    refute Map.has_key?(s.attributes, :"http.error")
+    refute inspect(s.attributes) =~ "LEAK"
   end
 
   test "is a harmless no-op when no tracer is attached" do

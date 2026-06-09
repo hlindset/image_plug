@@ -65,9 +65,12 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
   end
 
   defp error({%Req.Request{} = req, exception}) do
-    emit(req, %{"http.error": inspect(exception)}, :error)
+    emit(req, %{"error.type": error_type(exception)}, :error)
     {req, exception}
   end
+
+  defp error_type(%{__struct__: mod}) when is_atom(mod), do: inspect(mod)
+  defp error_type(_), do: "unknown"
 
   defp emit(%Req.Request{} = req, attributes, status) do
     case {Trace.exporter(), Req.Request.get_private(req, @priv)} do
