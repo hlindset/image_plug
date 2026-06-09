@@ -8,6 +8,7 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
   alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
 
   @tp "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+  @tp_unsampled "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-00"
 
   setup do
     TestExporter.set_receiver(self())
@@ -51,6 +52,16 @@ defmodule ImagePipe.Telemetry.Trace.InboundPlugTest do
     assert_receive {:span, %Span{name: "image_pipe.request"} = root}
     assert root.trace_id == "0af7651916cd43dd8448eb211c80319c"
     assert root.parent_span_id == "b7ad6b7169203331"
+  end
+
+  test "propagates an inbound unsampled flag (flags=00) onto the root span" do
+    :ok = TestExporter.attach(self(), extract_inbound: true)
+    conn = call(valid_request_path(), [{"traceparent", @tp_unsampled}], build_opts())
+    assert conn.status == 200
+
+    assert_receive {:span, %Span{name: "image_pipe.request"} = root}
+    assert root.trace_id == "0af7651916cd43dd8448eb211c80319c"
+    assert root.trace_flags == 0
   end
 
   test "ignores traceparent by default (opt-in)" do

@@ -50,7 +50,7 @@ defmodule ImagePipe.Telemetry.Trace.AttrSafetyTest do
           ) do
       # A distinctive marker prefix so the substring check tests the secret VALUE
       # leaking through, not incidental collisions with allowlisted values
-      # (e.g. ":http" contains "p") or the synthetic trace_flags annotation.
+      # (e.g. ":http" contains "p").
       secret = "SECRET_" <> body
 
       Telemetry.span([], [:source, :fetch], %{key => secret, :source_kind => :http}, fn ->

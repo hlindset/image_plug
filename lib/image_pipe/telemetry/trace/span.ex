@@ -21,6 +21,7 @@ defmodule ImagePipe.Telemetry.Trace.Span do
     :status_message,
     :pid,
     :node,
+    trace_flags: 1,
     attributes: %{},
     events: [],
     links: []
@@ -39,6 +40,7 @@ defmodule ImagePipe.Telemetry.Trace.Span do
           status_message: String.t() | nil,
           pid: pid() | nil,
           node: node() | nil,
+          trace_flags: non_neg_integer(),
           attributes: map(),
           events: [map()],
           links: [map()]

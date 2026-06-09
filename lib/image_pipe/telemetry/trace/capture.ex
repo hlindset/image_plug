@@ -80,12 +80,15 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
 
     _ = :telemetry.detach(@handler_id)
 
-    :telemetry.attach_many(
-      @handler_id,
-      events,
-      &__MODULE__.handle_event/4,
-      Map.put(config, :plen, length(prefix))
-    )
+    _ =
+      :telemetry.attach_many(
+        @handler_id,
+        events,
+        &__MODULE__.handle_event/4,
+        Map.put(config, :plen, length(prefix))
+      )
+
+    :ok
   end
 
   @spec detach() :: :ok
@@ -137,7 +140,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     {trace_id, parent_id, flags} =
       case Stack.current() do
         nil -> root_ids(config)
-        %Span{trace_id: t, span_id: s} -> {t, s, nil}
+        %Span{trace_id: t, span_id: s, trace_flags: pf} -> {t, s, pf}
       end
 
     Stack.push(%Span{
@@ -147,7 +150,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
       name: name,
       kind: :internal,
       start_time: measurements[:system_time],
-      attributes: meta |> safe_attrs() |> maybe_flags(flags),
+      trace_flags: flags,
+      attributes: safe_attrs(meta),
       pid: self(),
       node: node()
     })
@@ -244,9 +248,6 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   defp safe_attrs(meta) do
     Map.take(meta, @safe_keys)
   end
-
-  defp maybe_flags(attrs, nil), do: attrs
-  defp maybe_flags(attrs, flags), do: Map.put(attrs, :trace_flags, flags)
 
   defp export(span, exporter), do: exporter.export(span)
 end

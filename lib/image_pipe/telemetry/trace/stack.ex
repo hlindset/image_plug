@@ -25,8 +25,11 @@ defmodule ImagePipe.Telemetry.Trace.Stack do
   @spec context() :: Context.t() | nil
   def context do
     case current() do
-      nil -> nil
-      %Span{trace_id: t, span_id: s} -> %Context{trace_id: t, span_id: s}
+      nil ->
+        nil
+
+      %Span{trace_id: t, span_id: s, trace_flags: f} ->
+        %Context{trace_id: t, span_id: s, trace_flags: f}
     end
   end
 
@@ -34,8 +37,8 @@ defmodule ImagePipe.Telemetry.Trace.Stack do
   @spec adopt(Context.t() | nil) :: :ok
   def adopt(nil), do: :ok
 
-  def adopt(%Context{trace_id: t, span_id: s}) do
-    push(%Span{trace_id: t, span_id: s, name: "remote_parent", start_time: nil})
+  def adopt(%Context{trace_id: t, span_id: s, trace_flags: f}) do
+    push(%Span{trace_id: t, span_id: s, name: "remote_parent", start_time: nil, trace_flags: f})
   end
 
   @spec clear() :: :ok
