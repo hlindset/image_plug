@@ -254,4 +254,52 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(prefix: "nope") end
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(debug: :yes) end
   end
+
+  test "successful materialize flush logs at base level, no warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :materialize, :stop],
+          %{duration: 10},
+          %{result: :ok}
+        )
+      end)
+
+    assert log =~ "transform materialize"
+    refute log =~ "[warning]"
+  end
+
+  test "materialize stop carrying materialize_error escalates to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :materialize, :stop],
+          %{duration: 10},
+          %{result: :materialize_error}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "transform materialize"
+  end
+
+  test "materialize exception escalates to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :materialize, :exception],
+          %{duration: 5},
+          %{kind: :error, reason: %RuntimeError{message: "x"}, stacktrace: []}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "transform materialize"
+  end
 end
