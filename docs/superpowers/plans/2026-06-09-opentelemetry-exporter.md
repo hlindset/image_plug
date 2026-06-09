@@ -25,14 +25,16 @@
 
 ## File structure
 
-- **Modify** `mix.exs` — add `:opentelemetry`/`:opentelemetry_api` as `optional: true` (and to `:test`/`:dev` envs so we compile/test against them).
+- **Modify** `mix.exs` — add `:opentelemetry`/`:opentelemetry_api` as `optional: true` (no `only:`).
 - **Modify** `config/config.exs` — test-env OTel SDK config (simple processor, no real exporter).
 - **Modify** `lib/image_pipe/telemetry/trace/exporter.ex` — add optional `c:ready?/0` callback.
-- **Create** `lib/image_pipe/telemetry/trace/open_telemetry_exporter.ex` — the exporter (compile-guarded).
-- **Modify** `lib/image_pipe/telemetry.ex` — `attach_tracer/1` `ready?/0` probe; boundary `exports:`.
-- **Create** `test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs` — canary, mapping, coercion, gate.
-- **Create** `test/image_pipe/telemetry/trace/open_telemetry_integration_test.exs` — real `ImagePipe.call/2` ID-preservation + safety.
+- **Create** `lib/image_pipe/telemetry/trace/open_telemetry/span_record.ex` — the **quarantined FFI** (the only module touching OTel internals; compile-guarded).
+- **Create** `lib/image_pipe/telemetry/trace/open_telemetry_exporter.ex` — the clean behaviour impl + `@tested_range` version gate; delegates record-building to `SpanRecord`.
+- **Modify** `lib/image_pipe/telemetry.ex` — `attach_tracer/1` `ready?/0` probe; boundary `exports:` (export `OpenTelemetryExporter` only, not `SpanRecord`).
+- **Create** `test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs` — canary, structural-contract, mapping, coercion, noop, gate, version-range.
+- **Create** `test/image_pipe/telemetry/trace/open_telemetry_integration_test.exs` — real `ImagePipe.call/2` ID-preservation + safety + **cross-consumer correlation** (LogExporter + OTel share `{trace_id, span_id}`).
 - **Create** `docs/cookbook/opentelemetry-jaeger.md` — local Jaeger recipe; add to `mix.exs` docs `extras`/`package`.
+- **Create** `.github/workflows/otel-compat.yml` + Renovate/Dependabot config — currency tooling (§10 "Staying current").
 - **Modify** `docs/telemetry.md` — `### OpenTelemetry export` subsection.
 - **Modify** `CLAUDE.md` — telemetry-guideline carve-out.
 
@@ -144,7 +146,8 @@ git commit -m "feat(telemetry): add optional Trace.Exporter ready?/0 callback"
 This is the keystone. We build the real `export/1` and immediately prove, via a synchronous simple-processor + pid-exporter test, that our exact hex IDs land on a finished `#span{}`.
 
 **Files:**
-- Create: `lib/image_pipe/telemetry/trace/open_telemetry_exporter.ex`
+- Create: `lib/image_pipe/telemetry/trace/open_telemetry/span_record.ex` (quarantined FFI)
+- Create: `lib/image_pipe/telemetry/trace/open_telemetry_exporter.ex` (clean impl + gate)
 - Create: `test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs`
 
 - [ ] **Step 1: Write the failing canary test.** Create `test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs`:
@@ -201,31 +204,28 @@ end
 Run: `mise exec -- mix test test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs -v`
 Expected: FAIL — `OpenTelemetryExporter.export/1` undefined (module not yet created).
 
-- [ ] **Step 3: Implement the exporter.** Create `lib/image_pipe/telemetry/trace/open_telemetry_exporter.ex`:
+- [ ] **Step 3: Implement the FFI module and the clean exporter.** Create the quarantined `lib/image_pipe/telemetry/trace/open_telemetry/span_record.ex` (the only module touching SDK internals) and the thin `lib/image_pipe/telemetry/trace/open_telemetry_exporter.ex` (behaviour impl + `@tested_range` gate, delegating to `SpanRecord`):
 
 ```elixir
-defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
+# ---- FFI quarantine module: the ONLY place that touches OTel SDK internals ----
+defmodule ImagePipe.Telemetry.Trace.OpenTelemetry.SpanRecord do
   @moduledoc """
-  Opt-in `ImagePipe.Telemetry.Trace.Exporter` that bridges finished spans into a
-  host-running OpenTelemetry SDK, preserving ImagePipe's own trace/span IDs so
-  exported spans stitch to the W3C `traceparent` `Trace.ReqStep` already injects.
+  UNSUPPORTED OpenTelemetry SDK bridge — the single quarantined FFI boundary.
 
-  Optional dependency: requires the host to add `:opentelemetry` (+ an OTLP
-  exporter such as `:opentelemetry_exporter`) to their deps and start the SDK.
-  When `:opentelemetry` is not compiled in, this module degrades to a no-op and
-  `ready?/0` returns `false` (so `attach_tracer/1` raises an actionable error).
+  This is the ONLY module in the codebase that touches opentelemetry-erlang
+  internals: `Record.extract(:span, …)`, the `#span{}`/`#status{}`/`#event{}` shapes,
+  the `elem(tracer, 3)` `on_end_processors` closure, the native-time conversion, and
+  the `:otel_attributes`/`:otel_events`/`:otel_links` constructors. There is no public
+  OTel API to record a span with a caller-chosen `span_id`, so we construct the
+  internal record and run the host's processors over it.
 
-  There is no public OTel API to record a span with a caller-chosen `span_id`, so
-  this constructs the SDK-internal `#span{}` record and runs the host's configured
-  span processors over it. That couples to internal records; the shape is read by
-  field name / guarded position and the integration test acts as an upgrade canary.
-  See `docs/superpowers/specs/2026-06-09-opentelemetry-exporter-design.md`.
+  Intentionally version-pinned. May break on an OpenTelemetry upgrade — the
+  structural-contract + integration tests are the canary, and
+  `OpenTelemetryExporter`'s `@tested_range` gate refuses untested versions at startup.
+  Everything outside this module speaks `%Trace.Span{}`.
   """
-  @behaviour ImagePipe.Telemetry.Trace.Exporter
-
   alias ImagePipe.Telemetry.Trace.Span
 
-  # Attribute/event/link limits handed to the OTel constructors.
   @count_limit 128
   @value_length_limit :infinity
 
@@ -238,15 +238,9 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
       Record.extract(:span, from_lib: "opentelemetry/include/otel_span.hrl")
     )
 
-    @doc "Whether the OpenTelemetry SDK dependency is compiled in."
     @spec available?() :: boolean()
     def available?, do: Code.ensure_loaded?(:otel_span)
 
-    @impl true
-    @spec ready?() :: boolean()
-    def ready?, do: available?()
-
-    @impl true
     @spec export(Span.t()) :: :ok
     def export(%Span{} = span) do
       case :opentelemetry.get_tracer(:image_pipe) do
@@ -349,17 +343,87 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
     defp coerce(v) when is_atom(v), do: Atom.to_string(v)
     defp coerce(v), do: inspect(v)
   else
-    @doc "OpenTelemetry SDK not compiled in; this exporter is a no-op."
     @spec available?() :: boolean()
     def available?, do: false
 
-    @impl true
-    @spec ready?() :: boolean()
-    def ready?, do: false
-
-    @impl true
     @spec export(Span.t()) :: :ok
     def export(%Span{}), do: :ok
+  end
+end
+```
+
+```elixir
+# ---- Clean exporter: behaviour impl + activation gate. Knows no internals. ----
+defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
+  @moduledoc """
+  Opt-in `ImagePipe.Telemetry.Trace.Exporter` that bridges finished `%Trace.Span{}`
+  structs into a host-running OpenTelemetry SDK, preserving ImagePipe's own
+  trace/span IDs so every observer of a logical operation — logs, metrics, custom
+  exporters, and OTel — shares one `{trace_id, span_id}` join key.
+
+  Optional dependency: the host adds `:opentelemetry` (+ an OTLP exporter) and starts
+  the SDK. When OTel is absent or its version is outside ImagePipe's tested range,
+  `ready?/0` returns `false` so `attach_tracer/1` raises an actionable startup error
+  rather than emitting (possibly malformed) spans.
+
+  All SDK-internals coupling lives in `ImagePipe.Telemetry.Trace.OpenTelemetry.SpanRecord`.
+  See `docs/superpowers/specs/2026-06-09-opentelemetry-exporter-design.md`.
+  """
+  @behaviour ImagePipe.Telemetry.Trace.Exporter
+
+  require Logger
+  alias ImagePipe.Telemetry.Trace.OpenTelemetry.SpanRecord
+  alias ImagePipe.Telemetry.Trace.Span
+
+  # The OTel versions whose record/closure shapes we have canary-tested. May be
+  # narrower than the mix.exs dep constraint: a host can RESOLVE a newer 1.x, but we
+  # refuse to ACTIVATE against it rather than risk malformed spans.
+  @tested_range "~> 1.7"
+
+  @doc "Whether the OpenTelemetry SDK dependency is compiled in."
+  @spec available?() :: boolean()
+  def available?, do: SpanRecord.available?()
+
+  @impl true
+  @spec ready?() :: boolean()
+  def ready? do
+    cond do
+      not available?() ->
+        Logger.warning(
+          "OpenTelemetryExporter disabled: :opentelemetry is not loaded; add it to your host deps."
+        )
+
+        false
+
+      not otel_version_ok?() ->
+        Logger.warning(
+          "OpenTelemetryExporter disabled: OpenTelemetry #{otel_vsn()} is outside the tested " <>
+            "range #{@tested_range}; refusing to emit possibly-malformed spans."
+        )
+
+        false
+
+      true ->
+        true
+    end
+  end
+
+  @impl true
+  @spec export(Span.t()) :: :ok
+  def export(%Span{} = span), do: SpanRecord.export(span)
+
+  defp otel_version_ok? do
+    case otel_vsn() do
+      nil -> false
+      vsn -> Version.match?(vsn, @tested_range)
+    end
+  end
+
+  defp otel_vsn do
+    case Application.spec(:opentelemetry, :vsn) do
+      nil -> nil
+      vsn -> to_string(vsn)
+    end
   end
 end
 ```
@@ -377,9 +441,11 @@ Expected: PASS.
 - [ ] **Step 6: Commit.**
 
 ```bash
-git add lib/image_pipe/telemetry/trace/open_telemetry_exporter.ex test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs
+git add lib/image_pipe/telemetry/trace/open_telemetry/span_record.ex lib/image_pipe/telemetry/trace/open_telemetry_exporter.ex test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs
 git commit -m "feat(telemetry): OpenTelemetry exporter — inject #span{} preserving our ids"
 ```
+
+> **Remaining folds for this revision (full code in design §8/§10 — executor adds as steps):** (a) **structural-contract tests** in the exporter test — assert `:opentelemetry.get_tracer(:image_pipe)` returns `{:otel_tracer_default, t}` with `is_function(elem(t, 3), 1)`, `:opentelemetry.status(:error, "x") == {:status, :error, "x"}`, and the extracted `:span` record exposes the fields `build_record/1` sets; (b) **version-range gate test** — stub `otel_vsn` out of `@tested_range` → `ready?/0` false → `attach_tracer` raises; (c) **cross-consumer correlation test** (Task 5) — fan one `%Trace.Span{}` to both `LogExporter` (capture the log line) and `OpenTelemetryExporter`, assert the logged `trace=`/`span=` equal the OTel span's ids; (d) **currency tooling** (`otel-compat.yml` scheduled job + Renovate config) per §10.
 
 ---
 

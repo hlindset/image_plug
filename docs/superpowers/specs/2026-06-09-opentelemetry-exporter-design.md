@@ -51,6 +51,18 @@ HTTP calls, and the whole point (a coherent distributed trace) is lost.
 
 ## 2. Decisions locked during brainstorming
 
+**The contract (canonical identity).** ImagePipe's canonical tracing identity is the
+product-neutral `Trace.Span` identity. Every observer of a logical operation — the
+`LogExporter`, metrics, custom exporters, **and** OpenTelemetry — must see the same
+`{trace_id, span_id}` pair, because that pair is the **join key** that correlates a log
+line to its exact span (OTel's own model defines a span context as precisely
+`{trace_id, span_id}`). The Erlang/Elixir OTel API has no supported per-span id
+override, so the OTel exporter is permitted a **quarantined SDK-internals adapter** to
+emit completed spans under the canonical ids. This keeps the core product-neutral and
+preserves span-level log↔trace correlation. The id-preservation is justified by this
+cross-consumer join key — **not** by outbound `traceparent` propagation to (usually
+dumb) origins.
+
 | Fork | Decision |
 |---|---|
 | Placement | **In-library, optional dep.** Ships in `lib/` as a sibling to `LogExporter`; `:opentelemetry` declared `optional: true`; runtime `Code.ensure_loaded?/1` detection (same pattern as `source/s3/credentials.ex:16`, the vision detectors). |
@@ -74,18 +86,21 @@ API never exposes is a span's **own `span_id`** — that is always freshly minte
 by the SDK's id-generator. So via the API we could pin the trace and a span's
 parent, but never a span's own identity.
 
-That one gap is fatal because of a single span that already crossed the wire:
-`Trace.ReqStep` published our outbound **client** span's `span_id` in the
-downstream request's `traceparent`, and the downstream service set its root's
-parent to that id. The collector therefore already references that exact
-`span_id`; if the SDK re-mints it on export, the downstream subtree orphans.
-(Purely *internal* spans could tolerate re-minting — only their own, also-exported,
-children reference them — but the boundary-crossing client span cannot, and a
-hybrid that pins only that span would have to thread OTel's minted parent ids back
-by hand. Uniform record injection is cleaner. The genuinely API-only alternative
-is the opposite direction: let OTel own *all* ids and have `ReqStep` read OTel's
-context for the header instead of `Trace.Id` — a rewrite of #175 that makes OTel
-mandatory for propagation. Rejected for scope, see §10.)
+That one gap matters because **span identity is the join key across every observer
+of a logical operation** (§2 contract). The `LogExporter`, metrics, custom exporters,
+and OTel all consume the same `%Trace.Span{}` and must surface the same
+`{trace_id, span_id}`. If the SDK re-mints `span_id` on export, OTel becomes an
+**identity-island**: its spans share only the `trace_id` with our logs, so you can
+group by trace but never pivot from a log line to the span that emitted it. Because
+logs reference **every** span (not just boundary-crossers), this is all-or-nothing —
+every exported span must carry our id, which is exactly uniform record injection.
+(A secondary, much weaker reason: `ReqStep` also publishes the client span's `span_id`
+in the outbound `traceparent`, so an instrumented origin would orphan under
+re-minting — but for typical S3/nginx origins that rarely matters. The join key, not
+propagation, is load-bearing. The genuinely API-only alternative is the opposite
+direction — let OTel own *all* ids and have every `Trace.Span` consumer read OTel's
+context, making OTel the canonical id source — but that couples the product-neutral
+core to OTel and breaks the standalone `LogExporter`; see §10.)
 
 Setting a span's own id requires entering at the SDK span-record + span-processor
 level, which lives in `:opentelemetry`, not `:opentelemetry_api`.
@@ -100,7 +115,11 @@ tradeoff, not an oversight.
 # mix.exs — first use of the optional: true pattern in this repo
 {:opentelemetry, "~> 1.7", optional: true},      # SDK: #span{} record + processors
 {:opentelemetry_api, "~> 1.5", optional: true},  # transitive; pinned explicitly
-# tight range: we read internal records (§7/§10); the canary test (§8) guards upgrades
+# The dep constraint is the *resolvable* range. Activation is separately gated at
+# runtime against a narrower @tested_range (§6) — a host on an untested newer 1.x
+# resolves fine but the exporter refuses to activate (loud raise) rather than emit
+# possibly-malformed spans. Compile-time Record.extract catches field *renames* (build
+# fails); the runtime gate + canary (§8) cover semantic drift the compiler can't see.
 ```
 
 Present when *we* compile/test (so the exporter compiles and the round-trip test
@@ -108,22 +127,31 @@ runs); not forced onto hosts.
 
 ## 4. Module & boundary
 
-`ImagePipe.Telemetry.Trace.OpenTelemetryExporter` — entirely inside the
-`telemetry` boundary. **No new boundary edges**: #175 already owns `Trace.Exporter`
-and `deps: []` on the telemetry boundary stays empty. A sibling to `LogExporter`;
-nothing else in the library references it.
+Two modules, both inside the `telemetry` boundary (so `deps: []` stays empty; no new
+boundary edges — #175 already owns `Trace.Exporter`). The split is deliberate: it
+makes the unsafe SDK-internals code an **FFI boundary** with a one-file blast radius.
 
-Public surface on the module:
+- **`ImagePipe.Telemetry.Trace.OpenTelemetryExporter`** — the clean `Trace.Exporter`
+  impl. Behaviour callbacks, activation/gating, and the `%Trace.Span{}` → neutral
+  mapping. **Knows nothing about OTel record internals**; delegates the actual record
+  construction + processor call to `SpanRecord`. This is the host-named, exported
+  module.
+- **`ImagePipe.Telemetry.Trace.OpenTelemetry.SpanRecord`** — the **quarantined**
+  module, and the *only* place in the codebase that touches SDK internals:
+  `Record.extract(:span, …)`, `elem(tracer, 3)`, the `:span`/`:status`/`#event{}`
+  shapes, the constructor calls, and the native-time conversion. Carries a loud
+  "UNSUPPORTED SDK bridge — version-pinned, may break on OTel upgrade" moduledoc. Not
+  exported from the boundary (internal helper to the exporter).
+
+Public surface on `OpenTelemetryExporter`:
 
 - `@behaviour ImagePipe.Telemetry.Trace.Exporter` — `export/1`.
-- `available?/0` — `Code.ensure_loaded?(:otel_span)` (or the chosen SDK module);
-  the presence gate.
-- `ready?/0` — exporter-side activation check (see §6); returns `true` only when
-  `available?/0`.
+- `available?/0` — `Code.ensure_loaded?(:otel_span)`; the presence gate.
+- `ready?/0` — activation gate (§6): `available?/0` **and** the running OTel version is
+  in `@tested_range`. Returns `false` (→ `attach_tracer/1` raises) otherwise.
 
-Export from the telemetry boundary alongside the #175 set (it is host-named in
-`attach_tracer`, so it must be a public entry point). `Trace.LogExporter` stays
-unexported per #175; this one is exported because the host names it directly.
+Export only `OpenTelemetryExporter` from the telemetry boundary (it is host-named in
+`attach_tracer`). `SpanRecord` and `Trace.LogExporter` stay unexported.
 
 ## 5. The span mapping (`export/1`) — the actual work
 
@@ -133,7 +161,7 @@ configured span processor, then returns `:ok`. Field by field:
 | `Trace.Span` (#175 §4) | OTel | Note |
 |---|---|---|
 | `trace_id` (32-hex **string**) | 128-bit trace id (int) | `String.to_integer(hex, 16)`; **ours, verbatim** |
-| `span_id` (16-hex **string**) | 64-bit span id (int) | `String.to_integer(hex, 16)`; verbatim — must equal the `traceparent` `ReqStep` injected |
+| `span_id` (16-hex **string**) | 64-bit span id (int) | `String.to_integer(hex, 16)`; verbatim — the cross-consumer join key (§2 contract) |
 | `parent_span_id` (`nil` = root) | parent span id / root | |
 | `name` | span name | e.g. `"image_pipe.transform.materialize"` |
 | `kind` `:internal`/`:server`/`:client` | OTel span kind | 1:1 |
@@ -181,11 +209,26 @@ The gate: extend the `Trace.Exporter` behaviour with an **optional** callback
 `c:ready?/0 :: boolean` (default `true` when not implemented). `attach_tracer/1`
 — which already validates the exporter module and **raises `ArgumentError`** on
 bad config (#175 §3, host-startup boundary) — additionally calls
-`exporter.ready?/0` when exported and raises a clear `ArgumentError`
-("`:opentelemetry` is not loaded; add it to your deps to use
-`OpenTelemetryExporter`") if it returns `false`. This is the smallest change that
-turns "OTel absent" from a per-request runtime crash into a startup-time,
-actionable error, and it's reusable by any future optional-dep exporter.
+`exporter.ready?/0` when exported and raises a clear `ArgumentError` if it returns
+`false`. This turns a missing/incompatible OTel from a per-request runtime crash into
+a startup-time, actionable error, and it's reusable by any future optional-dep
+exporter.
+
+`OpenTelemetryExporter.ready?/0` checks **two** things, and raises with the specific
+reason:
+
+1. **Presence** — `Code.ensure_loaded?(:otel_span)`. Absent → "`:opentelemetry` is not
+   loaded; add it to your host deps."
+2. **Tested version range** — `Version.match?(otel_vsn, @tested_range)`, where
+   `@tested_range` (e.g. `"~> 1.7"`) is the range we have actually canary-tested the
+   record/closure shapes against, and is *narrower* than (or equal to) the dep
+   constraint. A host on an untested newer 1.x → "OTel <vsn> is outside ImagePipe's
+   tested range <range>; refusing to emit possibly-malformed spans." `otel_vsn` comes
+   from `Application.spec(:opentelemetry, :vsn)`.
+
+We **raise** rather than silently degrade: the host explicitly opted into OTel via
+`attach_tracer`, so a hard, named failure at startup is correct — not "quietly run
+without tracing." (Loud-disable, per the agreed contract.)
 
 - Default exporter stays `LogExporter`/none. Detection never changes the default.
 - The host must have **started the OTel SDK** with a span processor + OTLP
@@ -283,10 +326,24 @@ removes the `#span{}`/processor seam entirely.
   exported OTel span's attributes — re-assert at the OTel boundary, not just
   #175's `Trace.Span` boundary, since coercion `inspect`s terms (guard against an
   opaque value stringifying a secret).
-- **Activation gate:** `attach_tracer(exporter: OpenTelemetryExporter)` raises a
-  clear `ArgumentError` when `ready?/0` is `false`. Kept **light** per the test
-  guidelines — we don't fabricate the "dep genuinely absent at compile time" host
-  scenario (our test env has OTel); we test the `ready?/0`-false branch directly.
+- **Cross-consumer correlation (the product requirement — new):** fan one
+  `%Trace.Span{}` to **both** `LogExporter` and `OpenTelemetryExporter` and assert the
+  logged `trace=`/`span=` fields and the exported OTel span carry the **same**
+  `{trace_id, span_id}`. This is the regression guard for the entire reason we preserve
+  ids (§2 contract) — if a future change lets OTel re-mint, this fails. Without it,
+  nothing actually tests that logs and traces join.
+- **Structural-contract tests (FFI tripwires — new):** readable assertions in the
+  `SpanRecord` test that pin each internal assumption, so an OTel upgrade fails with a
+  *localized* message instead of a confusing downstream one: `:opentelemetry.get_tracer/1`
+  returns `{:otel_tracer_default, t}` with `elem(t, 3)` a 1-arity fun; the extracted
+  `:span` record exposes the fields we set; `:opentelemetry.status(:error, "x") ==
+  {:status, :error, "x"}`; `:opentelemetry.instrumentation_scope/3` returns the shape we
+  expect. These *are* the canary — they go red the moment the SDK shape moves.
+- **Activation gate:** `attach_tracer(exporter: OpenTelemetryExporter)` raises a clear
+  `ArgumentError` (a) when `ready?/0` is `false`, and (b) when the running OTel version
+  is outside `@tested_range` (inject the version check). Kept **light** — we don't
+  fabricate the "dep absent at compile time" host scenario (our test env has OTel); we
+  test the `ready?/0`-false and version-out-of-range branches directly.
 
 **Tests not to write** (CLAUDE.md): no impossible-internal-misuse structs, no
 name/existence policing (don't assert the module or `available?/0` "exists"), no
@@ -341,11 +398,14 @@ an afterthought:
   `on_end_processors` field of `#tracer{}` **by position** (`elem(tracer, 3)`),
   depending on no `#tracer{}` header at all; (b) build
   attributes/events/links only through their constructor functions, never literals
-  (their shape is the known migration boundary); (c) pin `:opentelemetry` to a
-  tight range (`~> 1.7`); (d) the §8 integration test is the **canary** — if a
-  record/closure shape changes on upgrade, span injection fails and the test
-  catches it before release. The `#span{}` record + processor `on_end/2` have been
-  stable across the 1.x line.
+  (their shape is the known migration boundary); (c) **quarantine** all of it in one
+  module, `Trace.OpenTelemetry.SpanRecord` (§4) — the only file that imports the
+  internals, so the blast radius is one file; (d) gate activation at runtime against a
+  narrower `@tested_range`, not just the dep constraint (§6) — an untested version
+  **disables loudly** rather than mis-exporting; (e) the §8 **structural-contract +
+  integration tests** are the canary — a record/closure shape change goes red with a
+  *localized* message before release. The `#span{}` record + processor `on_end/2` have
+  been stable across the 1.x line.
 - **Depending on the SDK, not just the API (§3).** Unusual for a library;
   accepted because it's optional and OTLP hosts run the SDK anyway. Recorded so a
   future reader doesn't "fix" it down to `:opentelemetry_api` and silently break
@@ -358,22 +418,66 @@ an afterthought:
 - **Timestamp representation wrong → wrong durations.** Part of the §7 spike;
   asserted via a known-duration span in the integration test.
 
+### Staying current with OpenTelemetry (the maintenance contract)
+
+Because we ride SDK internals, "what happens on an OTel release" must be an explicit,
+automated process — three layers, defense in depth:
+
+1. **Defensive (runtime).** The `@tested_range` gate (§6): a host on an OTel version we
+   haven't blessed gets a loud `attach_tracer` raise, never a malformed span. This is
+   the backstop that makes the other two layers non-urgent.
+2. **Reactive (per release).** A Renovate/Dependabot config watching `:opentelemetry`
+   and `:opentelemetry_api` opens a bump PR on each release. CI runs the
+   structural-contract + canary + correlation tests against the new version. **Green** →
+   widen `@tested_range` (and the dep constraint if needed) and merge; **red** → the
+   localized structural-contract failure points at exactly what moved; adapt
+   `SpanRecord`, re-verify, then bless the version.
+3. **Proactive (scheduled).** A weekly CI job (`otel-compat.yml`) that resolves the
+   **latest** `:opentelemetry` (ignoring the lock) and runs the bridge tests — so we
+   learn a new release broke us *before* a host's Renovate PR or bug report does. Red
+   here is a heads-up, not a release blocker.
+
+The discipline: **bumping the tested range is a deliberate act backed by green
+structural-contract tests**, never an automatic merge. The gate + the localized tests
+are what make "ride internals safely" a real, ongoing contract rather than a
+hope-it-doesn't-break.
+
+### Option B as a documented future fallback (not built)
+
+If a conservative host ever wants zero SDK-internals exposure, the public-API path
+("own the `trace_id`, let OTel mint `span_id`s") remains available as a **future**
+`:public_context_only` mode — accepting **trace-level-only** correlation (logs and OTel
+share the trace, not the span). It is **not built now** (YAGNI / greenfield: it's a
+second full exporter with its own cross-process context threading, not a config
+toggle). `:disabled` is free — simply don't attach. We ship one path
+(`:preserve_span_ids`) and document Option B as the named degraded mode to build when a
+real host asks.
+
 ## 11. Build order — single plan
 
 1. `mix.exs`: add `:opentelemetry` (`~> 1.7`) / `:opentelemetry_api` (`~> 1.5`) as
-   `optional: true`; confirm they resolve in dev/test.
-2. **Injection canary first (§7):** land the `#span{}`-construct → `on_end_processors`
-   path with a minimal injected span and a `:otel_simple_processor` + `:otel_exporter_pid`
-   test asserting our exact `trace_id`/`span_id` arrive. Verified mechanism, but
-   build it first so the internal-record coupling is proven before the mapping grows.
-3. `OpenTelemetryExporter` `export/1` + the §5 mapping + §5.1 coercion; unit tests.
-4. `Trace.Exporter` `c:ready?/0` optional callback + `attach_tracer/1` probe +
-   the clear `ArgumentError`; `available?/0`/`ready?/0` on the exporter; gate test.
+   `optional: true` (no `only:`); confirm they resolve in dev/test.
+2. **`SpanRecord` FFI module + injection canary first (§4/§7):** the quarantined
+   `Trace.OpenTelemetry.SpanRecord` — `#span{}`-construct → `on_end_processors` — with
+   `:otel_simple_processor` + `:otel_exporter_pid` tests asserting our exact
+   `trace_id`/`span_id` arrive, plus the **structural-contract** assertions (tracer
+   tuple shape, status/scope constructor shapes). Build the unsafe boundary first and
+   pin it before the mapping grows on top.
+3. `OpenTelemetryExporter` `export/1` (delegating to `SpanRecord`) + the §5 mapping +
+   §5.1 coercion; unit tests.
+4. `Trace.Exporter` `c:ready?/0` optional callback + `attach_tracer/1` probe + the
+   clear `ArgumentError`; `available?/0` and `ready?/0` (presence **and**
+   `@tested_range` version gate) on the exporter; gate + version-out-of-range tests.
 5. Integration: SDK + pid processor + real `ImagePipe.call/2`; ID preservation,
-   nesting, scope, known-duration, and the safety invariant at the OTel boundary.
-6. Docs/guideline/cookbook/boundary sync (§9). The no-`Transform.Operation.*`-alias
+   nesting, scope, known-duration, safety invariant, **and the cross-consumer
+   correlation test** (one `Trace.Span` → `LogExporter` + OTel share `{trace_id,
+   span_id}`).
+6. **Currency tooling:** Renovate/Dependabot config for `:opentelemetry`/`_api` + a
+   scheduled `otel-compat.yml` CI job resolving latest OTel against the bridge tests
+   (§10 "Staying current").
+7. Docs/guideline/cookbook/boundary sync (§9). The no-`Transform.Operation.*`-alias
    invariant needs **no** bespoke architecture test: the telemetry boundary's
    `deps: []` already fails `mix compile` on any transform reference, and the
    exporter doesn't subscribe to telemetry events (so the #175 capture source-scan
    doesn't apply). See §9.
-7. Full `mise run precommit`.
+8. Full `mise run precommit`.
