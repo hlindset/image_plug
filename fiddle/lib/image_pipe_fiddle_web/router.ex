@@ -17,7 +17,7 @@ defmodule ImagePipeFiddleWeb.Router do
   scope "/", ImagePipeFiddleWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    get "/*path", PageController, :home
   end
 
   # Other scopes may use custom stacks.
