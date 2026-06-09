@@ -13,15 +13,17 @@ defmodule ImagePipe.Telemetry.Trace do
   def exporter, do: :persistent_term.get(@exporter_key, nil)
 
   @doc false
+  @spec set_extract_inbound(boolean()) :: :ok
   def set_extract_inbound(flag), do: :persistent_term.put(@extract_key, flag == true)
 
   @doc false
+  @spec maybe_extract_inbound(Plug.Conn.t()) :: :ok
   def maybe_extract_inbound(conn) do
     if :persistent_term.get(@extract_key, false) do
       conn |> Plug.Conn.get_req_header("traceparent") |> adopt_traceparent()
+    else
+      :ok
     end
-
-    :ok
   end
 
   defp adopt_traceparent([tp | _]) do
