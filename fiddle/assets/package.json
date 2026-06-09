@@ -1,0 +1,31 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "check": "tsgo --project tsconfig.json --noEmit && svelte-check --tsconfig tsconfig.json",
+    "format": "oxfmt --write . vite.config.ts",
+    "format:check": "oxfmt --check . vite.config.ts",
+    "lint": "oxlint . vite.config.ts --ignore-pattern node_modules/**",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.1.2",
+    "@types/node": "25.8.0",
+    "@typescript/native-preview": "7.0.0-dev.20260515.1",
+    "image-size": "^2.0.2",
+    "oxfmt": "^0.50.0",
+    "oxlint": "1.64.0",
+    "phoenix_vite": "file:../deps/phoenix_vite",
+    "svelte": "5.55.7",
+    "svelte-check": "^4.4.8",
+    "typescript": "6.0.3",
+    "vite": "8.0.13",
+    "vitest": "4.1.6"
+  },
+  "dependencies": {
+    "bits-ui": "2.18.1",
+    "geist": "1.7.0"
+  }
+}

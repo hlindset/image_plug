@@ -42,6 +42,7 @@ defmodule ImagePipeFiddle.MixProject do
     [
       {:image_pipe, path: ".."},
       {:phoenix, "~> 1.8.7"},
+      {:phoenix_vite, "~> 0.4.0"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.0"},
