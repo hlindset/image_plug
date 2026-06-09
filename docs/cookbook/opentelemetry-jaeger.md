@@ -20,8 +20,10 @@ services:
 
 ```elixir
 # mix.exs
-{:opentelemetry, "~> 1.7"},
+# list :opentelemetry_exporter BEFORE :opentelemetry so the exporter app
+# starts first (otherwise the SDK's processor can't reach it at boot)
 {:opentelemetry_exporter, "~> 1.8"},
+{:opentelemetry, "~> 1.7"},
 ```
 
 ImagePipe itself only needs `:opentelemetry_api` (it declares it optional); you bring

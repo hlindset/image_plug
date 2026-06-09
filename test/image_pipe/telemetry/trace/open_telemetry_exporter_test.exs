@@ -173,6 +173,16 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporterTest do
     assert event_system_time_native(event) == otel_span(rec, :end_time)
   end
 
+  test "a success span leaves OTel status UNSET (no explicit OK)" do
+    span = base_span(%{name: "image_pipe.request", status: :ok})
+    assert :ok = OpenTelemetryExporter.export(span)
+    assert_receive {:span, rec}, 1_000
+    # set_status is not called for success → OTel default unset. The SDK
+    # record default for the :status field is :undefined (not {:status, :unset, _}).
+    refute match?({:status, :error, _}, otel_span(rec, :status))
+    assert otel_span(rec, :status) == :undefined
+  end
+
   test "export/1 is crash-safe and emits nothing when OTel can't deliver" do
     :otel_simple_processor.set_exporter(:none, [])
     span = base_span(%{name: "image_pipe.request"})

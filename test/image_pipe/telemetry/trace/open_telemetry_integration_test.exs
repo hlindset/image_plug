@@ -193,6 +193,14 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
     trace_ids = recs |> Enum.map(&otel_span(&1, :trace_id)) |> Enum.uniq()
     assert length(trace_ids) == 1
+
+    names = Enum.map(recs, &otel_span(&1, :name))
+    # Root span is always present; a full request produces many children.
+    assert "image_pipe.request" in names
+    assert length(recs) >= 2
+    # Source-fetch spans are reliably present on a cache-miss request.
+    assert "image_pipe.source.fetch" in names
+    assert "image_pipe.source.fetch_decode" in names
   end
 
   # ── test 3: URL safety — signed source URL must not leak into OTel attrs ───────

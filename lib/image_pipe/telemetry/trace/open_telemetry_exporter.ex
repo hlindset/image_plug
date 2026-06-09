@@ -44,7 +44,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
           links: []
         })
 
-      OtelSpan.set_status(span_ctx, status(span))
+      maybe_set_status(span_ctx, span)
 
       case events(span, native_end) do
         [] -> :ok
@@ -71,11 +71,15 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
     defp kind(k) when k in [:internal, :server, :client], do: k
     defp kind(_), do: :internal
 
-    defp status(%Span{status: :error} = span),
-      do: OpenTelemetry.status(:error, span.status_message || "")
+    # Only an error span gets a status set; success/unset spans keep OTel's default
+    # UNSET — the idiomatic OTel representation of "completed, no error" (which is
+    # what #175's :ok semantically means; capture.ex sets :ok for result :ok OR nil).
+    # Setting OTel OK would over-claim an explicit success override.
+    defp maybe_set_status(span_ctx, %Span{status: :error} = span) do
+      OtelSpan.set_status(span_ctx, OpenTelemetry.status(:error, span.status_message || ""))
+    end
 
-    defp status(%Span{status: :ok}), do: OpenTelemetry.status(:ok, "")
-    defp status(_), do: OpenTelemetry.status(:unset, "")
+    defp maybe_set_status(_span_ctx, _span), do: :ok
 
     defp attributes(%Span{} = span) do
       span.attributes
