@@ -63,7 +63,10 @@ defmodule ImagePipeFiddle.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get"],
+      setup: ["deps.get", "assets.setup"],
+      "assets.setup": ["cmd pnpm install"],
+      "assets.build": ["cmd pnpm -C assets run build"],
+      "assets.deploy": ["assets.build"],
       precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
     ]
   end

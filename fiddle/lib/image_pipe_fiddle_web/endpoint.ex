@@ -23,9 +23,8 @@ defmodule ImagePipeFiddleWeb.Endpoint do
   plug Plug.Static,
     at: "/",
     from: :image_pipe_fiddle,
-    gzip: not code_reloading?,
-    only: ImagePipeFiddleWeb.static_paths(),
-    raise_on_missing_only: code_reloading?
+    gzip: false,
+    only: ImagePipeFiddleWeb.static_paths()
 
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.

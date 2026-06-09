@@ -14,7 +14,21 @@ config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "izuFtCiI7gl30datBKwIFoO7rq6LgsccMB04ylPiOd2nrd2ZgLmOJnsQeRU4ceTr",
-  watchers: []
+  static_url: [host: "localhost", port: 5173],
+  watchers: [
+    vite: [
+      "pnpm",
+      "exec",
+      "vite",
+      "dev",
+      "--host",
+      "localhost",
+      "--port",
+      "5173",
+      "--strictPort",
+      cd: Path.expand("../assets", __DIR__)
+    ]
+  ]
 
 # ## SSL Support
 #
@@ -44,9 +58,6 @@ config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
-      # Static assets, except user uploads
-      ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
-      # Router, Controllers, LiveViews and LiveComponents
       ~r"lib/image_pipe_fiddle_web/router\.ex$"E,
       ~r"lib/image_pipe_fiddle_web/(controllers|live|components)/.*\.(ex|heex)$"E
     ]
