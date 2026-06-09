@@ -288,7 +288,9 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0:1"]);
-    expect(buildProcessingPath(state)).toBe("/img/_/rs:fill:640:360:0:1/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe(
+      "/img/_/rs:fill:640:360:0:1/plain/local:///images/dog.jpg",
+    );
   });
 
   it("builds the resize tool summary from the emitted resize segment", () => {
@@ -847,9 +849,7 @@ describe("processing path generation", () => {
 
     // Serializes back with both all and face (uniform weights → compact obj form,
     // but all:1 face:3 are NOT uniform so → objw verbatim)
-    expect(demoPathForState(parsed)).toBe(
-      "/g:objw:all:1:face:3/plain/local:///images/dog.jpg",
-    );
+    expect(demoPathForState(parsed)).toBe("/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
   });
 
   it("round-trips g:objw:face:3 (single face weight) through the demo path", () => {
@@ -877,9 +877,7 @@ describe("processing path generation", () => {
       objWeights: expect.objectContaining({ all: 2, face: 3 }),
     });
 
-    expect(demoPathForState(parsed)).toBe(
-      "/g:objw:all:2:face:3/plain/local:///images/dog.jpg",
-    );
+    expect(demoPathForState(parsed)).toBe("/g:objw:all:2:face:3/plain/local:///images/dog.jpg");
   });
 
   it("emits g:objw for object gravity with non-uniform weighted mode", () => {
@@ -893,22 +891,16 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["g:objw:face:3:person:1"]);
-    expect(demoPathForState(state)).toBe(
-      "/g:objw:face:3:person:1/plain/local:///images/dog.jpg",
-    );
+    expect(demoPathForState(state)).toBe("/g:objw:face:3:person:1/plain/local:///images/dog.jpg");
   });
 
   it("rejects invalid objw gravity values in demo routes", () => {
     // bare g:objw (no pairs)
     expect(parseDemoPath("/g:objw/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     // odd arity
-    expect(parseDemoPath("/g:objw:face/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
-    );
+    expect(parseDemoPath("/g:objw:face/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     // non-positive weight
-    expect(parseDemoPath("/g:objw:face:0/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
-    );
+    expect(parseDemoPath("/g:objw:face:0/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/g:objw:face:-2/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
@@ -1292,9 +1284,7 @@ describe("demo URL state", () => {
   it("rejects invalid trim values in demo routes", () => {
     expect(parseDemoPath("/trim:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/trim:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/trim:10:zzz/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
-    );
+    expect(parseDemoPath("/trim:10:zzz/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/trim:10:ff00ff:2:0/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
@@ -1397,9 +1387,7 @@ describe("demo URL state", () => {
   });
 
   it("treats zero-valued effects as demo no-ops", () => {
-    expect(
-      parseDemoPath("/bl:0/sh:0/pix:0/br:0/co:0/sa:0/plain/local:///images/dog.jpg"),
-    ).toEqual({
+    expect(parseDemoPath("/bl:0/sh:0/pix:0/br:0/co:0/sa:0/plain/local:///images/dog.jpg")).toEqual({
       ...defaultDemoState,
       blurEnabled: false,
       blur: defaultDemoState.blur,
@@ -1465,22 +1453,16 @@ describe("demo URL state", () => {
   it("rejects invalid car values in demo routes", () => {
     expect(parseDemoPath("/car:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/car:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/car:1.5:bad/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
-    );
-    expect(parseDemoPath("/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
-    );
+    expect(parseDemoPath("/car:1.5:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
   });
 
   it("falls back to defaults for invalid demo routes", () => {
-    expect(parseDemoPath("/not-supported/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
-    );
+    expect(parseDemoPath("/not-supported/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/rs:fill:640:360:0/plain/images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/not-a-valid-option/rs:fill:640:360:0/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
-    );
+    expect(
+      parseDemoPath("/not-a-valid-option/rs:fill:640:360:0/plain/local:///images/dog.jpg"),
+    ).toEqual(defaultDemoState);
   });
 
   it("rejects invalid quality values in demo routes", () => {
@@ -1494,9 +1476,7 @@ describe("demo URL state", () => {
     expect(parseDemoPath("/co:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/sa:100.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/mc:1.1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/dt:0.5:zzz/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
-    );
+    expect(parseDemoPath("/dt:0.5:zzz/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
   });
 
   it("emits nothing for default metadata and color-profile state (all true)", () => {
@@ -1598,9 +1578,7 @@ describe("demo URL state", () => {
     expect(parseDemoPath("/sm:yes/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/kcr:2/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     expect(parseDemoPath("/scp:/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/sm:0:extra/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
-    );
+    expect(parseDemoPath("/sm:0:extra/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
   });
 
   it("resets processing options while keeping source and signature settings", () => {

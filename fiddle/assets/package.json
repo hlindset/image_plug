@@ -7,8 +7,12 @@
     "check": "tsgo --project tsconfig.json --noEmit && svelte-check --tsconfig tsconfig.json",
     "format": "oxfmt --write . vite.config.ts",
     "format:check": "oxfmt --check . vite.config.ts",
-    "lint": "oxlint . vite.config.ts --ignore-pattern node_modules/**",
+    "lint": "oxlint . vite.config.ts --ignore-pattern '**/node_modules/**'",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "bits-ui": "2.18.1",
+    "geist": "1.7.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "7.1.2",
@@ -23,9 +27,5 @@
     "typescript": "6.0.3",
     "vite": "8.0.13",
     "vitest": "4.1.6"
-  },
-  "dependencies": {
-    "bits-ui": "2.18.1",
-    "geist": "1.7.0"
   }
 }
