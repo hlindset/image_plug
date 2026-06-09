@@ -49,12 +49,13 @@ defmodule ImagePipe.Source.ReqStream do
   end
 
   defp request_and_route(req_options, runtime_opts, validate, redirects_left, redirects_allowed?) do
-    case Req.get(request_options(req_options),
-           receive_timeout:
-             timeout(req_options, runtime_opts, :receive_timeout, @default_receive_timeout),
-           pool_timeout: timeout(req_options, runtime_opts, :pool_timeout, @default_pool_timeout),
-           connect_options: connect_options(req_options, runtime_opts)
-         ) do
+    request =
+      req_options
+      |> request_options(runtime_opts)
+      |> Req.new()
+      |> ImagePipe.Telemetry.Trace.ReqStep.attach()
+
+    case Req.request(request) do
       {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
         %{
           response: response,
@@ -158,11 +159,15 @@ defmodule ImagePipe.Source.ReqStream do
     end
   end
 
-  defp request_options(req_options) do
+  defp request_options(req_options, runtime_opts) do
     Keyword.merge(req_options,
       into: :self,
       retry: false,
-      redirect: false
+      redirect: false,
+      receive_timeout:
+        timeout(req_options, runtime_opts, :receive_timeout, @default_receive_timeout),
+      pool_timeout: timeout(req_options, runtime_opts, :pool_timeout, @default_pool_timeout),
+      connect_options: connect_options(req_options, runtime_opts)
     )
   end
 

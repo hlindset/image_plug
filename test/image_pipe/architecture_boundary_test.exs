@@ -278,12 +278,14 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # Trace.maybe_extract_inbound/1, so it is exported. Trace.Stack/Trace.Context are
     # exported because request/source code threads + adopts the trace context across the
     # request->SourceSession (hop A) and request->Producer (hop B) process seams (it
-    # calls only these generic Trace.* modules, never concrete transform ops). The
-    # boundary stays dependency-free.
+    # calls only these generic Trace.* modules, never concrete transform ops).
+    # Trace.ReqStep is exported because the source Req-client build site attaches it to
+    # trace outbound fetches as a logical client span. The boundary stays dependency-free.
     assert_boundary_exports(telemetry, [
       ImagePipe.Telemetry.Trace,
       ImagePipe.Telemetry.Trace.Stack,
-      ImagePipe.Telemetry.Trace.Context
+      ImagePipe.Telemetry.Trace.Context,
+      ImagePipe.Telemetry.Trace.ReqStep
     ])
   end
 
