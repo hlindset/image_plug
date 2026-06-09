@@ -140,6 +140,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
 
     defp to_str(nil), do: ""
     defp to_str(v) when is_binary(v), do: v
+    defp to_str(v) when is_atom(v), do: Atom.to_string(v)
     defp to_str(v), do: inspect(v)
   else
     @doc "OpenTelemetry API not compiled in; this exporter is a no-op."
