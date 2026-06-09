@@ -2,6 +2,7 @@ defmodule ImagePipe.Source.ReqStream do
   @moduledoc false
 
   alias ImagePipe.Source.StreamError
+  alias ImagePipe.Telemetry.Trace.ReqStep
 
   @default_receive_timeout 5_000
   @default_pool_timeout 5_000
@@ -53,7 +54,7 @@ defmodule ImagePipe.Source.ReqStream do
       req_options
       |> request_options(runtime_opts)
       |> Req.new()
-      |> ImagePipe.Telemetry.Trace.ReqStep.attach()
+      |> ReqStep.attach()
 
     case Req.request(request) do
       {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
