@@ -13,6 +13,8 @@ defmodule ImagePipe.Telemetry do
     exports: []
 
   alias ImagePipe.Telemetry.Logger, as: DefaultLogger
+  alias ImagePipe.Telemetry.Trace
+  alias ImagePipe.Telemetry.Trace.Capture
 
   @default_prefix [:image_pipe]
 
@@ -95,6 +97,23 @@ defmodule ImagePipe.Telemetry do
 
   defp validate_prefix(other),
     do: raise(ArgumentError, ":prefix must be a non-empty list of atoms, got: #{inspect(other)}")
+
+  @doc "Attach the opt-in span tracer. See `ImagePipe.Telemetry.Trace`."
+  @spec attach_tracer(keyword()) :: :ok
+  def attach_tracer(opts) do
+    exporter = Keyword.fetch!(opts, :exporter)
+    prefix = Keyword.get(opts, :prefix, default_prefix())
+
+    Trace.set_exporter(exporter)
+    Capture.attach(%{prefix: prefix, exporter: exporter})
+  end
+
+  @spec detach_tracer() :: :ok
+  def detach_tracer do
+    Capture.detach()
+    Trace.set_exporter(nil)
+    :ok
+  end
 
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
   def span(telemetry_opts, stage, start_metadata, fun) when is_function(fun, 0) do
