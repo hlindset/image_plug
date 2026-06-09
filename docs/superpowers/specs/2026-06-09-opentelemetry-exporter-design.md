@@ -132,8 +132,8 @@ configured span processor, then returns `:ok`. Field by field:
 
 | `Trace.Span` (#175 §4) | OTel | Note |
 |---|---|---|
-| `trace_id` (16 bytes / 32 hex) | 128-bit trace id | `:binary.decode_unsigned/1`; **ours, verbatim** |
-| `span_id` (8 bytes / 16 hex) | 64-bit span id | verbatim — must equal the `traceparent` `ReqStep` injected |
+| `trace_id` (32-hex **string**) | 128-bit trace id (int) | `String.to_integer(hex, 16)`; **ours, verbatim** |
+| `span_id` (16-hex **string**) | 64-bit span id (int) | `String.to_integer(hex, 16)`; verbatim — must equal the `traceparent` `ReqStep` injected |
 | `parent_span_id` (`nil` = root) | parent span id / root | |
 | `name` | span name | e.g. `"image_pipe.transform.materialize"` |
 | `kind` `:internal`/`:server`/`:client` | OTel span kind | 1:1 |
@@ -230,11 +230,10 @@ records — recorded as the top risk (§10).
 2. **Run the host's processors.** `:opentelemetry.get_tracer(:image_pipe)` returns
    `{:otel_tracer_default, tracer_record}` (or `{:otel_tracer_noop, []}` if the SDK
    isn't running — see below). Read the `on_end_processors` closure off the
-   `#tracer{}` record and call it with our `#span{}`. The `#tracer{}` header lives in
-   `opentelemetry/src/` (more internal than `include/`), so rather than depend on a
-   fragile relative path we read the field **by position** (`elem(tracer, 3)`;
-   fields are `module, on_start_processors, on_end_processors, …`) and let the §8
-   integration canary guard the position. That closure folds over **whatever**
+   `#tracer{}` record and call it with our `#span{}`. The `#tracer{}` record is an
+   SDK-internal shape, so rather than extract its header we read the field **by
+   position** (`elem(tracer, 3)`; fields are `module, on_start_processors,
+   on_end_processors, …`) and let the §8 integration canary guard the position. That closure folds over **whatever**
    processors the host configured (simple in tests, batch in prod) — so the same
    code path serves both; we don't hard-code a processor. (Only the `#span{}` record
    itself is read by field name, via `Record.extract(… from_lib:
@@ -334,14 +333,13 @@ an afterthought:
 ## 10. Risks & tradeoffs
 
 - **SDK-internals coupling (highest, confirmed).** There is no public injection
-  API (§7), so we depend on two internal headers: `#span{}`
-  (`opentelemetry/include/otel_span.hrl`) and the `on_end_processors` closure on
-  `#tracer{}` (`opentelemetry/src/otel_tracer.hrl` — in `src/`, the more internal
-  of the two). Mitigations: (a) read `#span{}` via `Record.extract(… from_lib:
-  "opentelemetry/include/otel_span.hrl")` **by field name** (public `include/`
-  header, no relative path), and read only the single `on_end_processors` field of
-  `#tracer{}` **by position** (`elem(tracer, 3)`), avoiding any dependency on the
-  `src/` header path; (b) build
+  API (§7), so we depend on two internal SDK shapes: the `#span{}` record
+  (`opentelemetry/include/otel_span.hrl`) and the `on_end_processors` field of the
+  `#tracer{}` record. Mitigations: (a) read `#span{}` via `Record.extract(…
+  from_lib: "opentelemetry/include/otel_span.hrl")` **by field name** (public
+  `include/` header, no relative path), and read only the single
+  `on_end_processors` field of `#tracer{}` **by position** (`elem(tracer, 3)`),
+  depending on no `#tracer{}` header at all; (b) build
   attributes/events/links only through their constructor functions, never literals
   (their shape is the known migration boundary); (c) pin `:opentelemetry` to a
   tight range (`~> 1.7`); (d) the §8 integration test is the **canary** — if a
@@ -373,6 +371,9 @@ an afterthought:
    the clear `ArgumentError`; `available?/0`/`ready?/0` on the exporter; gate test.
 5. Integration: SDK + pid processor + real `ImagePipe.call/2`; ID preservation,
    nesting, scope, known-duration, and the safety invariant at the OTel boundary.
-6. Docs/guideline/cookbook/boundary sync (§9) + architecture test for the
-   no-`Transform.Operation.*`-alias invariant.
+6. Docs/guideline/cookbook/boundary sync (§9). The no-`Transform.Operation.*`-alias
+   invariant needs **no** bespoke architecture test: the telemetry boundary's
+   `deps: []` already fails `mix compile` on any transform reference, and the
+   exporter doesn't subscribe to telemetry events (so the #175 capture source-scan
+   doesn't apply). See §9.
 7. Full `mise run precommit`.

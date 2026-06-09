@@ -47,11 +47,20 @@
 - [ ] **Step 1: Add the optional deps.** In `mix.exs`, inside `base = [ … ]`, add after the `{:telemetry, "~> 1.0"},` line:
 
 ```elixir
-      {:opentelemetry, "~> 1.7", optional: true, only: [:dev, :test]},
-      {:opentelemetry_api, "~> 1.5", optional: true, only: [:dev, :test]},
+      # OpenTelemetry is an OPTIONAL bridge dependency. Use `optional: true` and
+      # DO NOT add `only: [:dev, :test]`. The `optional: true` edge is what makes
+      # Mix compile a host-provided `:opentelemetry` BEFORE image_pipe, so the
+      # `Code.ensure_loaded?(:otel_span)` compile guard in OpenTelemetryExporter
+      # resolves `true` in the host's build and the exporter actually works. Adding
+      # `only:` would strip that edge for downstream hosts → the guard would pick the
+      # no-op branch → the exporter would silently do nothing even when the host has
+      # OTel. (Fetched for our own builds because optional deps are fetched for the
+      # defining project; never forced onto hosts.)
+      {:opentelemetry, "~> 1.7", optional: true},
+      {:opentelemetry_api, "~> 1.5", optional: true},
 ```
 
-Rationale: `optional: true` keeps them off hosts' hard dep list; `only: [:dev, :test]` fetches them for our own compile/test (a host that wants OTLP adds `:opentelemetry` to *their* deps). The exporter module's compile guard (Task 3) handles the prod-build-without-dep case.
+Rationale: `optional: true` (no `only:`) declares a real-but-optional dependency edge. For a downstream host: nothing is pulled in unless the host adds `:opentelemetry` themselves; when they do, the edge orders its compilation before image_pipe so the Task 3 guard sees it. For us: the deps are fetched/compiled in all our envs so the exporter compiles and tests run. A host build *without* OTel sees `:otel_span` unloadable → the guard's no-op `else` branch (Task 3) — the correct degradation.
 
 - [ ] **Step 2: Add test-env SDK config.** Replace the body of `config/config.exs` with:
 
@@ -79,7 +88,13 @@ Expected: resolves `opentelemetry`, `opentelemetry_api`, `opentelemetry_exporter
 Run: `mise exec -- mix compile`
 Expected: compiles clean (no warnings-as-errors yet; just confirm the deps build).
 
-- [ ] **Step 5: Commit.**
+- [ ] **Step 5: Record the host-simulation caveat (CRITICAL — no automated test covers this).** Our own suite *always* has `:opentelemetry` present, so it can never catch a regression where the exporter becomes a no-op for real hosts (e.g. someone re-adds `only:` to the deps). There is no cheap in-repo automated guard for "image_pipe-as-a-dependency + host adds OTel." Document the manual smoke-check in the PR description and run it once before release:
+
+> In a throwaway app that depends on `image_pipe` (path or git) **and** adds `{:opentelemetry, "~> 1.7"}`, assert `ImagePipe.Telemetry.Trace.OpenTelemetryExporter.available?() == true`. If it returns `false`, the optional-dep edge is broken (check for a stray `only:` on the deps).
+
+The loud mix.exs comment from Step 1 is the primary defense; this smoke-check is the backstop.
+
+- [ ] **Step 6: Commit.**
 
 ```bash
 git add mix.exs mix.lock config/config.exs
@@ -311,9 +326,12 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
     defp put_present(map, _key, nil, _fun), do: map
     defp put_present(map, key, value, fun), do: Map.put(map, key, fun.(value))
 
-    # OTel attribute values must be primitives; :otel_attributes.new/3 does NOT
-    # filter, so coerce here. Sensitivity is already handled upstream by
-    # Capture.safe_attrs/1 — this is a type concern only.
+    # OTel attribute values must be primitives (binary/number/boolean/atom or a
+    # homogeneous list). A raw operation struct, tuple, or map is not a valid
+    # value — depending on the SDK path it is either dropped or breaks the OTLP
+    # encoder — so we coerce every non-primitive to a string here, guaranteeing
+    # only primitives reach :otel_attributes.new/3. Sensitivity is already handled
+    # upstream by Capture.safe_attrs/1 — this is a type concern only.
     defp coerce_map(map) do
       map
       |> Enum.flat_map(fn {k, v} ->
@@ -440,7 +458,53 @@ Extend the unit test to lock the non-ID mapping: native-time/duration, error sta
     assert attrs["image_pipe.pid"] == inspect(self())
     assert attrs["image_pipe.node"] == Atom.to_string(node())
   end
+
+  test "an unsampled span (trace_flags: 0) is dropped by the processor" do
+    # Pins the load-bearing 'verified interop fact' that the simple/batch
+    # processor drops spans without the sampled bit — i.e. we MUST forward
+    # trace_flags verbatim and never default it to 0.
+    span = %Span{
+      trace_id: "0123456789abcdef0123456789abcdef",
+      span_id: "89abcdef01234567",
+      name: "image_pipe.request",
+      kind: :server,
+      start_time: System.system_time(),
+      duration_native: 1,
+      status: :ok,
+      trace_flags: 0
+    }
+
+    assert :ok = OpenTelemetryExporter.export(span)
+    refute_receive {:span, _}, 100
+  end
+
+  test "export/1 no-ops on the noop tracer (SDK not running) and never raises" do
+    # Exercises the {:otel_tracer_noop, []} branch by stopping the SDK app so
+    # :opentelemetry.get_tracer/1 returns the noop tuple. Restart it afterwards.
+    Application.stop(:opentelemetry)
+
+    on_exit(fn ->
+      {:ok, _} = Application.ensure_all_started(:opentelemetry)
+    end)
+
+    assert {:otel_tracer_noop, []} = :opentelemetry.get_tracer(:image_pipe)
+
+    span = %Span{
+      trace_id: "0123456789abcdef0123456789abcdef",
+      span_id: "89abcdef01234567",
+      name: "image_pipe.request",
+      start_time: System.system_time(),
+      duration_native: 1,
+      status: :ok,
+      trace_flags: 1
+    }
+
+    assert :ok = OpenTelemetryExporter.export(span)
+    refute_receive {:span, _}, 100
+  end
 ```
+
+> **Executor note:** the noop test stops `:opentelemetry` globally; it is `async: false` (the whole module is), and the `on_exit` restart restores it for subsequent modules. Keep this test last in the file so an accidental ordering issue surfaces locally. The compile-`else` branch (dep entirely absent) is genuinely untestable in our env where the dep is always present — that is acceptable and intentionally uncovered; do not contrive a test for it.
 
 - [ ] **Step 2: Run.**
 
@@ -517,11 +581,18 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   end
 
   test "no signed source URL leaks into any exported span attribute" do
-    _spans = drain_spans_after_signed_url_request()
-    # Assert the secret substring appears in NO exported attribute value.
-    # (Capture.safe_attrs already strips URLs; this re-asserts at the OTel
-    # boundary, where coercion inspect()s opaque terms.)
-    refute Enum.any?(collected_attribute_values(), &String.contains?(&1, "X-Amz-Signature"))
+    # This re-asserts the URL-secret property at the OTel boundary specifically:
+    # coercion inspect()s opaque terms, so its distinct value is "coercion does not
+    # re-leak a URL embedded in some struct" — the upstream strip is Capture's job
+    # (tested in attr_safety_test.exs). Drive a real request whose source URL
+    # carries a signature, then scan every exported string attribute value.
+    values = collected_attribute_values_after_signed_url_request()
+
+    # Non-vacuity guard: if the request/drain isn't wired, `values` is empty and
+    # the refute below would pass for the wrong reason. Fail loudly instead.
+    assert values != [], "no attribute values collected — request/drain not wired"
+
+    refute Enum.any?(values, &String.contains?(&1, "X-Amz-Signature"))
   end
 
   # --- helpers (executor fills in using the #175 wire-test fixtures) ---
@@ -533,12 +604,21 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     end
   end
 
-  defp drain_spans_after_signed_url_request, do: drain_spans()
-  defp collected_attribute_values, do: []
+  # MUST drive a real ImagePipe.call/2 whose source URL literally contains
+  # "X-Amz-Signature=" (so the secret has a path to leak), then return EVERY
+  # string-valued attribute across ALL exported spans:
+  #   drain_spans()
+  #   |> Enum.flat_map(fn rec -> elem(otel_span(rec, :attributes), 4) |> Map.values() end)
+  #   |> Enum.filter(&is_binary/1)
+  # Returning [] (the un-wired stub) is forbidden — the non-vacuity assert above
+  # exists precisely to reject that.
+  defp collected_attribute_values_after_signed_url_request do
+    raise "executor: wire a signed-URL request + collect string attribute values"
+  end
 end
 ```
 
-> **Executor note:** the two `TODO`/stub helpers must be completed against the real #175 tracer wire test (`grep -rl "attach_tracer\|TestExporter" test/`). Issue the same request that test issues; for the safety test, route through a source whose URL carries an `X-Amz-Signature=` query param and collect every exported attribute value (`elem(otel_span(rec, :attributes), 4) |> Map.values() |> Enum.filter(&is_binary/1)`). Do **not** ship this task with the stubs returning `[]` — that would make the safety assertion vacuously pass.
+> **Executor note:** complete `collected_attribute_values_after_signed_url_request/0` and the `drain_spans` request setup against the real #175 tracer wire test (`grep -rl "attach_tracer\|TestExporter" test/` → likely `test/image_pipe/telemetry/trace/cross_process_test.exs` + `test/support/trace_test_exporter.ex`). The helper is left as a `raise` (not a `[]` stub) so the task **cannot** be committed green while vacuous — the test will error until it is genuinely wired.
 
 - [ ] **Step 2: Run; expect failure, then complete the stubs.**
 
@@ -558,9 +638,9 @@ git commit -m "test(telemetry): e2e OTel export — id preservation, nesting, ur
 
 **Files:**
 - Modify: `lib/image_pipe/telemetry.ex:135-138`
-- Modify: `test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs`
+- Modify: `test/image_pipe/telemetry/trace/attach_test.exs` (the existing #175 attach-tracer raise tests — this is a generic `Exporter`-contract test, not OTel-specific, so it lives with its peers; confirm the path with `grep -rl "attach_tracer" test/`)
 
-- [ ] **Step 1: Write the failing gate test.** Add to `open_telemetry_exporter_test.exs`. Use a tiny inline not-ready exporter so the test doesn't depend on OTel being absent (it isn't, in our env):
+- [ ] **Step 1: Write the failing gate test.** Add to `attach_test.exs`. Use a tiny inline not-ready exporter so the test doesn't depend on OTel being absent (it isn't, in our env) and stays decoupled from the OTel record/processor setup:
 
 ```elixir
   defmodule NotReadyExporter do
@@ -580,7 +660,7 @@ git commit -m "test(telemetry): e2e OTel export — id preservation, nesting, ur
 
 - [ ] **Step 2: Run to verify it fails.**
 
-Run: `mise exec -- mix test test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs -v`
+Run: `mise exec -- mix test test/image_pipe/telemetry/trace/attach_test.exs -v`
 Expected: FAIL — currently `attach_tracer` would attach NotReadyExporter without raising.
 
 - [ ] **Step 3: Add the probe.** In `lib/image_pipe/telemetry.ex`, immediately after the existing `unless Code.ensure_loaded?(exporter) … end` block (line 135-138), insert:
@@ -595,13 +675,13 @@ Expected: FAIL — currently `attach_tracer` would attach NotReadyExporter witho
 
 - [ ] **Step 4: Run to verify it passes.**
 
-Run: `mise exec -- mix test test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs -v`
+Run: `mise exec -- mix test test/image_pipe/telemetry/trace/attach_test.exs -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit.**
 
 ```bash
-git add lib/image_pipe/telemetry.ex test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs
+git add lib/image_pipe/telemetry.ex test/image_pipe/telemetry/trace/attach_test.exs
 git commit -m "feat(telemetry): attach_tracer raises on a not-ready exporter"
 ```
 
