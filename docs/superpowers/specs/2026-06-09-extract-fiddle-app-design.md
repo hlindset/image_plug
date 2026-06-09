@@ -55,9 +55,13 @@ and we want it served at `/` instead of `/demo`.
    `/img` prefix**; the SPA owns `/` and all other paths; static source images
    are served at `/images` (segment-distinct from `/img`).
 5. **Directory name:** `fiddle/`.
-6. **ML deps:** `image_vision` + `ortex` become normal **fiddle** deps so a
-   running/deployed demo does real face detection (accepting a Rust toolchain in
-   the fiddle build).
+6. **ML deps:** `image_vision` + `ortex` are **hard, required, un-gated**
+   dependencies of the **fiddle** (all envs), so a running/deployed demo always
+   does real face detection — the Rust toolchain is now the fiddle's build
+   requirement, not the library's. The **library stays product-neutral**: it
+   keeps treating these as optional/runtime-guarded and pulls them only into its
+   own `:test` lane under `IMAGE_VISION=1` (for its detector test). Don't make
+   them hard library deps.
 7. **Mount element id:** `fiddle-app` (was `demo-app`).
 8. **A `mise run server` task** boots the fiddle dev server.
 
@@ -183,7 +187,9 @@ Folded into `ImagePipeFiddle.Application`, the endpoint/router, and fiddle confi
   (`ImagePipe.Transform.Detector.Warmup`, exported from the Transform boundary at
   `lib/image_pipe/transform.ex:20`, with a `@moduledoc` covering host
   supervision-tree wiring and the `detector:`/`classes:` opts). The fiddle starts
-  it directly; no new library helper is needed.
+  it directly; no new library helper is needed. Because `image_vision`/`ortex`
+  are hard fiddle deps (decision 6), the worker's "detector unavailable" no-op
+  branch won't trigger here — detection is always real.
 
 The `--port`, `--cache`, `--no-vite` flags are retired in favor of the standard
 `mix phx.server` workflow + config toggles.
@@ -237,8 +243,7 @@ The `--port`, `--cache`, `--no-vite` flags are retired in favor of the standard
   superseded by the `precommit:demo` redefinition below.
 - **No imgproxy conformance-doc change.** This is a pure relocation: no surface
   (option/config), stage/order (pipeline), or behavioral/pixel axis moves, so
-  `docs/imgproxy_support_matrix.md` is untouched. The compatibility reviewer in
-  the plan-review cycle confirms this.
+  `docs/imgproxy_support_matrix.md` is untouched.
 
 ### Tests
 
@@ -266,7 +271,10 @@ The `--port`, `--cache`, `--no-vite` flags are retired in favor of the standard
 ## Implementation note (process)
 
 Per the project's review-cycle rule, the implementation plan derived from this
-spec gets a parallel subagent review with disjoint focus areas before coding,
-including at least one reviewer checking observable imgproxy compatibility
-(routing/parse/output unchanged vs. upstream). The reviewed plan is committed
-before implementation begins.
+spec gets a parallel subagent review with disjoint focus areas before coding.
+This is a tooling/relocation change that doesn't touch any compatibility
+implementation, so a dedicated imgproxy-compatibility reviewer is **optional**
+under the softened rule (`AGENTS.md`) — the design-stage review already
+confirmed parse/sign/output are unchanged under the `/img` mount. Pick lenses
+that fit (Elixir/Phoenix wiring, frontend/build, request-safety). The reviewed
+plan is committed before implementation begins.
