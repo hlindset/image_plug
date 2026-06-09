@@ -440,9 +440,41 @@ git commit -m "feat(telemetry): OpenTelemetry exporter — public-API replay pre
     assert_receive {:span, rec}, 1_000
 
     [event] = otel_span(rec, :events) |> events_list()
+    # Anti-tautology self-check: prove we read the right #event{} fields. If the
+    # field-position wiring is wrong, the name won't match and we won't trust the ts.
+    assert event_name(event) == "image_pipe.cache.stage"
     ev_ts = event_system_time_native(event)
     assert ev_ts >= otel_span(rec, :start_time)
     assert ev_ts <= otel_span(rec, :end_time)
+  end
+
+  test "exception event maps to OTel exception semantics and uses native_end (no :time)" do
+    start = System.system_time()
+
+    span = %Span{
+      trace_id: "0123456789abcdef0123456789abcdef",
+      span_id: "89abcdef01234567",
+      name: "image_pipe.request",
+      kind: :server,
+      start_time: start,
+      duration_native: 2_000,
+      status: :error,
+      status_message: "boom",
+      trace_flags: 1,
+      # #175's exception event shape: no :time; reason is already an inspected string.
+      events: [%{name: "exception", attributes: %{kind: :error, reason: inspect(%RuntimeError{message: "boom"})}}]
+    }
+
+    assert :ok = OpenTelemetryExporter.export(span)
+    assert_receive {:span, rec}, 1_000
+
+    [event] = otel_span(rec, :events) |> events_list()
+    assert event_name(event) == "exception"
+    attrs = event_attributes(event)
+    assert attrs["exception.type"] == "error"
+    assert attrs["exception.message"] =~ "boom"
+    # No :time → falls back to the CONVERTED native_end (same frame as the span).
+    assert event_system_time_native(event) == otel_span(rec, :end_time)
   end
 
   test "export/1 is crash-safe and emits nothing when OTel can't deliver" do
@@ -463,7 +495,7 @@ git commit -m "feat(telemetry): OpenTelemetry exporter — public-API replay pre
   end
 ```
 
-> **Executor note (event reading):** the `#span{}` `events` field is an `otel_events:t()` wrapper, and each `#event{}` carries a `system_time_native` field. Add two tiny test helpers — `events_list/1` to pull the `list` out of the events wrapper, and `event_system_time_native/1` to pull the timestamp off an `#event{}` — using `Record.defrecordp` on `:events`/`:event` from `opentelemetry/include/otel_span.hrl` (same header), or `elem/2` by position with a comment. Confirm the exact field positions when you wire it; the assertion (event timestamp within span window) is the contract.
+> **Executor note (event reading):** the `#span{}` `events` field is an `otel_events:t()` wrapper (`{:events, count_limit, value_length_limit, dropped, list}` — `list` at `elem(_, 4)`), and each `#event{}` carries `name`, `system_time_native`, and `attributes` fields. Add test helpers — `events_list/1` (pull `list` out of the events wrapper), `event_name/1`, `event_system_time_native/1`, `event_attributes/1` (read off an `#event{}`) — preferably via `Record.defrecordp` on `:events`/`:event` from `opentelemetry/include/otel_span.hrl` (by field NAME, robust), not raw `elem/2`. **The `event_name/1` self-check in both event tests is mandatory** — it proves the field-position wiring is right, so a wrong read can't pass tautologically (mirrors the repo's sequential-harness anti-tautology rule). The `event_attributes/1` read returns the `otel_attributes:t()` wrapper; pull its map via `elem(_, 4)` like the span attributes.
 
 - [ ] **Step 2:** `mise exec -- mix test test/image_pipe/telemetry/trace/open_telemetry_exporter_test.exs` — all pass. If the oneshot-window test fails, the time-frame handling in `events/2` is wrong (likely a stray conversion) — fix the exporter, not the test. Then `mix format` + `mix compile --warnings-as-errors`.
 - [ ] **Step 3: Commit.**
@@ -571,9 +603,9 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 end
 ```
 
-- [ ] **Step 2: E2E + URL safety.** Add tests that issue a real `ImagePipe.call/2` with the tracer attached, reusing the #175 tracer wire-test fixtures (`grep -rl "attach_tracer\|TestExporter" test/` → likely `test/image_pipe/telemetry/trace/cross_process_test.exs` / `admission_root_test.exs` + `test/support/trace_test_exporter.ex`). Two tests:
+- [ ] **Step 2: E2E + URL safety.** Add tests that issue a real `ImagePipe.call/2` with the tracer attached. **Base this on `test/image_pipe/telemetry/trace/cross_process_test.exs`** — it is the definitive template (drives the full miss path emitting request + source + cache spans via `ImagePipe.Plug.call/2` + `miss_opts/0` with a stubbed source + a `collect/1` drain). (`admission_root_test.exs` is a narrower admission-only case; `test/support/trace_test_exporter.ex` is the #175 double.) Two tests:
   - **One trace_id across the request:** attach `OpenTelemetryExporter`, run the request, drain `{:span, rec}` messages, assert all exported spans share one `trace_id` (no deep-nesting assertion — trace-level).
-  - **URL safety:** route through a source whose URL carries `X-Amz-Signature=`; collect every string attribute value across exported spans and assert the signature substring appears in none. **Guard non-vacuity:** `assert collected != []` before the `refute`. Implement the collector as a `raise`-until-wired helper (not a `[]` stub) so the task cannot pass vacuously.
+  - **URL safety:** route through a source whose URL carries `X-Amz-Signature=`; collect every string attribute value across **both span attributes AND event attributes** of every exported span, and assert the signature substring appears in none. **Guard non-vacuity:** `assert collected != []` before the `refute`. Implement the collector as a `raise`-until-wired helper (not a `[]` stub) so the task cannot pass vacuously. **Scope note:** this guards the *structured/coerced* attribute paths the exporter controls (a `coerce`/`inspect` of an opaque struct attribute must not surface a URL). The exception-event `reason` (→ `exception.message`) is free text from #175's `inspect(reason)` and is forwarded faithfully — scrubbing free-form crash text is #175/`Capture`'s boundary, not this exporter's; this test does not attempt to cover it.
 
 ```elixir
   # add inside the module:
@@ -607,10 +639,17 @@ end
   end
 
   # MUST drive a real ImagePipe.call/2 whose source URL contains "X-Amz-Signature="
-  # then return every string attribute value across all exported spans:
-  #   drain_spans() |> Enum.flat_map(fn r -> elem(otel_span(r, :attributes), 4) |> Map.values() end) |> Enum.filter(&is_binary/1)
+  # then return every string attribute value across all exported spans — BOTH span
+  # attributes AND event attributes:
+  #   spans = drain_spans()
+  #   span_vals  = Enum.flat_map(spans, fn r -> elem(otel_span(r, :attributes), 4) |> Map.values() end)
+  #   event_vals = Enum.flat_map(spans, fn r ->
+  #     events_list(otel_span(r, :events))
+  #     |> Enum.flat_map(fn e -> elem(event_attributes(e), 4) |> Map.values() end)
+  #   end)
+  #   Enum.filter(span_vals ++ event_vals, &is_binary/1)
   defp collected_attribute_values_after_signed_url_request do
-    raise "executor: wire a signed-URL request + collect string attribute values"
+    raise "executor: wire a signed-URL request + collect string span AND event attribute values"
   end
 ```
 
@@ -720,7 +759,7 @@ the `image_pipe.request` trace in Jaeger.
  The one exception is an opt-in, optional-dependency OTel *exporter* (`ImagePipe.Telemetry.Trace.OpenTelemetryExporter`) that ships adapter code only, compiles against `:opentelemetry_api` (optional), is never attached automatically, and uses only the public OTel API — the host still provides the SDK and configures the backend. Preserves "never automatic" and "no hard dep".
 ```
 
-- [ ] **Step 4: `mix.exs` docs/package lists.** Add `"docs/cookbook/opentelemetry-jaeger.md"` to `docs: [extras: [...]]` (after `"docs/telemetry.md"`) and to `package: [files: [...]]`.
+- [ ] **Step 4: `mix.exs` docs/package lists.** Add the cookbook to `docs: [extras: [...]]` (after `"docs/telemetry.md"`) using the tuple form for a readable sidebar title: `{"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"}`. Also add the bare path `"docs/cookbook/opentelemetry-jaeger.md"` to `package: [files: [...]]`.
 
 - [ ] **Step 5:** `mise exec -- mix compile --warnings-as-errors` (boundary export resolves). Commit.
 ```bash
@@ -751,3 +790,4 @@ git add -A && git commit -m "chore(telemetry): precommit clean for OTel trace-le
 - **`ready?/0` probe (Task 5) is load-bearing** for the absence story — without it a host missing the API attaches a silent no-op.
 - **URL-safety helper must be wired, not stubbed** — the `raise` + `assert values != []` guard enforce non-vacuity.
 - Don't write: a `nil`-kind test (no producer emits it), or any module/function-existence test (name-policing).
+- **Producer trust (no exporter guard):** `parent_ctx/1` interpolates `trace`/`parent_hex` into the traceparent with no validation. A malformed (non-32/16-hex) value would make the W3C codec return the context unchanged → `start_span` mints a fresh trace_id → **our trace_id silently lost** (no crash). This is fine because #175's `Trace.Id` always emits valid lowercase hex; do **not** add a guard (trust the in-repo producer per CLAUDE.md). If #175's `Id` tests don't already assert the 32/16-hex format, that producer-side assertion is the right place for it — not a guard here.
