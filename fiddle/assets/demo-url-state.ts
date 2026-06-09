@@ -35,7 +35,6 @@ type ParsedDimension<Unit> = {
   value: number;
 };
 
-const demoPathPrefix = "/demo";
 const plainSourceMarker = "/plain/";
 const localSourcePrefix = "local:///";
 const sourceImages = new Set<string>(sampleImages.map((image) => image.path));
@@ -55,7 +54,7 @@ const outputFormats = new Set<string>(["webp", "avif", "jpeg", "png"]);
 const rotations = new Set<number>([90, 180, 270]);
 
 export function demoPathForState(currentState: DemoState): string {
-  return `${demoPathPrefix}${signedPathForState(currentState)}`;
+  return signedPathForState(currentState);
 }
 
 export function parseDemoPath(pathname: string): DemoState {
@@ -120,17 +119,13 @@ function parseDemoPathParts(
 ): { optionSegments: string[]; source: SourceImage } | null {
   const path = pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname;
 
-  if (path !== demoPathPrefix && !path.startsWith(`${demoPathPrefix}/`)) {
-    return null;
-  }
-
-  const plainIndex = path.indexOf(plainSourceMarker, demoPathPrefix.length);
+  const plainIndex = path.indexOf(plainSourceMarker);
 
   if (plainIndex === -1) {
     return null;
   }
 
-  const optionSegments = path.slice(demoPathPrefix.length, plainIndex).split("/").filter(Boolean);
+  const optionSegments = path.slice(0, plainIndex).split("/").filter(Boolean);
   const source = sourceFromIdentifier(path.slice(plainIndex + plainSourceMarker.length));
 
   if (source === null) {

@@ -22,6 +22,7 @@
     focalPointFromBounds,
     gravitySegment,
     processedSizeLabel,
+    processingPathFromSignedPath,
     resizeOptionSegment,
     resetCropPixelsToSource,
     sampleImages,
@@ -114,7 +115,7 @@
   $: ensureActiveToolboxesOpen(state);
   $: applyThemeMode(themeMode);
   $: persistThemeMode(themeMode);
-  $: previewParameters = path.replace(/^\/[^/]+\//, "");
+  $: previewParameters = path.replace(/^\/[^/]+\/[^/]+\//, "");
   $: outputLabel = resolvedOutputLabel(state, processedMetadata);
   $: sizeLabel = previewError ?? processedSizeLabel(processedMetadata);
   $: requestSummary = `${state.source.replace(/^images\//, "")} / ${requestSignatureLabel(
@@ -275,13 +276,13 @@
       .then((signature) => {
         if (requestId === pathRequestId) {
           signingError = null;
-          path = `/${signature}${signedPath}`;
+          path = processingPathFromSignedPath(signature, signedPath);
         }
       })
       .catch((error: unknown) => {
         if (requestId === pathRequestId) {
           signingError = error instanceof Error ? error.message : "Unable to sign request";
-          path = `/invalid-signature${signedPath}`;
+          path = processingPathFromSignedPath("invalid-signature", signedPath);
         }
       });
   }

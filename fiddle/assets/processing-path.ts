@@ -818,8 +818,10 @@ export function signedPathForState(currentState: DemoState): string {
   return `${optionsPath}/plain/${sourceIdentifierForRequest(currentState.source)}`;
 }
 
+const processingPrefix = "/img";
+
 export function processingPathFromSignedPath(signature: string, signedPath: string): string {
-  return `/${signature}${signedPath}`;
+  return `${processingPrefix}/${signature}${signedPath}`;
 }
 
 export function buildProcessingPath(currentState: DemoState, signature?: string): string {

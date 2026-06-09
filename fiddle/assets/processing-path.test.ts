@@ -97,7 +97,7 @@ describe("processing path generation", () => {
 
   it("builds the default SimpleServer-compatible processing path", () => {
     expect(optionSegments(defaultDemoState)).toEqual([]);
-    expect(buildProcessingPath(defaultDemoState)).toBe("/_/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(defaultDemoState)).toBe("/img/_/plain/local:///images/dog.jpg");
   });
 
   it("builds a signed request path from a generated signature", () => {
@@ -109,7 +109,7 @@ describe("processing path generation", () => {
 
     expect(signedPathForState(state)).toBe("/rs:fill:640:360:0/plain/local:///images/dog.jpg");
     expect(processingPathFromSignedPath("local-signature", signedPathForState(state))).toBe(
-      "/local-signature/rs:fill:640:360:0/plain/local:///images/dog.jpg",
+      "/img/local-signature/rs:fill:640:360:0/plain/local:///images/dog.jpg",
     );
   });
 
@@ -185,7 +185,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["ar:1"]);
-    expect(buildProcessingPath(state)).toBe("/_/ar:1/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/img/_/ar:1/plain/local:///images/dog.jpg");
   });
 
   it("includes flip options for each supported flip axis", () => {
@@ -217,7 +217,7 @@ describe("processing path generation", () => {
 
     expect(trimOptionSegment(state)).toBe("trim:10");
     expect(optionSegments(state)).toEqual(["trim:10"]);
-    expect(buildProcessingPath(state)).toBe("/_/trim:10/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/img/_/trim:10/plain/local:///images/dog.jpg");
   });
 
   it("emits trim with color when background mode is color", () => {
@@ -288,7 +288,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0:1"]);
-    expect(buildProcessingPath(state)).toBe("/_/rs:fill:640:360:0:1/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/img/_/rs:fill:640:360:0:1/plain/local:///images/dog.jpg");
   });
 
   it("builds the resize tool summary from the emitted resize segment", () => {
@@ -340,7 +340,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual([]);
-    expect(buildProcessingPath(state)).toBe("/_/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/img/_/plain/local:///images/dog.jpg");
   });
 
   it("includes extend aspect ratio when aspect canvas is enabled", () => {
@@ -351,7 +351,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["exar:1"]);
-    expect(buildProcessingPath(state)).toBe("/_/exar:1/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/img/_/exar:1/plain/local:///images/dog.jpg");
   });
 
   it("round-trips exar with gravity", () => {
@@ -376,7 +376,7 @@ describe("processing path generation", () => {
 
     expect(optionSegments(state)).toEqual(["exar:1", "pd:8:16:24:32"]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/exar:1/pd:8:16:24:32/plain/local:///images/dog.jpg",
+      "/img/_/exar:1/pd:8:16:24:32/plain/local:///images/dog.jpg",
     );
   });
 
@@ -395,7 +395,7 @@ describe("processing path generation", () => {
 
     expect(optionSegments(state)).toEqual(["pd:8:8:8:8", "bg:ffcc00", "bga:0.5"]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/pd:8:8:8:8/bg:ffcc00/bga:0.5/plain/local:///images/dog.jpg",
+      "/img/_/pd:8:8:8:8/bg:ffcc00/bga:0.5/plain/local:///images/dog.jpg",
     );
   });
 
@@ -437,7 +437,7 @@ describe("processing path generation", () => {
       "sa:35",
     ]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/bg:ffcc00/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/dog.jpg",
+      "/img/_/bg:ffcc00/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/dog.jpg",
     );
   });
 
@@ -450,7 +450,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["bg:ffcc00"]);
-    expect(buildProcessingPath(state)).toBe("/_/bg:ffcc00/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/img/_/bg:ffcc00/plain/local:///images/dog.jpg");
   });
 
   it("preserves custom background opacity decimals", () => {
@@ -529,7 +529,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["g:fp:0.25:0.75"]);
-    expect(demoPathForState(state)).toBe("/demo/g:fp:0.25:0.75/plain/local:///images/dog.jpg");
+    expect(demoPathForState(state)).toBe("/g:fp:0.25:0.75/plain/local:///images/dog.jpg");
   });
 
   it("includes offset global gravity", () => {
@@ -558,14 +558,14 @@ describe("processing path generation", () => {
   });
 
   it("round-trips smart global gravity through the demo path", () => {
-    const parsed = parseDemoPath("/demo/g:sm/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:sm/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
       gravityMode: "smart",
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/g:sm/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/g:sm/plain/local:///images/dog.jpg");
   });
 
   it("round-trips smart crop gravity through the demo path", () => {
@@ -597,14 +597,14 @@ describe("processing path generation", () => {
   });
 
   it("round-trips object (face) global gravity through the demo path", () => {
-    const parsed = parseDemoPath("/demo/g:obj:face/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:obj:face/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
       gravityMode: "objFace",
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/g:obj:face/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/g:obj:face/plain/local:///images/dog.jpg");
   });
 
   it("round-trips object (face) crop gravity through the demo path", () => {
@@ -652,7 +652,7 @@ describe("processing path generation", () => {
   });
 
   it("round-trips bare g:obj through the demo path", () => {
-    const parsed = parseDemoPath("/demo/g:obj/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:obj/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -661,11 +661,11 @@ describe("processing path generation", () => {
       objSelectedClasses: [],
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/g:obj/plain/local:///images/dog.jpg");
   });
 
   it("normalizes g:obj:all to bare g:obj (empty selection = all objects)", () => {
-    const parsed = parseDemoPath("/demo/g:obj:all/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:obj:all/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -674,11 +674,11 @@ describe("processing path generation", () => {
       objSelectedClasses: [],
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/g:obj/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/g:obj/plain/local:///images/dog.jpg");
   });
 
   it("round-trips g:obj with explicit classes through the demo path", () => {
-    const parsed = parseDemoPath("/demo/g:obj:car:dog/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:obj:car:dog/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -687,12 +687,12 @@ describe("processing path generation", () => {
       objSelectedClasses: expect.arrayContaining(["car", "dog"]),
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/g:obj:car:dog/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/g:obj:car:dog/plain/local:///images/dog.jpg");
   });
 
   it("drops class tokens not offered in the demo UI, keeping only demo-offered classes", () => {
     // 'car' is a demo class; 'spaceship' is not
-    const parsed = parseDemoPath("/demo/g:obj:car:spaceship/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:obj:car:spaceship/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -700,11 +700,11 @@ describe("processing path generation", () => {
       objSelectedClasses: ["car"],
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/g:obj:car/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/g:obj:car/plain/local:///images/dog.jpg");
   });
 
   it("leaves gravity unchanged for an all-unknown g:obj segment", () => {
-    const parsed = parseDemoPath("/demo/g:obj:spaceship/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:obj:spaceship/plain/local:///images/dog.jpg");
 
     // every token unknown -> the picker can't represent it, gravity is unchanged
     expect(parsed.gravityMode).not.toBe("object");
@@ -712,7 +712,7 @@ describe("processing path generation", () => {
 
   it("g:obj:car:all — 'all' mixed with classes falls through to known-class filter", () => {
     // 'all' is not in demoObjClassSet so it gets dropped; 'car' is kept
-    const parsed = parseDemoPath("/demo/g:obj:car:all/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:obj:car:all/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -720,11 +720,11 @@ describe("processing path generation", () => {
       objSelectedClasses: ["car"],
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/g:obj:car/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/g:obj:car/plain/local:///images/dog.jpg");
   });
 
   it("preserves g:obj:face as the legacy objFace mode", () => {
-    const parsed = parseDemoPath("/demo/g:obj:face/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:obj:face/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -836,7 +836,7 @@ describe("processing path generation", () => {
     // g:objw:all:1:face:3 detects ALL objects with face boosted 3×.
     // g:objw:face:3 filters to face only.
     // These are DIFFERENT requests — the demo must NOT rewrite one into the other.
-    const parsed = parseDemoPath("/demo/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityMode: "object",
@@ -848,12 +848,12 @@ describe("processing path generation", () => {
     // Serializes back with both all and face (uniform weights → compact obj form,
     // but all:1 face:3 are NOT uniform so → objw verbatim)
     expect(demoPathForState(parsed)).toBe(
-      "/demo/g:objw:all:1:face:3/plain/local:///images/dog.jpg",
+      "/g:objw:all:1:face:3/plain/local:///images/dog.jpg",
     );
   });
 
   it("round-trips g:objw:face:3 (single face weight) through the demo path", () => {
-    const parsed = parseDemoPath("/demo/g:objw:face:3/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:objw:face:3/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -864,11 +864,11 @@ describe("processing path generation", () => {
     });
 
     // Single class with weight 3 → uniform (only one) → compact g:obj:face form
-    expect(demoPathForState(parsed)).toBe("/demo/g:obj:face/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/g:obj:face/plain/local:///images/dog.jpg");
   });
 
   it("round-trips g:objw:all:2:face:3 through the demo path", () => {
-    const parsed = parseDemoPath("/demo/g:objw:all:2:face:3/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/g:objw:all:2:face:3/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -878,7 +878,7 @@ describe("processing path generation", () => {
     });
 
     expect(demoPathForState(parsed)).toBe(
-      "/demo/g:objw:all:2:face:3/plain/local:///images/dog.jpg",
+      "/g:objw:all:2:face:3/plain/local:///images/dog.jpg",
     );
   });
 
@@ -894,26 +894,26 @@ describe("processing path generation", () => {
 
     expect(optionSegments(state)).toEqual(["g:objw:face:3:person:1"]);
     expect(demoPathForState(state)).toBe(
-      "/demo/g:objw:face:3:person:1/plain/local:///images/dog.jpg",
+      "/g:objw:face:3:person:1/plain/local:///images/dog.jpg",
     );
   });
 
   it("rejects invalid objw gravity values in demo routes", () => {
     // bare g:objw (no pairs)
-    expect(parseDemoPath("/demo/g:objw/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/g:objw/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
     // odd arity
-    expect(parseDemoPath("/demo/g:objw:face/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/g:objw:face/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
     // non-positive weight
-    expect(parseDemoPath("/demo/g:objw:face:0/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/g:objw:face:0/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
-    expect(parseDemoPath("/demo/g:objw:face:-2/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/g:objw:face:-2/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
     // non-numeric weight
-    expect(parseDemoPath("/demo/g:objw:face:bad/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/g:objw:face:bad/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
   });
@@ -1061,7 +1061,7 @@ describe("processing path generation", () => {
 
     expect(optionSegments(state)).toEqual(["z:1.5", "dpr:2", "mw:320", "mh:180"]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/z:1.5/dpr:2/mw:320/mh:180/plain/local:///images/dog.jpg",
+      "/img/_/z:1.5/dpr:2/mw:320/mh:180/plain/local:///images/dog.jpg",
     );
   });
 
@@ -1094,7 +1094,7 @@ describe("processing path generation", () => {
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce"]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/rs:fill:640:360:0/g:ce/plain/local:///images/dog.jpg",
+      "/img/_/rs:fill:640:360:0/g:ce/plain/local:///images/dog.jpg",
     );
   });
 
@@ -1107,7 +1107,7 @@ describe("processing path generation", () => {
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:ce", "q:0"]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/rs:fill:640:360:0/g:ce/q:0/plain/local:///images/dog.jpg",
+      "/img/_/rs:fill:640:360:0/g:ce/q:0/plain/local:///images/dog.jpg",
     );
   });
 
@@ -1120,7 +1120,7 @@ describe("processing path generation", () => {
 
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "q:85"]);
     expect(buildProcessingPath(state)).toBe(
-      "/_/rs:fill:640:360:0/q:85/plain/local:///images/dog.jpg",
+      "/img/_/rs:fill:640:360:0/q:85/plain/local:///images/dog.jpg",
     );
   });
 
@@ -1131,7 +1131,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["g:ce", "q:85"]);
-    expect(buildProcessingPath(state)).toBe("/_/g:ce/q:85/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/img/_/g:ce/q:85/plain/local:///images/dog.jpg");
   });
 
   it("emits car with enlarge", () => {
@@ -1167,7 +1167,7 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual([]);
-    expect(buildProcessingPath(state)).toBe("/_/plain/local:///images/dog.jpg");
+    expect(buildProcessingPath(state)).toBe("/img/_/plain/local:///images/dog.jpg");
   });
 
   it("shows automatic output as pending until response metadata is available", () => {
@@ -1211,13 +1211,13 @@ describe("demo URL state", () => {
     };
 
     expect(demoPathForState(state)).toBe(
-      "/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/local:///images/dog.jpg",
+      "/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/local:///images/dog.jpg",
     );
   });
 
   it("parses a shareable demo route into enabled controls", () => {
     const parsed = parseDemoPath(
-      "/demo/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/local:///images/dog.jpg",
+      "/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/local:///images/dog.jpg",
     );
 
     expect(parsed).toMatchObject({
@@ -1237,7 +1237,7 @@ describe("demo URL state", () => {
   });
 
   it("round-trips trim with threshold only through the demo path", () => {
-    const parsed = parseDemoPath("/demo/trim:10/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/trim:10/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       trimEnabled: true,
@@ -1247,11 +1247,11 @@ describe("demo URL state", () => {
       trimEqualVer: false,
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/trim:10/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/trim:10/plain/local:///images/dog.jpg");
   });
 
   it("round-trips trim with color through the demo path", () => {
-    const parsed = parseDemoPath("/demo/trim:10:ff00ff/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/trim:10:ff00ff/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       trimEnabled: true,
@@ -1260,11 +1260,11 @@ describe("demo URL state", () => {
       trimColor: "#ff00ff",
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/trim:10:ff00ff/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/trim:10:ff00ff/plain/local:///images/dog.jpg");
   });
 
   it("round-trips trim with empty color slot and flags through the demo path", () => {
-    const parsed = parseDemoPath("/demo/trim:10::1:1/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/trim:10::1:1/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       trimEnabled: true,
@@ -1274,11 +1274,11 @@ describe("demo URL state", () => {
       trimEqualVer: true,
     });
 
-    expect(demoPathForState(parsed)).toBe("/demo/trim:10::1:1/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/trim:10::1:1/plain/local:///images/dog.jpg");
   });
 
   it("round-trips trim short alias (t) through the demo path", () => {
-    const parsed = parseDemoPath("/demo/t:15/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/t:15/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       trimEnabled: true,
@@ -1286,26 +1286,26 @@ describe("demo URL state", () => {
     });
 
     // Re-emits using the long form "trim:"
-    expect(demoPathForState(parsed)).toBe("/demo/trim:15/plain/local:///images/dog.jpg");
+    expect(demoPathForState(parsed)).toBe("/trim:15/plain/local:///images/dog.jpg");
   });
 
   it("rejects invalid trim values in demo routes", () => {
-    expect(parseDemoPath("/demo/trim:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/trim:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/trim:10:zzz/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/trim:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/trim:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/trim:10:zzz/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
-    expect(parseDemoPath("/demo/trim:10:ff00ff:2:0/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/trim:10:ff00ff:2:0/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
-    expect(parseDemoPath("/demo/trim:10:ff00ff:0:2/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/trim:10:ff00ff:0:2/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
   });
 
   it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {
     const parsed = parseDemoPath(
-      "/demo/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:1/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
+      "/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:1/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
     );
 
     expect(parsed).toMatchObject({
@@ -1361,7 +1361,7 @@ describe("demo URL state", () => {
 
   it("parses long aliases for color effect options", () => {
     expect(
-      parseDemoPath("/demo/brightness:20/contrast:-15/saturation:35/plain/local:///images/dog.jpg"),
+      parseDemoPath("/brightness:20/contrast:-15/saturation:35/plain/local:///images/dog.jpg"),
     ).toMatchObject({
       brightnessEnabled: true,
       brightness: 20,
@@ -1373,14 +1373,14 @@ describe("demo URL state", () => {
   });
 
   it("uses duotone defaults for omitted demo route colors", () => {
-    expect(parseDemoPath("/demo/dt:0.5:112233/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/dt:0.5:112233/plain/local:///images/dog.jpg")).toMatchObject({
       duotoneEnabled: true,
       duotoneIntensity: 0.5,
       duotoneShadow: "#112233",
       duotoneHighlight: defaultDemoState.duotoneHighlight,
     });
 
-    expect(parseDemoPath("/demo/dt:0.5::ffeecc/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/dt:0.5::ffeecc/plain/local:///images/dog.jpg")).toMatchObject({
       duotoneEnabled: true,
       duotoneIntensity: 0.5,
       duotoneShadow: defaultDemoState.duotoneShadow,
@@ -1389,7 +1389,7 @@ describe("demo URL state", () => {
   });
 
   it("treats pixelate size one as a demo no-op", () => {
-    expect(parseDemoPath("/demo/pix:1/plain/local:///images/dog.jpg")).toEqual({
+    expect(parseDemoPath("/pix:1/plain/local:///images/dog.jpg")).toEqual({
       ...defaultDemoState,
       pixelateEnabled: false,
       pixelate: defaultDemoState.pixelate,
@@ -1398,7 +1398,7 @@ describe("demo URL state", () => {
 
   it("treats zero-valued effects as demo no-ops", () => {
     expect(
-      parseDemoPath("/demo/bl:0/sh:0/pix:0/br:0/co:0/sa:0/plain/local:///images/dog.jpg"),
+      parseDemoPath("/bl:0/sh:0/pix:0/br:0/co:0/sa:0/plain/local:///images/dog.jpg"),
     ).toEqual({
       ...defaultDemoState,
       blurEnabled: false,
@@ -1424,7 +1424,7 @@ describe("demo URL state", () => {
   });
 
   it("expands accordions that contain active URL state", () => {
-    const state = parseDemoPath("/demo/ar:1/z:1.5/br:20/plain/local:///images/dog.jpg");
+    const state = parseDemoPath("/ar:1/z:1.5/br:20/plain/local:///images/dog.jpg");
 
     expect(expandedToolboxesForState(state)).toEqual({
       effectsOpen: true,
@@ -1435,19 +1435,19 @@ describe("demo URL state", () => {
   });
 
   it("parses car with and without enlarge", () => {
-    expect(parseDemoPath("/demo/car:1.5/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/car:1.5/plain/local:///images/dog.jpg")).toMatchObject({
       cropAspectRatioEnabled: true,
       cropAspectRatio: 1.5,
       cropAspectRatioEnlarge: false,
     });
 
-    expect(parseDemoPath("/demo/car:1.5:1/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/car:1.5:1/plain/local:///images/dog.jpg")).toMatchObject({
       cropAspectRatioEnabled: true,
       cropAspectRatio: 1.5,
       cropAspectRatioEnlarge: true,
     });
 
-    expect(parseDemoPath("/demo/car:2:0/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/car:2:0/plain/local:///images/dog.jpg")).toMatchObject({
       cropAspectRatioEnabled: true,
       cropAspectRatio: 2,
       cropAspectRatioEnlarge: false,
@@ -1455,7 +1455,7 @@ describe("demo URL state", () => {
   });
 
   it("round-trips a car-only path through parse and emit", () => {
-    const parsed = parseDemoPath("/demo/car:1.5:1/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/car:1.5:1/plain/local:///images/dog.jpg");
 
     expect(parsed).not.toBeNull();
     // car must survive serialization even though cropEnabled stays false.
@@ -1463,38 +1463,38 @@ describe("demo URL state", () => {
   });
 
   it("rejects invalid car values in demo routes", () => {
-    expect(parseDemoPath("/demo/car:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/car:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/car:1.5:bad/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/car:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/car:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/car:1.5:bad/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
-    expect(parseDemoPath("/demo/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
   });
 
   it("falls back to defaults for invalid demo routes", () => {
-    expect(parseDemoPath("/demo/not-supported/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/not-supported/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
-    expect(parseDemoPath("/demo/rs:fill:640:360:0/plain/images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/not-demo/rs:fill:640:360:0/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/rs:fill:640:360:0/plain/images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/not-a-valid-option/rs:fill:640:360:0/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
   });
 
   it("rejects invalid quality values in demo routes", () => {
-    expect(parseDemoPath("/demo/q:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/q:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/q:85.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/q:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/q:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/q:85.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
   });
 
   it("rejects invalid color effect values in demo routes", () => {
-    expect(parseDemoPath("/demo/br:-101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/co:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/sa:100.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/mc:1.1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/dt:0.5:zzz/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/br:-101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/co:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/sa:100.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/mc:1.1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/dt:0.5:zzz/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
   });
@@ -1534,7 +1534,7 @@ describe("demo URL state", () => {
   });
 
   it("round-trips sm:0 through parse and emit", () => {
-    const parsed = parseDemoPath("/demo/sm:0/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/sm:0/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({ stripMetadata: false, keepCopyright: false });
     expect(optionSegments(parsed)).toContain("sm:0");
@@ -1542,7 +1542,7 @@ describe("demo URL state", () => {
   });
 
   it("round-trips kcr:0 through parse and emit", () => {
-    const parsed = parseDemoPath("/demo/kcr:0/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/kcr:0/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({ stripMetadata: true, keepCopyright: false });
     expect(optionSegments(parsed)).toContain("kcr:0");
@@ -1550,55 +1550,55 @@ describe("demo URL state", () => {
   });
 
   it("round-trips scp:0 through parse and emit", () => {
-    const parsed = parseDemoPath("/demo/scp:0/plain/local:///images/dog.jpg");
+    const parsed = parseDemoPath("/scp:0/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({ stripColorProfile: false });
     expect(optionSegments(parsed)).toContain("scp:0");
   });
 
   it("normalizes keepCopyright to false when sm:0 is parsed without kcr", () => {
-    const parsedSmOnly = parseDemoPath("/demo/sm:0/plain/local:///images/dog.jpg");
+    const parsedSmOnly = parseDemoPath("/sm:0/plain/local:///images/dog.jpg");
 
     expect(parsedSmOnly).toMatchObject({ stripMetadata: false, keepCopyright: false });
   });
 
   it("normalizes keepCopyright to false regardless of sm/kcr segment order", () => {
-    const kcrThenSm = parseDemoPath("/demo/kcr:1/sm:0/plain/local:///images/dog.jpg");
-    const smThenKcr = parseDemoPath("/demo/sm:0/kcr:1/plain/local:///images/dog.jpg");
+    const kcrThenSm = parseDemoPath("/kcr:1/sm:0/plain/local:///images/dog.jpg");
+    const smThenKcr = parseDemoPath("/sm:0/kcr:1/plain/local:///images/dog.jpg");
 
     expect(kcrThenSm).toMatchObject({ stripMetadata: false, keepCopyright: false });
     expect(smThenKcr).toMatchObject({ stripMetadata: false, keepCopyright: false });
   });
 
   it("accepts boolean aliases for sm, kcr, and scp", () => {
-    expect(parseDemoPath("/demo/sm:1/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/sm:1/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: true,
     });
-    expect(parseDemoPath("/demo/sm:t/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/sm:t/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: true,
     });
-    expect(parseDemoPath("/demo/sm:true/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/sm:true/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: true,
     });
-    expect(parseDemoPath("/demo/sm:f/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/sm:f/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: false,
     });
-    expect(parseDemoPath("/demo/sm:false/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/sm:false/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: false,
     });
-    expect(parseDemoPath("/demo/kcr:0/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/kcr:0/plain/local:///images/dog.jpg")).toMatchObject({
       keepCopyright: false,
     });
-    expect(parseDemoPath("/demo/scp:f/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseDemoPath("/scp:f/plain/local:///images/dog.jpg")).toMatchObject({
       stripColorProfile: false,
     });
   });
 
   it("rejects invalid sm/kcr/scp values in demo routes", () => {
-    expect(parseDemoPath("/demo/sm:yes/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/kcr:2/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/scp:/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/demo/sm:0:extra/plain/local:///images/dog.jpg")).toEqual(
+    expect(parseDemoPath("/sm:yes/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/kcr:2/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/scp:/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/sm:0:extra/plain/local:///images/dog.jpg")).toEqual(
       defaultDemoState,
     );
   });
@@ -1628,6 +1628,6 @@ describe("demo URL state", () => {
       cropHeight: cropPixelLimit("images/beach.jpg", "height").max,
     });
     expect(optionSegments(reset)).toEqual([]);
-    expect(demoPathForState(reset)).toBe("/demo/plain/local:///images/beach.jpg");
+    expect(demoPathForState(reset)).toBe("/plain/local:///images/beach.jpg");
   });
 });
