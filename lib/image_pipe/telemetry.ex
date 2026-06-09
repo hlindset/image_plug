@@ -10,7 +10,7 @@ defmodule ImagePipe.Telemetry do
   use Boundary,
     top_level?: true,
     deps: [],
-    exports: [Trace, Trace.Stack, Trace.Context, Trace.ReqStep]
+    exports: [Trace, Trace.Stack, Trace.Context, Trace.Span, Trace.Exporter, Trace.ReqStep]
 
   alias ImagePipe.Telemetry.Logger, as: DefaultLogger
   alias ImagePipe.Telemetry.Trace
@@ -133,7 +133,8 @@ defmodule ImagePipe.Telemetry do
     exporter = opts[:exporter]
 
     unless Code.ensure_loaded?(exporter) and function_exported?(exporter, :export, 1) do
-      raise ArgumentError, "exporter #{inspect(exporter)} must be a loaded module exporting export/1"
+      raise ArgumentError,
+            "exporter #{inspect(exporter)} must be a loaded module exporting export/1"
     end
 
     Trace.set_exporter(exporter)

@@ -44,7 +44,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   # SENSITIVITY: allowlist only. Never add :source_url, :source_path, request paths,
   # signatures, tokens, or any secret-bearing key. Operation structs (:params) are
   # stored opaque (inspected by exporters) and MUST NOT be pattern-matched against
-  # ImagePipe.Transform.Operation.* here — that would invert the telemetry boundary.
+  # concrete transform operation structs here — that would invert the telemetry
+  # boundary (enforced by the capture-no-concrete-modules architecture test).
   @safe_keys [
     :operation,
     :index,

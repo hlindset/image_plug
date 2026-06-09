@@ -470,3 +470,82 @@ end
 
 When customizing `telemetry_prefix`, attach to that same prefix instead of
 `[:image_pipe]`.
+
+## Tracing (opt-in)
+
+The events above are raw `:telemetry` events. ImagePipe also ships an **opt-in
+span tracer** that consumes those events, reconstructs correctly-nested
+distributed-trace-shaped spans (one `trace_id` per request, parent/child
+relationships preserved across the `[:transform, :execute]` /
+`[:transform, :operation]` / `[:transform, :materialize]` nesting and across the
+request → `SourceSession` → `Producer` process seams), and hands each finished
+span to a pluggable exporter as an `ImagePipe.Telemetry.Trace.Span`.
+
+The tracer is **not** attached automatically. A host opts in with
+`ImagePipe.Telemetry.attach_tracer/1` and removes it with
+`ImagePipe.Telemetry.detach_tracer/0`. Both are host-startup configuration, so
+`attach_tracer/1` **raises** `ArgumentError` on invalid options rather than
+returning a tagged error.
+
+```elixir
+# Attach the bundled stdlib-Logger exporter:
+ImagePipe.Telemetry.attach_tracer(exporter: ImagePipe.Telemetry.Trace.LogExporter)
+
+# ... later ...
+ImagePipe.Telemetry.detach_tracer()
+```
+
+### Options
+
+| Option            | Type            | Default                   | Meaning                                                                 |
+| ----------------- | --------------- | ------------------------- | ----------------------------------------------------------------------- |
+| `:exporter`       | module (atom)   | — (required)              | Module implementing the `ImagePipe.Telemetry.Trace.Exporter` behaviour. |
+| `:prefix`         | list of atoms   | `[:image_pipe]`           | Telemetry event prefix to subscribe to. Reuses `ImagePipe.Telemetry.default_prefix()`; match your configured `telemetry_prefix`. |
+| `:extract_inbound`| boolean         | `false`                   | Extract an inbound W3C `traceparent` header so the root span continues an upstream trace. Off by default — only enable behind a trusted edge. |
+| `:finch_spans`    | boolean         | `true`                    | Also capture physical Finch wire spans for outbound source fetches.     |
+
+`attach_tracer/1` raises `ArgumentError` when an option is unknown, has the wrong
+type, `:exporter` is missing, or the exporter module is not loaded / does not
+export `export/1`.
+
+### The exporter contract
+
+A host implements `ImagePipe.Telemetry.Trace.Exporter`:
+
+```elixir
+@callback export(ImagePipe.Telemetry.Trace.Span.t()) :: :ok
+```
+
+- `export/1` is called **synchronously** in the process that emitted the span's
+  `:stop` / `:exception`. Keep it cheap and non-blocking — hand real I/O off to a
+  batch processor. It must return `:ok` and should not raise.
+- Span **attributes are pre-filtered for sensitivity** by the capture layer
+  (allowlist only — source URLs, request paths, signatures, and tokens are never
+  copied in). Exporters that fan out to third parties remain responsible for
+  their own egress policy.
+
+### `LogExporter`
+
+`ImagePipe.Telemetry.Trace.LogExporter` is the bundled default. It is
+**stateless and flat by design**: it logs one structured `Logger.info` line per
+completed span as that span closes, in the process that emitted it. It does
+**not** buffer spans into a tree or wait for a root to close — parentage is
+carried in the `parent=` field so a downstream log pipeline can reconstruct
+nesting.
+
+```
+image_pipe.trace trace=<trace_id> span=<span_id> parent=<parent_span_id|-> <name> dur=<duration_native|-> status=<ok|error|unset>
+```
+
+### Inbound extraction and sampling
+
+Inbound `traceparent` extraction is **opt-in** (`extract_inbound: true`) because
+trusting an inbound trace header from an untrusted client lets a caller pin your
+`trace_id`; enable it only behind a gateway you control. When enabled and a valid
+W3C `traceparent` is present, the request root span continues that trace and
+parents to the inbound span; otherwise it mints a fresh root.
+
+**Sampling is deferred to the host.** ImagePipe propagates `trace_flags` but does
+not implement a sampler. A host that wants head- or tail-based sampling does it in
+its exporter (e.g. drop spans whose `trace_flags` indicate "not sampled", or
+batch and sample in the downstream collector).

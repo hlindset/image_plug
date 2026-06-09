@@ -280,13 +280,25 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # request->SourceSession (hop A) and request->Producer (hop B) process seams (it
     # calls only these generic Trace.* modules, never concrete transform ops).
     # Trace.ReqStep is exported because the source Req-client build site attaches it to
-    # trace outbound fetches as a logical client span. The boundary stays dependency-free.
+    # trace outbound fetches as a logical client span. Trace.Span and Trace.Exporter are
+    # exported because a host implements the exporter behaviour (Trace.Exporter) and
+    # receives captured spans (Trace.Span) — that is the public exporter contract. The
+    # boundary stays dependency-free.
     assert_boundary_exports(telemetry, [
       ImagePipe.Telemetry.Trace,
       ImagePipe.Telemetry.Trace.Stack,
       ImagePipe.Telemetry.Trace.Context,
+      ImagePipe.Telemetry.Trace.Span,
+      ImagePipe.Telemetry.Trace.Exporter,
       ImagePipe.Telemetry.Trace.ReqStep
     ])
+  end
+
+  test "telemetry trace capture does not reference concrete transform/source/request modules" do
+    source = File.read!("lib/image_pipe/telemetry/trace/capture.ex")
+    refute source =~ "ImagePipe.Transform.Operation"
+    refute source =~ "ImagePipe.Source."
+    refute source =~ "ImagePipe.Request."
   end
 
   test "error boundary remains a dependency-free helper" do
