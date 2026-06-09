@@ -33,8 +33,9 @@
 - `fiddle/assets/**` — the moved Svelte SPA (`main.ts`, `App.svelte`, controls, `processing-path.ts`, `demo-url-state.ts`, `theme.ts`, `styles.css`, `*.test.ts`).
 - `fiddle/assets/vite.config.ts`, `svelte.config.js`, `tsconfig.json`, `.oxfmtrc.json`, `package.json`.
 - `fiddle/priv/static/images/*` — own copy of sample images.
-- `fiddle/priv/static/favicon.ico` — quiet the browser default request.
 - `fiddle/test/**` — fiddle wire-level Elixir tests.
+
+(No `favicon.ico`/`robots.txt` are created; `static_paths` lists only `assets`+`images`. A browser `/favicon.ico` request harmlessly hits the SPA-shell catch-all — it never reaches the `/img` parser, so there is no parser noise to suppress.)
 
 **Library — modified/deleted (Phase 6):**
 - Delete `dev/simple_server.ex`, `lib/mix/tasks/image_pipe.server.ex`, `test/simple_server_test.exs`, `test/mix/tasks/image_pipe_server_test.exs`.
@@ -63,7 +64,7 @@ From the repo root:
 mise exec -- mix phx.new fiddle \
   --module ImagePipeFiddle --app image_pipe_fiddle \
   --no-ecto --no-mailer --no-gettext --no-dashboard \
-  --no-tailwind --no-live --no-assets --install false
+  --no-tailwind --no-live --no-assets --no-install
 ```
 
 Expected: generates `fiddle/` with `mix.exs`, `lib/image_pipe_fiddle{,_web}/`, `config/`, no `assets/`, no Ecto/LiveView/mailer. Answer "Y" if prompted to proceed. (`--no-assets` means no esbuild/tailwind pipeline — we add Vite ourselves.)
@@ -129,7 +130,7 @@ Replace `fiddle/lib/image_pipe_fiddle_web/components/layouts/root.html.heex` wit
 </html>
 ```
 
-- [ ] **Step 3: Point the catch-all route at the page controller**
+- [ ] **Step 3: Point the catch-all route at the page controller, rendering only the shell**
 
 In `fiddle/lib/image_pipe_fiddle_web/router.ex`, ensure the browser scope has a catch-all GET that renders the shell (replace the default `get "/"` line):
 
@@ -141,7 +142,19 @@ scope "/", ImagePipeFiddleWeb do
 end
 ```
 
-Confirm `PageController.home/2` renders `:home` (the generated controller already does; if it references `:index`, rename to `:home`).
+**Bypass the app layout** so the body is *only* the SPA mount div — not Phoenix's generated app chrome (flash group, nav). Phoenix 1.8 wraps `home.html.heex` in `Layouts.app` (the inner layout) inside `root.html.heex` (the outer layout that owns `<head>`). We keep `root` (it carries the Vite tags in Phase 2) but disable the inner app layout. In `fiddle/lib/image_pipe_fiddle_web/controllers/page_controller.ex`:
+
+```elixir
+defmodule ImagePipeFiddleWeb.PageController do
+  use ImagePipeFiddleWeb, :controller
+
+  def home(conn, _params) do
+    render(conn, :home, layout: false)
+  end
+end
+```
+
+(The generated controller already defines `:home` + `page_html/home.html.heex`; `layout: false` disables only the inner app layout, not `root`.)
 
 - [ ] **Step 4: Verify the shell renders at `/` and a deep link**
 
@@ -242,7 +255,7 @@ cp tsconfig.json fiddle/tsconfig.json
 cp .oxfmtrc.json fiddle/.oxfmtrc.json
 ```
 
-Edit `fiddle/tsconfig.json` if it references `demo/` paths — repoint any `include`/`paths` to the assets root (`.` / `*.ts` / `*.svelte`). Verify after the asset move in Task 2.2.
+Edit `fiddle/tsconfig.json`: the current root `tsconfig.json` `include` is `["demo/src/**/*.ts", "vite.config.ts"]`. Repoint it to the assets root: `"include": ["**/*.ts", "**/*.svelte", "vite.config.ts"]`. (If `pnpm run check` still fails on path resolution after the Task 2.2 move, this is the first place to look.)
 
 - [ ] **Step 4: Commit**
 
@@ -286,6 +299,10 @@ Verify nothing else references it:
 grep -rn "demo-app" fiddle/assets
 ```
 Expected: no matches.
+
+- [ ] **Step 3b: Fix the `geist` font paths in `styles.css`**
+
+`styles.css` references the bundled Geist fonts at `../../node_modules/geist/...` (around lines 3 and 11) — a depth valid from the old `demo/src/`. After the move to `fiddle/assets/`, pnpm installs into `fiddle/assets/node_modules/`, so the correct relative path from `fiddle/assets/styles.css` is `./node_modules/geist/...`. Update each `url(...)`/`@font-face src` accordingly. (Verify the fonts actually resolve in Task 2.3 Step 3's build, and visually on first boot — a broken path silently drops the custom font.)
 
 - [ ] **Step 4: Add `fiddle/assets/svelte.config.js`**
 
@@ -440,7 +457,12 @@ Expected: installs cleanly (a lockfile `fiddle/assets/pnpm-lock.yaml` is created
 cd fiddle/assets && pnpm run build
 ls ../priv/static/.vite/manifest.json && ls ../priv/static/assets
 ```
-Expected: manifest exists; hashed JS/CSS under `priv/static/assets`. Confirm `priv/static/images/` still has the 11 files (emptyOutDir:false protected them):
+Expected: manifest exists; hashed JS/CSS under `priv/static/assets`. **Assert the manifest key is exactly `main.ts`** (this is what the tags component's `names={["main.ts"]}` looks up — a wrong Vite root would key it `assets/main.ts` and the prod tag would 404):
+```bash
+node -e "console.log(Object.keys(require('../priv/static/.vite/manifest.json')))"
+# must include "main.ts"
+```
+Confirm `priv/static/images/` still has the 11 files (emptyOutDir:false protected them):
 ```bash
 ls ../priv/static/images | wc -l   # 11
 ```
@@ -500,7 +522,18 @@ In `fiddle/lib/image_pipe_fiddle_web/components/layouts/root.html.heex`, add ins
 />
 ```
 
-The component is fully-qualified — no import needed. `static_url/2` is already imported in generated layouts via the verified_routes/conn helpers; if not, add `import Phoenix.Controller, only: [static_url: 2]`... (verify: in Phoenix 1.8 `static_url(@conn, path)` resolves via the endpoint's `static_url` config).
+The component is fully-qualified — no import needed. `static_url/2` (which resolves a path to an absolute URL via the endpoint's `static_url` config — so in dev it points at `localhost:5173`) is **not** imported in the generated layout by default. Add it explicitly to the html helpers in `fiddle/lib/image_pipe_fiddle_web.ex` so the layout can call it:
+
+```elixir
+defp html_helpers do
+  quote do
+    # ...existing imports/use...
+    import Phoenix.Controller, only: [static_url: 2]
+  end
+end
+```
+
+`@conn` is always in scope in the root layout.
 
 - [ ] **Step 3: Serve `/images` and `/assets` via `Plug.Static`**
 
@@ -514,10 +547,10 @@ plug Plug.Static,
   only: ImagePipeFiddleWeb.static_paths()
 ```
 
-and in `fiddle/lib/image_pipe_fiddle_web.ex` set:
+and in `fiddle/lib/image_pipe_fiddle_web.ex` set (only what we actually ship — `assets` are the Vite bundles, `images` the sample images):
 
 ```elixir
-def static_paths, do: ~w(assets images favicon.ico robots.txt)
+def static_paths, do: ~w(assets images)
 ```
 
 - [ ] **Step 4: Prod manifest in `config/runtime.exs`**
@@ -553,9 +586,9 @@ cd fiddle && mise exec -- mix phx.server
 ```
 In a browser (or via curl) hit `http://localhost:4000/`:
 ```bash
-curl -s localhost:4000/ | grep -E '@vite/client|main.ts'
+curl -s localhost:4000/ | grep -oE 'src="[^"]*(@vite/client|main.ts)"'
 ```
-Expected: dev mode emits `<script type="module" src="http://localhost:5173/@vite/client">` and a `main.ts` module script. Loading `/` in a real browser should render the Fiddle UI with HMR. Ctrl-C when confirmed.
+Expected: the emitted `src` hosts are **`http://localhost:5173/...`** (not same-origin) — i.e. `src="http://localhost:5173/@vite/client"` and `src="http://localhost:5173/main.ts"`. This confirms `static_url`→5173 and the tags component are wired correctly; grepping for mere presence is not enough. Loading `/` in a real browser should render the Fiddle UI with HMR. Ctrl-C when confirmed.
 
 - [ ] **Step 7: Verify the prod tag path**
 
@@ -640,7 +673,12 @@ defp build_imgproxy_opts do
     sources: [
       path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
     ],
-    imgproxy: imgproxy
+    imgproxy: imgproxy,
+    # Hard ML deps (Phase 5) mean the detector is always present; require it so a
+    # broken model load surfaces as an error instead of a silent attention-crop
+    # fallback. (Verify the exact option name/placement against
+    # `ImagePipe.Plug`'s `validate_detector_capability` — lib/image_pipe/plug.ex.)
+    detector_required: true
   ]
   |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
   |> ImagePipe.Plug.init()
@@ -721,6 +759,8 @@ expect(buildProcessingPath(defaultDemoState, "_")).toMatch(/^\/img\/_\//);
 
 For `demo-url-state` round-trips, assert that `demoPathForState(state)` no longer starts with `/demo` and that `parseDemoPath(demoPathForState(state))` round-trips equal to `state`.
 
+**Scope warning:** this is not a two-line tweak — `processing-path.test.ts` hardcodes `/demo` on roughly **88 lines** (parse inputs and `demoPathForState` expectations across the URL-state and object-gravity blocks), plus the `buildProcessingPath`/`processingPathFromSignedPath` expectations gain the `/img` prefix. Budget for a careful, complete find/replace, not a sample. The other vitest files need **no** path changes: `sample-images.test.ts` asserts the sample-image `path` field (`images/...`, unrelated to the URL prefix) and `theme.test.ts` has no path assertions — confirm, then leave them.
+
 - [ ] **Step 2: Run the tests; confirm they fail**
 
 ```bash
@@ -739,6 +779,23 @@ export function processingPathFromSignedPath(signature: string, signedPath: stri
   return `${processingPrefix}/${signature}${signedPath}`;
 }
 ```
+
+- [ ] **Step 3b: Route `App.svelte`'s signed-mode paths through the same helper, and fix the parameter-preview regex**
+
+`App.svelte` builds the processing path **inline** in signed and invalid-signature modes, bypassing `processingPathFromSignedPath` — so without this fix the `/img` prefix is applied in *unsigned* mode only, and signed/invalid requests (preview `<img>` and copied URL) would 404. Read `App.svelte` around lines 270–290 and replace the inline constructions:
+
+- `path = \`/${signature}${signedPath}\`` (≈ line 278) → `path = processingPathFromSignedPath(signature, signedPath)`
+- `path = \`/invalid-signature${signedPath}\`` (≈ line 284) → `path = processingPathFromSignedPath("invalid-signature", signedPath)`
+
+Ensure `processingPathFromSignedPath` is imported in `App.svelte` (it already imports from `./processing-path`).
+
+Also fix the parameter-preview that strips the leading path segment(s). `previewParameters = path.replace(/^\/[^/]+\//, "")` (≈ line 117) strips one segment; with the `/img/<sig>/...` shape it must strip **two**:
+
+```ts
+const previewParameters = path.replace(/^\/[^/]+\/[^/]+\//, "");
+```
+
+(Verify against the actual code — the goal is that the displayed parameters start at the options, e.g. `rs:.../plain/...`, not `_/rs:...`.)
 
 - [ ] **Step 4: Drop the `/demo` prefix in `demo-url-state.ts` and simplify the parser**
 
@@ -840,7 +897,7 @@ Expected: on boot, the default Logger prints telemetry; the warmup worker loads 
 curl -s -o /tmp/face.jpg -w '%{http_code}\n' \
   'localhost:4000/img/_/rs:fill:200:200/g:obj:face/plain/local:///images/woman.jpg'
 ```
-Expected: `200`, and the log shows detection telemetry (not a fallback warning). Ctrl-C.
+Expected: `200`, and the log shows real detection telemetry. Because `detector_required: true` is set, a broken/missing model would now make this request **fail** rather than silently degrade to attention crop — so a `200` here genuinely confirms face detection ran. Also confirm the log shows a detection event (not a fallback warning). Ctrl-C.
 
 - [ ] **Step 5: Verify the optional cache toggle**
 
@@ -1092,7 +1149,7 @@ mise run server       # boots Phoenix (:4000) + Vite (:5173)
 Open http://localhost:4000. The imgproxy processing endpoint is mounted at `/img`.
 ```
 
-Adjust surrounding prose that references the old server. Keep the `docs/assets/demo-fiddle-desktop.png` screenshot reference.
+Adjust surrounding prose that references the old server — including the SimpleServer description around README line 171 ("generated SimpleServer request…") and any mention of `mix demo.setup`. Grep `README.md` for `image_pipe.server`, `SimpleServer`, and `demo.` to be sure none survive. Keep the `docs/assets/demo-fiddle-desktop.png` screenshot reference.
 
 - [ ] **Step 2: Update the three AGENTS.md spots**
 
@@ -1146,7 +1203,7 @@ defmodule ImagePipeFiddleWeb.WireTest do
   test "GET /img processes an unsigned request", %{conn: conn} do
     conn = get(conn, "/img/_/rs:fill:200:200/plain/local:///images/dog.jpg")
     assert conn.status == 200
-    {:ok, image} = Image.from_binary(conn.resp_body)
+    {:ok, image} = Image.open(conn.resp_body, access: :random, fail_on: :error)
     assert Image.width(image) == 200
     assert Image.height(image) == 200
   end
@@ -1172,7 +1229,7 @@ defmodule ImagePipeFiddleWeb.WireTest do
 end
 ```
 
-(If `Image.from_binary/1` is not the exact API, use `Image.open/1` on a temp file. Verify the signing scheme against `lib/image_pipe/parser/imgproxy/signature.ex` — adjust salt/path concatenation if the library hashes `salt <> path` vs `path` only.)
+(The signing helper above matches the library's `signature_for/4` exactly — HMAC-SHA256 over `salt <> signed_path`, hex-decoded key/salt, truncated to 32 bytes, base64url unpadded — and signs over the prefix-stripped path, which is what the `/img` mount produces. `Image.open/2` with `access: :random, fail_on: :error` is the repo's established wire-test decode idiom for in-memory bodies.)
 
 - [ ] **Step 2: Run the fiddle tests**
 
@@ -1224,5 +1281,5 @@ Expected: clean (everything committed).
 ## Self-review notes (for the executing agent)
 
 - **Spec coverage:** every spec section maps to a phase — Phoenix app (P1–2), routing/`/img`/static (P2–3), assets move + own images (P2), SPA URL changes (P4), runtime wiring (P3, P5), library cleanup incl. the extra server-task test file (P6), mise/docs incl. three AGENTS.md spots (P7), tests incl. signed-`/img` (P8).
-- **Known integration risks to watch (verify, don't assume):** (a) the Phoenix `watchers:` command-list syntax for pnpm and whether `static_url`/the tags component emit the dev script correctly — Task 2.4 Step 6 is the gate; (b) `Image` binary-decode API name in the wire test — Task 8.1 Step 1 note; (c) the exact imgproxy signing concatenation — verify against `signature.ex`; (d) `mix --cd` availability — Task 7.1 fallback. If any gate fails, fix before proceeding to the next phase.
+- **Known integration risks to watch (verify, don't assume):** (a) whether `static_url`/the tags component emit dev script tags pointing at `localhost:5173` — Task 2.4 Step 6 is the gate (now checks the host, not mere presence); (b) the prod manifest key being exactly `main.ts` — Task 2.3 Step 3 asserts it; (c) the `geist` font relative path after the move — Task 2.2 Step 3b + the build/visual check; (d) `mix --cd` availability — Task 7.1 fallback; (e) the `detector_required:` option name/placement — Task 3.1 verify-note. Resolved by the plan review (no longer open): the wire-test decode API (`Image.open/2`, Task 8.1) and the imgproxy signing concatenation (`salt <> signed_path`, verified against `signature.ex`). If any open gate fails, fix before proceeding to the next phase.
 - **Do not** make `image_vision`/`ortex` hard library deps; they are hard **fiddle** deps and opt-in `:test` library deps only.
