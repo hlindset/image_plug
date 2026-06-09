@@ -86,7 +86,11 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
 
     # Admission runs in the shared Admission GenServer with no request context
     # threaded (spec §8.1): it must NOT share the request trace. CacheProbe does
-    # not run an admission GenServer, so the span may be absent here — guard it.
+    # not run an admission GenServer, so the span is typically absent here and this
+    # guard is effectively a no-op. The real POSITIVE coverage — a [:cache, :admission]
+    # span emitted from a live Admission GenServer staying a separate root even with a
+    # caller context adopted on the stack — lives in
+    # ImagePipe.Telemetry.Trace.AdmissionRootTest.
     if admission do
       assert admission.parent_span_id == nil
       assert admission.trace_id != root.trace_id
