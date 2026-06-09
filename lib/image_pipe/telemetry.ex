@@ -99,17 +99,48 @@ defmodule ImagePipe.Telemetry do
   defp validate_prefix(other),
     do: raise(ArgumentError, ":prefix must be a non-empty list of atoms, got: #{inspect(other)}")
 
-  @doc "Attach the opt-in span tracer. See `ImagePipe.Telemetry.Trace`."
+  @tracer_schema NimbleOptions.new!(
+                   exporter: [type: :atom, required: true],
+                   prefix: [type: {:list, :atom}, default: @default_prefix],
+                   extract_inbound: [type: :boolean, default: false],
+                   finch_spans: [type: :boolean, default: true]
+                 )
+
+  @doc """
+  Attach the opt-in span tracer. See `ImagePipe.Telemetry.Trace`.
+
+  Host-startup configuration, so it raises `ArgumentError` on invalid options
+  (unknown keys, wrong types, or an exporter module that is not loadable or does
+  not export `export/1`) rather than returning a tagged error.
+
+  Options:
+    * `:exporter` — required; a module implementing `ImagePipe.Telemetry.Trace.Exporter`.
+    * `:prefix` — telemetry event prefix list (default `#{inspect(@default_prefix)}`).
+    * `:extract_inbound` — extract a W3C `traceparent` from inbound requests (default `false`).
+    * `:finch_spans` — also capture physical Finch wire spans (default `true`).
+  """
   @spec attach_tracer(keyword()) :: :ok
-  def attach_tracer(opts) do
-    exporter = Keyword.fetch!(opts, :exporter)
-    prefix = Keyword.get(opts, :prefix, default_prefix())
+  def attach_tracer(opts) when is_list(opts) do
+    opts =
+      case NimbleOptions.validate(opts, @tracer_schema) do
+        {:ok, validated} ->
+          validated
+
+        {:error, %NimbleOptions.ValidationError{} = error} ->
+          raise ArgumentError, "invalid attach_tracer options: #{Exception.message(error)}"
+      end
+
+    exporter = opts[:exporter]
+
+    unless Code.ensure_loaded?(exporter) and function_exported?(exporter, :export, 1) do
+      raise ArgumentError, "exporter #{inspect(exporter)} must be a loaded module exporting export/1"
+    end
 
     Trace.set_exporter(exporter)
-    Trace.set_extract_inbound(Keyword.get(opts, :extract_inbound, false))
-    Capture.attach(%{prefix: prefix, exporter: exporter})
+    Trace.set_extract_inbound(opts[:extract_inbound])
+    Capture.attach(%{prefix: opts[:prefix], exporter: exporter})
 
-    if Keyword.get(opts, :finch_spans, true) do
+    if opts[:finch_spans] do
       FinchCapture.attach(%{exporter: exporter})
     end
 
