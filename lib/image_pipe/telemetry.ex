@@ -148,6 +148,11 @@ defmodule ImagePipe.Telemetry do
     :ok
   end
 
+  def attach_tracer(other) do
+    raise ArgumentError,
+          "attach_tracer/1 expects a keyword list, got: #{inspect(other)}"
+  end
+
   @doc "Remove the opt-in span tracer attached with `attach_tracer/1`."
   @spec detach_tracer() :: :ok
   def detach_tracer do

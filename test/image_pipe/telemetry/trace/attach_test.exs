@@ -29,4 +29,8 @@ defmodule ImagePipe.Telemetry.Trace.AttachTest do
   test "attach_tracer raises when module is loadable but does not export export/1" do
     assert_raise ArgumentError, fn -> Telemetry.attach_tracer(exporter: Enum) end
   end
+
+  test "attach_tracer raises ArgumentError on a non-list argument" do
+    assert_raise ArgumentError, fn -> Telemetry.attach_tracer(:not_a_list) end
+  end
 end
