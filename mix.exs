@@ -65,8 +65,8 @@ defmodule ImagePipe.MixProject do
   end
 
   # Specifies which paths to compile per environment.
-  defp elixirc_paths(:test), do: ["lib", "dev", "test/support"]
-  defp elixirc_paths(:dev), do: ["lib", "dev"]
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(:dev), do: ["lib"]
   defp elixirc_paths(_env), do: ["lib"]
 
   defp extra_compilers(:prod), do: []
