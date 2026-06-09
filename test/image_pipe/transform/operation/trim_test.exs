@@ -4,6 +4,7 @@ defmodule ImagePipe.Transform.Operation.TrimTest do
   alias ImagePipe.Plan.Color
   alias ImagePipe.Transform.Operation.Trim
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
   # Builds a `width`x`height` image filled with `bg` ([r,g,b]) with an inner
@@ -76,10 +77,10 @@ defmodule ImagePipe.Transform.Operation.TrimTest do
     green = [10, 200, 10, 255]
 
     {:ok, canvas} =
-      Vix.Vips.Image.build_image(40, 40, transparent, interpretation: :VIPS_INTERPRETATION_sRGB)
+      VixImage.build_image(40, 40, transparent, interpretation: :VIPS_INTERPRETATION_sRGB)
 
     {:ok, center} =
-      Vix.Vips.Image.build_image(16, 16, green, interpretation: :VIPS_INTERPRETATION_sRGB)
+      VixImage.build_image(16, 16, green, interpretation: :VIPS_INTERPRETATION_sRGB)
 
     assert Image.has_alpha?(canvas)
     {:ok, composed} = Operation.insert(canvas, center, 12, 12)
