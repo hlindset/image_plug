@@ -57,6 +57,7 @@ transform execution, output negotiation, encoding, and send streaming spans.
 [:image_pipe, :source, :fetch_decode, ...]
 [:image_pipe, :transform, :execute, ...]
 [:image_pipe, :transform, :operation, ...]
+[:image_pipe, :transform, :materialize, ...]
 [:image_pipe, :encode, ...]
 [:image_pipe, :cache, :stage, ...]
 [:image_pipe, :cache, :write, ...]
@@ -140,6 +141,41 @@ Start metadata:
 
 Stop metadata: `:result` (`:ok` or `:error`).
 
+### Materialization barrier span (`[:transform, :materialize]`)
+
+Each time the pipeline flushes the lazy libvips state to a RAM-resident buffer it
+emits a `[:image_pipe, :transform, :materialize]` span from
+`ImagePipe.Transform.Materializer.materialize/1`. This is the **honest
+per-barrier timing the per-operation spans deliberately lack**: libvips defers
+and fuses pixel work until materialization, so a materialize span's duration is
+real flush cost (orientation pixels written, `copy_memory`), not construction
+time.
+
+A flush also applies any deferred EXIF/user orientation before copying, so a
+materialize span can mark where the displayed frame changes, not only where
+pixels reach RAM.
+
+Stop metadata: `:result` (`:ok` or `:materialize_error`). A failed flush surfaces
+as a `:stop` carrying `result: :materialize_error` (the callers map it to a decode
+error → `415`); a raise inside the flush surfaces as a `[:transform, :materialize,
+:exception]` event.
+
+Parenting depends on where the flush happens — there are three cases:
+
+- **mid-chain**, before the first operation that needs random access (right-angle
+  rotate, vertical/both flip, smart/object-detect crop): nested under that
+  operation's `[:transform, :operation]` span;
+- **pipeline-boundary**, when a still-pending EXIF orientation is flushed by the
+  plan executor: nested under `[:transform, :execute]` (not under any single
+  operation);
+- **delivery backstop**, when a chain streamed through without ever materializing
+  and the late delivery flush runs after `[:transform, :execute]` has closed:
+  nested under the request root.
+
+Every successful request materializes at least once (a chain that never
+materializes mid-pipeline hits the delivery backstop), so there is no
+"zero materialize spans" outcome.
+
 ## Measurements
 
 ImagePipe uses the measurements provided by `:telemetry.span/3`:
@@ -201,6 +237,7 @@ Request and stage spans use narrow result atoms:
 - `:plan_error`
 - `:source_error`
 - `:cache_error`
+- `:materialize_error`
 - `:processing_error`
 - `:error`
 
@@ -213,6 +250,7 @@ Representative stage → result mappings:
 - `[:source, :fetch_decode]` → `:ok`, `:source_error` (e.g. `error: :body_too_large`),
   or `:processing_error` (e.g. `error: :input_limit`, `:decode`).
 - `[:transform, :execute]` → `:ok` or `:processing_error`.
+- `[:transform, :materialize]` → `:ok` or `:materialize_error`.
 - `[:output, :negotiate]` → `:ok` or a negotiation failure category.
 
 The `:error` field is a stable category atom (`ImagePipe.Error.tag/1`), never a
@@ -399,6 +437,7 @@ defmodule MyApp.ImagePipeTelemetry do
     [:source, :fetch_decode],
     [:transform, :execute],
     [:transform, :operation],
+    [:transform, :materialize],
     [:encode],
     [:cache, :stage],
     [:cache, :write],
