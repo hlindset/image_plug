@@ -84,6 +84,8 @@ defmodule ImagePipe.Telemetry.Trace.CrossProcessTest do
     root = Enum.find(spans, &(&1.name == "image_pipe.request"))
     admission = Enum.find(spans, &(&1.name == "image_pipe.cache.admission"))
 
+    assert root, "expected request root span"
+
     # Admission runs in the shared Admission GenServer with no request context
     # threaded (spec §8.1): it must NOT share the request trace. CacheProbe does
     # not run an admission GenServer, so the span is typically absent here and this
