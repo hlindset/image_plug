@@ -10,6 +10,14 @@ import Config
 config :image_pipe_fiddle,
   generators: [timestamp_type: :utc_datetime]
 
+config :image_pipe_fiddle, :imgproxy,
+  signature: [
+    keys: ["736563726574"],
+    salts: ["68656c6c6f"],
+    trusted_signatures: ["_", "unsafe"]
+  ],
+  smart_crop_face_detection: true
+
 # Configure the endpoint
 config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
   url: [host: "localhost"],

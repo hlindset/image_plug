@@ -14,6 +14,8 @@ defmodule ImagePipeFiddleWeb.Router do
     plug :accepts, ["json"]
   end
 
+  forward "/img", ImagePipeFiddleWeb.Imgproxy
+
   scope "/", ImagePipeFiddleWeb do
     pipe_through :browser
 

@@ -7,6 +7,8 @@ defmodule ImagePipeFiddle.Application do
 
   @impl true
   def start(_type, _args) do
+    :persistent_term.put({__MODULE__, :imgproxy_opts}, build_imgproxy_opts())
+
     children = [
       ImagePipeFiddleWeb.Telemetry,
       {DNSCluster, query: Application.get_env(:image_pipe_fiddle, :dns_cluster_query) || :ignore},
@@ -30,4 +32,23 @@ defmodule ImagePipeFiddle.Application do
     ImagePipeFiddleWeb.Endpoint.config_change(changed, removed)
     :ok
   end
+
+  defp build_imgproxy_opts do
+    imgproxy = Application.fetch_env!(:image_pipe_fiddle, :imgproxy)
+    static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
+
+    [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
+      ],
+      imgproxy: imgproxy,
+      detector_required: true
+    ]
+    |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
+    |> ImagePipe.Plug.init()
+  end
+
+  defp maybe_put_cache(opts, nil), do: opts
+  defp maybe_put_cache(opts, cache), do: Keyword.put(opts, :cache, cache)
 end
