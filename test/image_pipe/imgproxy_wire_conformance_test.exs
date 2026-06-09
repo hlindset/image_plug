@@ -2553,6 +2553,25 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert conn.status == 200
       assert dimensions(conn) == {64, 64}
     end
+
+    test "malformed trim threshold is rejected before cache lookup and origin fetch" do
+      opts =
+        Keyword.merge(@default_opts,
+          cache: {CacheProbe, []},
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        )
+
+      conn = call_imgproxy("/_/trim:nope/plain/images/beach.jpg", opts)
+
+      assert conn.status == 400
+      refute_received :cache_lookup
+      refute_received :cache_put
+      refute_received :origin_fetch
+    end
   end
 
   defp trim_origin_opts, do: origin_opts(TrimOriginImage)
