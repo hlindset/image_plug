@@ -25,3 +25,11 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 image_pipe_fiddle-*.tar
 
+# JS deps
+/assets/node_modules/
+/node_modules/
+
+# Vite build output (generated from assets/)
+/priv/static/assets/
+/priv/static/.vite/
+

@@ -1,3 +1,6 @@
+packages:
+  - "assets"
+
 packageExtensions:
   "geist@*":
     peerDependenciesMeta:
