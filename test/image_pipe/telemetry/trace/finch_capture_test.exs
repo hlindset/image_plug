@@ -23,7 +23,7 @@ defmodule ImagePipe.Telemetry.Trace.FinchCaptureTest do
   end
 
   test "builds a wire span parented from finch_private" do
-    request = %{private: %{image_pipe_trace: {"trace123", "parentspan"}}}
+    request = %{private: %{image_pipe_trace: {"trace123", "parentspan", 1}}}
     start_time = System.system_time()
 
     FinchCapture.handle_event(
@@ -41,7 +41,8 @@ defmodule ImagePipe.Telemetry.Trace.FinchCaptureTest do
                       trace_id: "trace123",
                       parent_span_id: "parentspan",
                       status: :ok,
-                      duration_native: 10
+                      duration_native: 10,
+                      trace_flags: 1
                     } = span}
 
     assert span.attributes[:"http.status_code"] == 200
@@ -49,7 +50,7 @@ defmodule ImagePipe.Telemetry.Trace.FinchCaptureTest do
   end
 
   test "maps a finch error result to :error status" do
-    request = %{private: %{image_pipe_trace: {"trace123", "parentspan"}}}
+    request = %{private: %{image_pipe_trace: {"trace123", "parentspan", 1}}}
 
     FinchCapture.handle_event(
       [:finch, :request, :exception],

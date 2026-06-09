@@ -49,7 +49,8 @@ defmodule ImagePipe.Telemetry.Trace.FinchCapture do
   # parent identity is carried on the request struct rather than read off the stack.
   def handle_event([:finch | rest], measurements, meta, config) do
     with %{} = request <- Map.get(meta, :request),
-         %{@finch_private_key => {trace_id, parent_span_id}} <- Map.get(request, :private, %{}) do
+         %{@finch_private_key => {trace_id, parent_span_id, flags}} <-
+           Map.get(request, :private, %{}) do
       config.exporter.export(%Span{
         trace_id: trace_id,
         span_id: Id.span_id(),
@@ -58,6 +59,7 @@ defmodule ImagePipe.Telemetry.Trace.FinchCapture do
         kind: :client,
         start_time: measurements[:system_time],
         duration_native: measurements[:duration],
+        trace_flags: flags,
         status: status(meta),
         attributes: attributes(meta),
         pid: self(),
