@@ -104,8 +104,10 @@ no `dev/`.
 - **Bandit** is the endpoint adapter.
 - `PageController` + root layout render the SPA shell:
   `<div id="fiddle-app"></div>` plus the PhoenixVite-emitted `main.ts` tag. This
-  replaces `demo/index.html` and `demo/dev.html` (deleted). `main.ts`'s
-  `getElementById("demo-app")` becomes `"fiddle-app"`.
+  replaces `demo/index.html` and `demo/dev.html` (deleted). The `demo-app` →
+  `fiddle-app` rename touches **two** carried-forward files (the deleted HTML
+  aside): `main.ts`'s `getElementById("demo-app")` and the `#demo-app` CSS
+  selector in `styles.css:126`.
 
 ### Routing (three root namespaces)
 
@@ -116,9 +118,19 @@ forward "/img", ImagePipe.Plug, image_pipe_opts()   # imgproxy processing
 # catch-all GET -> PageController :index               # SPA shell (deep links)
 ```
 
-- `/img/_/rs:…/plain/local:///images/dog.jpg` → `ImagePipe.Plug`. The `/img`
-  prefix lands in `script_name`; the imgproxy parser reads `path_info`, so the
-  prefix is transparent. The SPA's `buildProcessingPath` prepends `/img`.
+- `/img/_/rs:…/plain/local:///images/dog.jpg` → `ImagePipe.Plug`. The prefix is
+  transparent, but by an **active strip**, not by reading `path_info`: the
+  parser reconstructs the unmounted path from `conn.request_path` minus
+  `conn.script_name` (`lib/image_pipe/parser/imgproxy/path.ex:179-195`,
+  `parser_request_path/1`). **Implication for the mount:** it must be a
+  `forward "/img"` (Plug/Phoenix router), which populates `script_name` with
+  `["img"]` and leaves the prefix in `request_path`. A mechanism that rewrites
+  `request_path` to drop the prefix without setting `script_name` would not
+  strip correctly. The signature is computed over the already-stripped path
+  (`raw_path_parts/1`, `path.ex:200-208`), so the `/img` prefix is excluded from
+  signing/verification — matching imgproxy. This is already unit-tested with a
+  `script_name: ["img"]` case in `test/parser/imgproxy/path_test.exs:16-23`. The
+  SPA's `buildProcessingPath` prepends `/img`.
 - `/images/dog.jpg` → `Plug.Static` from `priv/static/images`. `/img` and
   `/images` are different first segments, so no collision.
 - Any other path (`/`, `/rs:fill:640:360/plain/local:///images/dog.jpg`, …) →
@@ -130,14 +142,27 @@ forward "/img", ImagePipe.Plug, image_pipe_opts()   # imgproxy processing
 ### SPA changes
 
 - `demo-url-state.ts`: `demoPathPrefix` `/demo` → `""`. `demoPathForState` and
-  `parseDemoPath` operate on root paths. The address bar mirrors the transform
-  (`/rs:fill:640:360/plain/local:///images/dog.jpg`).
+  `parseDemoPath` operate on root paths; the address bar mirrors the transform
+  (`/rs:fill:640:360/plain/local:///images/dog.jpg`). With an empty prefix the
+  `path === demoPathPrefix` branch and the `+ "/"` slicing math become vestigial
+  — **simplify them out** rather than leaving dead prefix arithmetic (per the
+  repo's clean-removal rule), not just set the constant to `""`. Functionally the
+  empty-prefix parse already yields correct results (root `/` and `/images/…`
+  fall through `plainIndex === -1` to default state).
 - `processing-path.ts`: `buildProcessingPath` / `processingPathFromSignedPath`
   prepend the **`/img`** processing prefix, so `<img src>` is
   `/img/_/rs:…/plain/local:///images/dog.jpg`.
-- `vite.config.ts`: moves under `fiddle/`, `base`/`outDir` adjusted to
-  PhoenixVite conventions; the `sample-images` virtual plugin + oxc transform are
-  kept, reading `fiddle/priv/static/images`.
+- `vite.config.ts`: moves under `fiddle/`. Concretely: `root: "demo"` → the
+  fiddle assets dir (`assets`), `base: "/demo/"` → PhoenixVite's static prefix
+  (e.g. `/assets/`) matching the endpoint, `outDir: "../priv/static/demo"` →
+  `priv/static/assets`, enable `manifest: true`, and **drop** the hand-rolled
+  `rollupOptions.output` (`entryFileNames`/`assetFileNames`) and `minify: false`
+  — PhoenixVite's tag helpers consume the manifest's hashed filenames, so fixed
+  names fight it. The `sample-images` virtual plugin + oxc transform are kept;
+  with the config at `fiddle/`, the plugin's default
+  `resolve(currentDirectory, "priv/static/images")` and its watcher path resolve
+  to `fiddle/priv/static/images` automatically (verify the `root` change keeps
+  the watcher path correct).
 
 ### Runtime wiring (moved out of SimpleServer + the Mix task)
 
@@ -154,9 +179,11 @@ Folded into `ImagePipeFiddle.Application`, the endpoint/router, and fiddle confi
   bounded `ImagePipe.Cache.FileSystem` defaults.
 - `ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug,
   debug: true)` attached on app start (replaces the Mix task's logger attach).
-- If the library doesn't expose a clean public entry for the warmup worker, add
-  a narrow public helper rather than reaching into a private module (verify
-  during implementation).
+- The warmup worker is **already a public, documented entry**
+  (`ImagePipe.Transform.Detector.Warmup`, exported from the Transform boundary at
+  `lib/image_pipe/transform.ex:20`, with a `@moduledoc` covering host
+  supervision-tree wiring and the `detector:`/`classes:` opts). The fiddle starts
+  it directly; no new library helper is needed.
 
 The `--port`, `--cache`, `--no-vite` flags are retired in favor of the standard
 `mix phx.server` workflow + config toggles.
@@ -164,7 +191,9 @@ The `--port`, `--cache`, `--no-vite` flags are retired in favor of the standard
 ### Library cleanup
 
 - Delete `dev/simple_server.ex`, `test/simple_server_test.exs`,
-  `lib/mix/tasks/image_pipe.server.ex`.
+  `lib/mix/tasks/image_pipe.server.ex`, **and
+  `test/mix/tasks/image_pipe_server_test.exs`** (exercises the task's
+  `parse_args/1` + `vite_ready_buffer/2`; leaving it breaks compile/`mix test`).
 - `mix.exs`:
   - `elixirc_paths`: drop `"dev"` (now empty) from `:dev`/`:test`.
   - Remove all `demo.*` aliases.
@@ -196,10 +225,16 @@ The `--port`, `--cache`, `--no-vite` flags are retired in favor of the standard
 ### Docs
 
 - README: rewrite the development-server section from `mix image_pipe.server` to
-  `cd fiddle && mix setup && mix phx.server`.
-- `AGENTS.md`/CLAUDE.md: update guideline lines that name `ImagePipe.SimpleServer`
-  (it's deleted) and that point the "keep the demo UI in sync" rules at `demo/`
-  (now `fiddle/`).
+  `cd fiddle && mix setup && mix phx.server`. This is ~7 spots (README lines
+  ~160-192: `--port`/`--cache`/`--no-vite`, `mix demo.setup`, the Vite-on-5173
+  note), not a single line.
+- `AGENTS.md`/CLAUDE.md: three distinct spots, not one — `AGENTS.md:7`
+  (`precommit:demo` runs `mix demo.verify` → fiddle verify), `AGENTS.md:25` ("keep
+  the demo UI in sync … update the `demo/` Svelte app" → `fiddle/`), and
+  `AGENTS.md:66` (the `ImagePipe.SimpleServer` "dev/test only, outside prod
+  compilation" rule → delete, since the module is gone).
+- `mise.toml`: the concrete line to change is `mise.toml:24` (`mix demo.verify`),
+  superseded by the `precommit:demo` redefinition below.
 - **No imgproxy conformance-doc change.** This is a pure relocation: no surface
   (option/config), stage/order (pipeline), or behavioral/pixel axis moves, so
   `docs/imgproxy_support_matrix.md` is untouched. The compatibility reviewer in
@@ -210,10 +245,17 @@ The `--port`, `--cache`, `--no-vite` flags are retired in favor of the standard
 - Library: delete `test/simple_server_test.exs`. Everything else is unchanged.
 - Fiddle: a small wire-level suite asserting the fiddle's own contracts — `/`
   serves the shell, `/img/…` processes (assert decoded output dimensions),
-  `/images/…` serves static, and representative signature/safety behavior — plus
-  the moved vitest specs (`processing-path.test.ts`, `sample-images.test.ts`,
-  `theme.test.ts`). Keep the fiddle suite representative, not a re-test of the
-  library's wire conformance, which stays in the library.
+  `/images/…` serves static, and representative signature/safety behavior. Since
+  the production config uses `trusted_signatures: ["_", "unsafe"]`, the happy path
+  never exercises HMAC; include **one test that mounts under `/img` and verifies a
+  real HMAC-signed path** (signed over the prefix-stripped path) — the single
+  place a mount prefix could silently break compatibility. Keep the suite
+  representative, not a re-test of the library's wire conformance.
+- Vitest specs (`processing-path.test.ts`, `sample-images.test.ts`,
+  `theme.test.ts`) move with the assets, but `processing-path.test.ts` is a
+  **rewrite, not a verbatim move**: ~40 assertions hardcode the old `/demo`
+  prefix, and `buildProcessingPath` assertions now expect `/img/_/…`. Update the
+  fixtures as part of the move.
 
 ## Out of scope
 
