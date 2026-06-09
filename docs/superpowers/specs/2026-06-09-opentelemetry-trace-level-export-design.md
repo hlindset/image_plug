@@ -122,13 +122,21 @@ context, so **our** trace_id wins. (`OpenTelemetry.Tracer.start_span/3` is a mac
   as before, same product-neutral safety story (sensitivity already handled by #175's
   `safe_attrs/1`).
 
-### 2.2 The root-span wart (acceptable)
-A true root (no parent context) always gets a freshly-minted trace_id — there is no public
-way to set a parentless span's trace_id. So to force **our** trace_id on #175's root span,
-we give it a **synthetic remote parent** (`00-<our trace_id>-<our root span_id>-01`). The
-root then renders with a dangling "remote parent" reference. For trace-level grouping this
-is correct and standard (it's how a continued trace looks); exact root-nesting is the thing
-we already agreed to give up.
+### 2.2 The root-span wart (narrow, acceptable)
+A true root (no parent context) always gets a freshly-minted trace_id — `new_span_ctx/2`
+either inherits the parent context's trace_id or mints a fresh one, with no public setter
+for a span's trace_id. So to force **our** trace_id on a parentless root, we give it a
+**synthetic remote parent** (`00-<our trace_id>-<our root span_id>-01`), and it renders with
+a dangling "remote parent" reference.
+
+**This only affects *originating* roots** — requests where ImagePipe is the first tracer in
+the chain. With `extract_inbound: true` (the common case: ImagePipe behind a web
+server/gateway/mesh that already traces), the root adopts the **inbound** `traceparent`'s
+*real* remote parent (the caller's span) — correct distributed tracing, no synthetic parent,
+no wart. The fabricated parent appears only when there is genuinely no inbound trace, and
+even then it's the standard "continued from elsewhere" rendering — cosmetic, not broken.
+Eliminating it for the originating case would require OTel to own the trace_id and #175 to
+adopt it back (coupling the product-neutral core to OTel; rejected — §3 / §10).
 
 ## 3. Why not `opentelemetry_telemetry`
 
