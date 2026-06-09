@@ -268,6 +268,34 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule TrimOriginImage do
+    @moduledoc false
+    # 64x64 black border with a white 40x44 inner block at (12, 10).
+    def call(conn, _opts) do
+      body =
+        64
+        |> Image.new!(64, color: :black)
+        |> Image.Draw.rect!(12, 10, 40, 44, color: :white)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule UniformOriginImage do
+    @moduledoc false
+    # Solid 64x64 black — nothing to trim.
+    def call(conn, _opts) do
+      body = Image.new!(64, 64, color: :black) |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule UnavailableDetector do
     @moduledoc false
     @behaviour ImagePipe.Transform.Detector
@@ -2511,6 +2539,32 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert w == 300
       refute_received {:telemetry_event, [:image_pipe, :output, :clamp], _m, _meta}
     end
+  end
+
+  describe "trim (wire)" do
+    test "trims a uniform border to the inner block, no resize" do
+      conn = call_imgproxy("/_/trim:10/f:png/plain/images/trim.png", trim_origin_opts())
+      assert conn.status == 200
+      assert dimensions(conn) == {40, 44}
+    end
+
+    test "uniform image returns unchanged (no-op), no geometry options" do
+      conn = call_imgproxy("/_/trim:10/f:png/plain/images/uniform.png", uniform_origin_opts())
+      assert conn.status == 200
+      assert dimensions(conn) == {64, 64}
+    end
+  end
+
+  defp trim_origin_opts, do: origin_opts(TrimOriginImage)
+  defp uniform_origin_opts, do: origin_opts(UniformOriginImage)
+
+  defp origin_opts(plug) do
+    [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: plug]}
+      ]
+    ]
   end
 
   defp cached_opts(overrides \\ []) do
