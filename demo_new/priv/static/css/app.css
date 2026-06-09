@@ -1,0 +1,56 @@
+/*
+ * Plain, global, hand-written CSS for the ImagePipe demo (non-fiddle pages).
+ * The fiddle page uses a separate @scope (.ip-demo) stylesheet: priv/static/css/fiddle.css.
+ */
+
+.ip-page {
+  max-width: 64rem;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: #1f2933;
+  line-height: 1.5;
+}
+
+.ip-page__title {
+  margin: 0 0 0.25rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+}
+
+.ip-page__subtitle {
+  margin: 0 0 2rem;
+  color: #52606d;
+}
+
+.ip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1.5rem;
+}
+
+.ip-card {
+  border: 1px solid #e4e7eb;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #fff;
+}
+
+.ip-card__image {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: #f5f7fa;
+}
+
+.ip-card__caption {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+  color: #52606d;
+}
+
+.ip-card__code {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  color: #1f2933;
+}
