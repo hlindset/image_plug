@@ -171,9 +171,11 @@ Parenting depends on where the flush happens — there are three cases:
   and the late delivery flush runs after `[:transform, :execute]` has closed:
   nested under the request root.
 
-Every successful request materializes at least once (a chain that never
-materializes mid-pipeline hits the delivery backstop), so there is no
-"zero materialize spans" outcome.
+Every request that decodes and runs the transform pipeline (a cache miss)
+materializes at least once: a chain that never materializes mid-pipeline hits the
+delivery backstop. Requests served from cache (cache hits, conditional `304`s) skip
+decode and transform entirely, so they emit no `[:transform, :materialize]` span
+(nor any other transform span).
 
 ## Measurements
 
