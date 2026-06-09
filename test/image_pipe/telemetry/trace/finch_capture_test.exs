@@ -49,6 +49,19 @@ defmodule ImagePipe.Telemetry.Trace.FinchCaptureTest do
     assert is_integer(span.start_time) and span.start_time == start_time
   end
 
+  test "carries the unsampled trace_flag from finch_private onto the wire span" do
+    request = %{private: %{image_pipe_trace: {"trace123", "parentspan", 0}}}
+
+    FinchCapture.handle_event(
+      [:finch, :request, :stop],
+      %{duration: 10, system_time: System.system_time()},
+      %{name: TestFinch, request: request, result: {:ok, %{status: 200}}},
+      %{exporter: SendExporter}
+    )
+
+    assert_receive {:span, %Span{name: "finch.request", trace_flags: 0}}
+  end
+
   test "maps a finch error result to :error status" do
     request = %{private: %{image_pipe_trace: {"trace123", "parentspan", 1}}}
 
