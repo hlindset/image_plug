@@ -148,7 +148,7 @@ defmodule ImagePipe.Telemetry do
     if function_exported?(exporter, :ready?, 0) and not exporter.ready?() do
       raise ArgumentError,
             "exporter #{inspect(exporter)} is not ready: ready?/0 returned false " <>
-              "(for OpenTelemetryExporter, add :opentelemetry to your host deps)"
+              "(check the exporter's documentation for its required dependencies or configuration)"
     end
 
     Trace.set_exporter(exporter)
