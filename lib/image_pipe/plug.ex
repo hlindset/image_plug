@@ -39,6 +39,7 @@ defmodule ImagePipe.Plug do
   @impl Plug
   def call(%Plug.Conn{} = conn, opts) do
     telemetry_opts = Telemetry.telemetry_opts(opts)
+    Telemetry.Trace.maybe_extract_inbound(conn)
 
     Telemetry.span(telemetry_opts, [:request], request_metadata(conn, opts), fn ->
       {conn, metadata} = do_call(conn, opts)

@@ -16,6 +16,7 @@ defmodule ImagePipe.Request.Runner do
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Source
   alias ImagePipe.Telemetry
+  alias ImagePipe.Telemetry.Trace
   alias ImagePipe.Transform
 
   @type delivery() ::
@@ -125,7 +126,13 @@ defmodule ImagePipe.Request.Runner do
 
         supervisor = Keyword.get(opts, :source_session_supervisor, SourceSessionSupervisor)
 
-        case SourceSessionSupervisor.start_session(supervisor, request) do
+        # Capture the active trace context from THIS (request) process and pass it as
+        # data: the SourceSession/Producer spawn does not inherit our process stack.
+        trace_context = Trace.Stack.context()
+
+        case SourceSessionSupervisor.start_session(supervisor, request,
+               trace_context: trace_context
+             ) do
           {:ok, session} ->
             prepare_supervised_session(
               session,

@@ -57,8 +57,8 @@ transform execution, output negotiation, encoding, and send streaming spans.
 [:image_pipe, :source, :fetch_decode, ...]
 [:image_pipe, :transform, :execute, ...]
 [:image_pipe, :transform, :operation, ...]
+[:image_pipe, :transform, :materialize, ...]
 [:image_pipe, :encode, ...]
-[:image_pipe, :cache, :stage, ...]
 [:image_pipe, :cache, :write, ...]
 [:image_pipe, :send, ...]
 ```
@@ -140,6 +140,43 @@ Start metadata:
 
 Stop metadata: `:result` (`:ok` or `:error`).
 
+### Materialization barrier span (`[:transform, :materialize]`)
+
+Each time the pipeline flushes the lazy libvips state to a RAM-resident buffer it
+emits a `[:image_pipe, :transform, :materialize]` span from
+`ImagePipe.Transform.Materializer.materialize/1`. This is the **honest
+per-barrier timing the per-operation spans deliberately lack**: libvips defers
+and fuses pixel work until materialization, so a materialize span's duration is
+real flush cost (orientation pixels written, `copy_memory`), not construction
+time.
+
+A flush also applies any deferred EXIF/user orientation before copying, so a
+materialize span can mark where the displayed frame changes, not only where
+pixels reach RAM.
+
+Stop metadata: `:result` (`:ok` or `:materialize_error`). A failed flush surfaces
+as a `:stop` carrying `result: :materialize_error` (the callers map it to a decode
+error → `415`); a raise inside the flush surfaces as a `[:transform, :materialize,
+:exception]` event.
+
+Parenting depends on where the flush happens — there are three cases:
+
+- **mid-chain**, before the first operation that needs random access (right-angle
+  rotate, vertical/both flip, smart/object-detect crop): nested under that
+  operation's `[:transform, :operation]` span;
+- **pipeline-boundary**, when a still-pending EXIF orientation is flushed by the
+  plan executor: nested under `[:transform, :execute]` (not under any single
+  operation);
+- **delivery backstop**, when a chain streamed through without ever materializing
+  and the late delivery flush runs after `[:transform, :execute]` has closed:
+  nested under the request root.
+
+Every request that decodes and runs the transform pipeline (a cache miss)
+materializes at least once: a chain that never materializes mid-pipeline hits the
+delivery backstop. Requests served from cache (cache hits, conditional `304`s) skip
+decode and transform entirely, so they emit no `[:transform, :materialize]` span
+(nor any other transform span).
+
 ## Measurements
 
 ImagePipe uses the measurements provided by `:telemetry.span/3`:
@@ -201,6 +238,7 @@ Request and stage spans use narrow result atoms:
 - `:plan_error`
 - `:source_error`
 - `:cache_error`
+- `:materialize_error`
 - `:processing_error`
 - `:error`
 
@@ -213,6 +251,7 @@ Representative stage → result mappings:
 - `[:source, :fetch_decode]` → `:ok`, `:source_error` (e.g. `error: :body_too_large`),
   or `:processing_error` (e.g. `error: :input_limit`, `:decode`).
 - `[:transform, :execute]` → `:ok` or `:processing_error`.
+- `[:transform, :materialize]` → `:ok` or `:materialize_error`.
 - `[:output, :negotiate]` → `:ok` or a negotiation failure category.
 
 The `:error` field is a stable category atom (`ImagePipe.Error.tag/1`), never a
@@ -315,7 +354,8 @@ Cache-related metadata may also include:
 - `cache: :stage_abandoned`
 - `cache: :stage_cleanup_error`
 
-Streamed cache misses may also emit `[:cache, :stage, :stop]` with:
+Streamed cache misses may also emit the one-shot `[:cache, :stage]` event (sent
+with `Telemetry.execute/4`, not a span) with:
 
 - `cache: :stage_skipped` and `reason: :too_large` when the staging sink crosses
   `:max_body_bytes`.
@@ -399,6 +439,7 @@ defmodule MyApp.ImagePipeTelemetry do
     [:source, :fetch_decode],
     [:transform, :execute],
     [:transform, :operation],
+    [:transform, :materialize],
     [:encode],
     [:cache, :stage],
     [:cache, :write],
@@ -431,3 +472,87 @@ end
 
 When customizing `telemetry_prefix`, attach to that same prefix instead of
 `[:image_pipe]`.
+
+## Tracing (opt-in)
+
+The events above are raw `:telemetry` events. ImagePipe also ships an **opt-in
+span tracer** that consumes those events, reconstructs correctly-nested
+distributed-trace-shaped spans (one `trace_id` per request, parent/child
+relationships preserved across the `[:transform, :execute]` /
+`[:transform, :operation]` / `[:transform, :materialize]` nesting and across the
+request → `SourceSession` → `Producer` process seams), and hands each finished
+span to a pluggable exporter as an `ImagePipe.Telemetry.Trace.Span`.
+
+The tracer is **not** attached automatically. A host opts in with
+`ImagePipe.Telemetry.attach_tracer/1` and removes it with
+`ImagePipe.Telemetry.detach_tracer/0`. Both are host-startup configuration, so
+`attach_tracer/1` **raises** `ArgumentError` on invalid options rather than
+returning a tagged error.
+
+```elixir
+# Attach the bundled stdlib-Logger exporter:
+ImagePipe.Telemetry.attach_tracer(exporter: ImagePipe.Telemetry.Trace.LogExporter)
+
+# ... later ...
+ImagePipe.Telemetry.detach_tracer()
+```
+
+### Options
+
+| Option            | Type            | Default                   | Meaning                                                                 |
+| ----------------- | --------------- | ------------------------- | ----------------------------------------------------------------------- |
+| `:exporter`       | module (atom)   | — (required)              | Module implementing the `ImagePipe.Telemetry.Trace.Exporter` behaviour. |
+| `:prefix`         | list of atoms   | `[:image_pipe]`           | Telemetry event prefix to subscribe to. Reuses `ImagePipe.Telemetry.default_prefix()`; match your configured `telemetry_prefix`. |
+| `:extract_inbound`| boolean         | `false`                   | Extract an inbound W3C `traceparent` header so the root span continues an upstream trace. Off by default — only enable behind a trusted edge. |
+| `:finch_spans`    | boolean         | `true`                    | Also capture physical Finch wire spans for outbound source fetches.     |
+
+`attach_tracer/1` raises `ArgumentError` when an option is unknown, has the wrong
+type, `:exporter` is missing, or the exporter module is not loaded / does not
+export `export/1`.
+
+### The exporter contract
+
+A host implements `ImagePipe.Telemetry.Trace.Exporter`:
+
+```elixir
+@callback export(ImagePipe.Telemetry.Trace.Span.t()) :: :ok
+```
+
+- `export/1` is called **synchronously** in the process that emitted the span's
+  `:stop` / `:exception`. Keep it cheap and non-blocking — hand real I/O off to a
+  batch processor. It must return `:ok` and should not raise.
+- Span **attributes are pre-filtered for sensitivity** by the capture layer
+  (allowlist only — source URLs, request paths, signatures, and tokens are never
+  copied in). Exporters that fan out to third parties remain responsible for
+  their own egress policy.
+- The allowlist covers **attributes only**. A span's `status_message` and the
+  `reason` on a folded `exception` event carry the raw exception reason
+  (`inspect/1`, standard tracing behavior) and are **not** allowlist-filtered,
+  so an exporter that renders them to third parties should be aware they may
+  embed an exception message. (The bundled `LogExporter` renders neither.)
+
+### `LogExporter`
+
+`ImagePipe.Telemetry.Trace.LogExporter` is the bundled default. It is
+**stateless and flat by design**: it logs one structured `Logger.info` line per
+completed span as that span closes, in the process that emitted it. It does
+**not** buffer spans into a tree or wait for a root to close — parentage is
+carried in the `parent=` field so a downstream log pipeline can reconstruct
+nesting.
+
+```
+image_pipe.trace trace=<trace_id> span=<span_id> parent=<parent_span_id|-> <name> dur=<duration_native|-> status=<ok|error|unset>
+```
+
+### Inbound extraction and sampling
+
+Inbound `traceparent` extraction is **opt-in** (`extract_inbound: true`) because
+trusting an inbound trace header from an untrusted client lets a caller pin your
+`trace_id`; enable it only behind a gateway you control. When enabled and a valid
+W3C `traceparent` is present, the request root span continues that trace and
+parents to the inbound span; otherwise it mints a fresh root.
+
+**Sampling is deferred to the host.** ImagePipe propagates `trace_flags` but does
+not implement a sampler. A host that wants head- or tail-based sampling does it in
+its exporter (e.g. drop spans whose `trace_flags` indicate "not sampled", or
+batch and sample in the downstream collector).

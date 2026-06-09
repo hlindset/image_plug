@@ -13,7 +13,12 @@ defmodule ImagePipe.Telemetry.Logger do
     request: [[:request], [:send]],
     parse: [[:parse]],
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
-    transform: [[:transform, :execute], [:transform, :operation], [:transform, :detect]],
+    transform: [
+      [:transform, :execute],
+      [:transform, :operation],
+      [:transform, :materialize],
+      [:transform, :detect]
+    ],
     cache: [[:cache, :lookup], [:cache, :write], [:cache, :admission], [:cache, :warm_start]],
     output: []
   }
@@ -109,6 +114,7 @@ defmodule ImagePipe.Telemetry.Logger do
     cond do
       List.last(suffix) == :exception -> :warning
       metadata[:result] == :cache_error -> :warning
+      metadata[:result] == :materialize_error -> :warning
       detect_fallback_warning?(suffix, metadata) -> :warning
       true -> base
     end

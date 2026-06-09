@@ -10,9 +10,12 @@ defmodule ImagePipe.Telemetry do
   use Boundary,
     top_level?: true,
     deps: [],
-    exports: []
+    exports: [Trace, Trace.Stack, Trace.Context, Trace.Span, Trace.Exporter, Trace.ReqStep]
 
   alias ImagePipe.Telemetry.Logger, as: DefaultLogger
+  alias ImagePipe.Telemetry.Trace
+  alias ImagePipe.Telemetry.Trace.Capture
+  alias ImagePipe.Telemetry.Trace.FinchCapture
 
   @default_prefix [:image_pipe]
 
@@ -95,6 +98,70 @@ defmodule ImagePipe.Telemetry do
 
   defp validate_prefix(other),
     do: raise(ArgumentError, ":prefix must be a non-empty list of atoms, got: #{inspect(other)}")
+
+  @tracer_schema NimbleOptions.new!(
+                   exporter: [type: :atom, required: true],
+                   prefix: [type: {:list, :atom}, default: @default_prefix],
+                   extract_inbound: [type: :boolean, default: false],
+                   finch_spans: [type: :boolean, default: true]
+                 )
+
+  @doc """
+  Attach the opt-in span tracer. See `ImagePipe.Telemetry.Trace`.
+
+  Host-startup configuration, so it raises `ArgumentError` on invalid options
+  (unknown keys, wrong types, or an exporter module that is not loadable or does
+  not export `export/1`) rather than returning a tagged error.
+
+  Options:
+    * `:exporter` — required; a module implementing `ImagePipe.Telemetry.Trace.Exporter`.
+    * `:prefix` — telemetry event prefix list (default `#{inspect(@default_prefix)}`).
+    * `:extract_inbound` — extract a W3C `traceparent` from inbound requests (default `false`).
+    * `:finch_spans` — also capture physical Finch wire spans (default `true`).
+  """
+  @spec attach_tracer(keyword()) :: :ok
+  def attach_tracer(opts) when is_list(opts) do
+    opts =
+      case NimbleOptions.validate(opts, @tracer_schema) do
+        {:ok, validated} ->
+          validated
+
+        {:error, %NimbleOptions.ValidationError{} = error} ->
+          raise ArgumentError, "invalid attach_tracer options: #{Exception.message(error)}"
+      end
+
+    exporter = opts[:exporter]
+
+    unless Code.ensure_loaded?(exporter) and function_exported?(exporter, :export, 1) do
+      raise ArgumentError,
+            "exporter #{inspect(exporter)} must be a loaded module exporting export/1"
+    end
+
+    Trace.set_exporter(exporter)
+    Trace.set_extract_inbound(opts[:extract_inbound])
+    Capture.attach(%{prefix: opts[:prefix], exporter: exporter})
+
+    if opts[:finch_spans] do
+      FinchCapture.attach(%{exporter: exporter})
+    end
+
+    :ok
+  end
+
+  def attach_tracer(other) do
+    raise ArgumentError,
+          "attach_tracer/1 expects a keyword list, got: #{inspect(other)}"
+  end
+
+  @doc "Remove the opt-in span tracer attached with `attach_tracer/1`."
+  @spec detach_tracer() :: :ok
+  def detach_tracer do
+    Capture.detach()
+    FinchCapture.detach()
+    Trace.set_exporter(nil)
+    Trace.set_extract_inbound(false)
+    :ok
+  end
 
   @spec span(keyword(), [atom()], map() | keyword(), (-> term())) :: term()
   def span(telemetry_opts, stage, start_metadata, fun) when is_function(fun, 0) do
