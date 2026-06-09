@@ -30,7 +30,7 @@ defmodule ImagePipe.Telemetry.Trace.Stack do
     end
   end
 
-  @doc "Seed the far side of a process hop with a synthetic remote-parent frame."
+  # Seed the far side of a process hop with a synthetic remote-parent frame.
   @spec adopt(Context.t() | nil) :: :ok
   def adopt(nil), do: :ok
 
@@ -38,10 +38,13 @@ defmodule ImagePipe.Telemetry.Trace.Stack do
     push(%Span{trace_id: t, span_id: s, name: "remote_parent", start_time: nil})
   end
 
-  @doc false
   @spec clear() :: :ok
   def clear, do: put([])
 
   defp stack, do: Process.get(@key, [])
-  defp put(stack), do: (Process.put(@key, stack); :ok)
+
+  defp put(stack) do
+    Process.put(@key, stack)
+    :ok
+  end
 end

@@ -18,6 +18,7 @@ defmodule ImagePipe.Telemetry.Trace.W3CTest do
     assert W3C.decode("garbage") == :error
     assert W3C.decode("00-short-b7ad6b7169203331-01") == :error
     assert W3C.decode("00-" <> String.duplicate("0", 32) <> "-b7ad6b7169203331-01") == :error
+    assert W3C.decode("00-0af7651916cd43dd8448eb211c80319c-" <> String.duplicate("0", 16) <> "-01") == :error
     assert W3C.decode("") == :error
   end
 end

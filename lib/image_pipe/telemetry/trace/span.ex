@@ -1,6 +1,6 @@
 defmodule ImagePipe.Telemetry.Trace.Span do
   @moduledoc """
-  A captured span handed to a `ImagePipe.Telemetry.Trace.Exporter`.
+  A captured span handed to an `ImagePipe.Telemetry.Trace.Exporter`.
 
   OTel-shaped so a Jaeger/Tempo/OTLP mapping is mechanical. `duration_native` is the
   honest timing source (raw monotonic units from `:telemetry.span/3`); `start_time`/
