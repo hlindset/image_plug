@@ -59,10 +59,12 @@ transform execution, output negotiation, encoding, and send streaming spans.
 [:image_pipe, :transform, :operation, ...]
 [:image_pipe, :transform, :materialize, ...]
 [:image_pipe, :encode, ...]
-[:image_pipe, :cache, :stage, ...]
 [:image_pipe, :cache, :write, ...]
 [:image_pipe, :send, ...]
 ```
+
+(`[:cache, :stage]` and the HTTP-cache decisions are one-shot `Telemetry.execute/4`
+events, not spans — see [Measurements](#measurements).)
 
 For example, the cache lookup stop event with the default prefix is:
 
@@ -353,7 +355,8 @@ Cache-related metadata may also include:
 - `cache: :stage_abandoned`
 - `cache: :stage_cleanup_error`
 
-Streamed cache misses may also emit `[:cache, :stage, :stop]` with:
+Streamed cache misses may also emit the one-shot `[:cache, :stage]` event (sent
+with `Telemetry.execute/4`, not a span) with:
 
 - `cache: :stage_skipped` and `reason: :too_large` when the staging sink crosses
   `:max_body_bytes`.
