@@ -145,6 +145,12 @@ defmodule ImagePipe.Telemetry do
             "exporter #{inspect(exporter)} must be a loaded module exporting export/1"
     end
 
+    if function_exported?(exporter, :ready?, 0) and not exporter.ready?() do
+      raise ArgumentError,
+            "exporter #{inspect(exporter)} is not ready: ready?/0 returned false " <>
+              "(for OpenTelemetryExporter, add :opentelemetry to your host deps)"
+    end
+
     Trace.set_exporter(exporter)
     Trace.set_extract_inbound(opts[:extract_inbound])
     Capture.attach(%{prefix: opts[:prefix], exporter: exporter})

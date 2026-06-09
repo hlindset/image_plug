@@ -3,6 +3,14 @@ defmodule ImagePipe.Telemetry.Trace.AttachTest do
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.LogExporter
 
+  defmodule NotReadyExporter do
+    @behaviour ImagePipe.Telemetry.Trace.Exporter
+    @impl true
+    def export(_span), do: :ok
+    @impl true
+    def ready?, do: false
+  end
+
   setup do
     on_exit(fn -> Telemetry.detach_tracer() end)
     :ok
@@ -32,5 +40,11 @@ defmodule ImagePipe.Telemetry.Trace.AttachTest do
 
   test "attach_tracer raises ArgumentError on a non-list argument" do
     assert_raise ArgumentError, fn -> Telemetry.attach_tracer(:not_a_list) end
+  end
+
+  test "attach_tracer raises when the exporter reports not ready" do
+    assert_raise ArgumentError, ~r/not ready/, fn ->
+      Telemetry.attach_tracer(exporter: NotReadyExporter)
+    end
   end
 end
