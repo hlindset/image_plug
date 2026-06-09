@@ -14,6 +14,10 @@ defmodule ImagePipe.Transform.Materializer do
   access. `Request.Processor.materialize_for_delivery/2` also calls the arity-2
   callback form once before delivery for any chain that never materialized
   mid-pipeline.
+
+  `materialize/1` emits a `[:transform, :materialize]` telemetry span around the
+  flush, giving honest per-barrier timing regardless of which call site triggered
+  the materialization.
   """
 
   alias ImagePipe.Telemetry
@@ -41,9 +45,9 @@ defmodule ImagePipe.Transform.Materializer do
     materialize(state)
   end
 
-  # The flush itself returns a BARE {:ok, state} | {:error, reason}. The
-  # {:materialize_error, reason} tagging is owned by the callers (Chain, PlanExecutor);
-  # the span wrapper must preserve the bare error and only label the span's stop
-  # metadata, never re-wrap.
+  # The flush returns a BARE {:ok, state} | {:error, reason}. The
+  # {:materialize_error, reason} TUPLE wrapping is owned by callers (Chain,
+  # PlanExecutor); the :materialize_error SPAN metadata label is set in the wrapper
+  # above only to drive Logger level escalation. Never re-wrap the error tuple here.
   defp do_materialize(%State{} = state), do: OrientationFlush.flush(state)
 end

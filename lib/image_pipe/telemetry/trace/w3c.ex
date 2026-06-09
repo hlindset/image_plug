@@ -16,7 +16,8 @@ defmodule ImagePipe.Telemetry.Trace.W3C do
          true <- valid_trace?(t),
          true <- valid_span?(s),
          {:ok, flags} <- parse_flags(f) do
-      {:ok, %Context{trace_id: String.downcase(t), span_id: String.downcase(s), trace_flags: flags}}
+      {:ok,
+       %Context{trace_id: String.downcase(t), span_id: String.downcase(s), trace_flags: flags}}
     else
       _ -> :error
     end
@@ -24,7 +25,9 @@ defmodule ImagePipe.Telemetry.Trace.W3C do
 
   def decode(_), do: :error
 
-  defp valid_trace?(t), do: byte_size(t) == 32 and hex?(t) and String.downcase(t) != @all_zero_trace
+  defp valid_trace?(t),
+    do: byte_size(t) == 32 and hex?(t) and String.downcase(t) != @all_zero_trace
+
   defp valid_span?(s), do: byte_size(s) == 16 and hex?(s) and String.downcase(s) != @all_zero_span
 
   defp parse_flags(f) when byte_size(f) == 2 do

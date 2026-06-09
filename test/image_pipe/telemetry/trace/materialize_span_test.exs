@@ -103,9 +103,8 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
     assert conn.status == 200
 
     spans = collect_spans()
-    mat = Enum.find(spans, &(&1.name == "image_pipe.transform.materialize"))
+    assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
 
-    assert mat, "expected a materialize span"
     assert is_integer(mat.duration_native) and mat.duration_native >= 0
 
     parent = parent_of(spans, mat)
@@ -121,9 +120,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
     assert conn.status == 200
 
     spans = collect_spans()
-    mat = Enum.find(spans, &(&1.name == "image_pipe.transform.materialize"))
-
-    assert mat, "expected a materialize span"
+    assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
 
     parent = parent_of(spans, mat)
     assert parent, "materialize span must have a captured parent"
@@ -138,9 +135,7 @@ defmodule ImagePipe.Telemetry.Trace.MaterializeSpanTest do
     assert conn.status == 200
 
     spans = collect_spans()
-    mat = Enum.find(spans, &(&1.name == "image_pipe.transform.materialize"))
-
-    assert mat, "expected a materialize span"
+    assert [mat] = Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
 
     # The delivery backstop runs after [:transform, :execute] has closed, so the
     # materialize span is not nested under any transform stage span.
