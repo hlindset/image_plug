@@ -24,10 +24,12 @@ defmodule ImagePipe.Telemetry.Trace.FinchCaptureTest do
 
   test "builds a wire span parented from finch_private" do
     request = %{private: %{image_pipe_trace: {"trace123", "parentspan"}}}
+    start_time = System.system_time()
 
     FinchCapture.handle_event(
       [:finch, :request, :stop],
-      %{duration: 10, system_time: 1},
+      # system_time is in measurements (matching real Finch events), not metadata.
+      %{duration: 10, system_time: start_time},
       %{name: TestFinch, request: request, result: {:ok, %{status: 200}}},
       %{exporter: SendExporter}
     )
@@ -43,6 +45,7 @@ defmodule ImagePipe.Telemetry.Trace.FinchCaptureTest do
                     } = span}
 
     assert span.attributes[:"http.status_code"] == 200
+    assert is_integer(span.start_time) and span.start_time == start_time
   end
 
   test "maps a finch error result to :error status" do
@@ -50,7 +53,8 @@ defmodule ImagePipe.Telemetry.Trace.FinchCaptureTest do
 
     FinchCapture.handle_event(
       [:finch, :request, :exception],
-      %{duration: 3, system_time: 1},
+      # system_time in measurements, matching real Finch events.
+      %{duration: 3, system_time: System.system_time()},
       %{name: TestFinch, request: request, kind: :error, reason: %RuntimeError{message: "x"}},
       %{exporter: SendExporter}
     )
@@ -63,7 +67,7 @@ defmodule ImagePipe.Telemetry.Trace.FinchCaptureTest do
 
     FinchCapture.handle_event(
       [:finch, :request, :stop],
-      %{duration: 10, system_time: 1},
+      %{duration: 10, system_time: System.system_time()},
       %{name: TestFinch, request: request, result: {:ok, %{status: 200}}},
       %{exporter: SendExporter}
     )

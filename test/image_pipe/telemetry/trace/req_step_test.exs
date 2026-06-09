@@ -36,6 +36,25 @@ defmodule ImagePipe.Telemetry.Trace.ReqStepTest do
     assert s.attributes[:"http.status_code"] == 200
   end
 
+  test "emits a client span with status :error on transport error" do
+    Telemetry.span([], [:request], %{}, fn ->
+      req =
+        Req.new(
+          adapter: fn req ->
+            {req, %Mint.TransportError{reason: :timeout}}
+          end
+        )
+        |> ReqStep.attach()
+
+      {:error, _exception} = Req.request(req)
+      {:ok, %{result: :ok}}
+    end)
+
+    assert_receive {:span, %Span{name: "image_pipe.http.client", kind: :client} = s}
+    assert s.status == :error
+    assert Map.has_key?(s.attributes, :"http.error")
+  end
+
   test "is a harmless no-op when no tracer is attached" do
     Telemetry.detach_tracer()
 

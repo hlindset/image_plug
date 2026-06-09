@@ -30,6 +30,8 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
   alias ImagePipe.Telemetry.Trace
   alias ImagePipe.Telemetry.Trace.{Context, Id, Span, Stack, W3C}
 
+  # Finch-private key: shared contract with FinchCapture, which reads this atom from
+  # request.private to parent wire spans under the logical client span we stamp here.
   @priv :image_pipe_trace
 
   @spec attach(Req.Request.t()) :: Req.Request.t()
@@ -47,6 +49,7 @@ defmodule ImagePipe.Telemetry.Trace.ReqStep do
     {trace_id, flags} =
       case parent do
         %Context{trace_id: trace_id, trace_flags: flags} -> {trace_id, flags}
+        # No parent: mint a fresh trace, default sampled (flags=1).
         nil -> {Id.trace_id(), 1}
       end
 
