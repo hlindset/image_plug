@@ -23,6 +23,24 @@ manifest's authored hashes without Docker: `MIX_ENV=test mise exec -- mix imgpro
 Rebuild the source images only deliberately (a libvips bump must not silently change
 inputs): `MIX_ENV=test mise exec -- mix imgproxy.gen_sources`.
 
+## Visual-diff report (no Docker)
+
+Generate a self-contained `report.html` for eyeball triage — imgproxy vs ImagePipe
+side by side, a comparison slider, two diff heatmaps (banded over the case threshold,
+and raw amplified), and the live-recomputed metric/verdict/triage per constellation:
+
+```shell
+MIX_ENV=test mise exec -- mix imgproxy.gen_report          # writes report.html here
+MIX_ENV=test mise exec -- mix imgproxy.gen_report --out /tmp/r.html
+```
+
+It renders ImagePipe live and reads the committed fixtures — no Docker, no fixture or
+manifest changes. The default `report.html` is gitignored (it inlines ImagePipe PNGs as
+base64; regenerate on demand). Cases needing attention (over-budget, quarantined,
+dims-mismatch, a `:diverges` case that now matches, or authored-hash drift) sort to the
+top, and a top-of-page counts line summarizes them. The slider and Geist fonts load from
+a CDN; with no network the side-by-side panels remain the source of truth.
+
 ## libvips skew — warn-and-attempt
 
 Fixtures are baked by the container's libvips (recorded as `imgproxy_libvips` in

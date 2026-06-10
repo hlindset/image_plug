@@ -4,6 +4,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
   alias ImagePipe.Test.ImgproxyDifferential.Constellations
   alias ImagePipe.Test.ImgproxyDifferential.OptsSummary
   alias ImagePipe.Test.ImgproxyDifferential.ReportHtml
+  alias Mix.Tasks.Imgproxy.GenReport
 
   describe "OptsSummary.describe/1" do
     test "resize + gravity" do
@@ -188,7 +189,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
 
     on_exit(fn -> File.rm_rf(out) end)
 
-    Mix.Tasks.Imgproxy.GenReport.run(["--out", out])
+    GenReport.run(["--out", out])
 
     assert File.exists?(out)
     html = File.read!(out)
