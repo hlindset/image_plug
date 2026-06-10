@@ -20,11 +20,12 @@ defmodule ImagePipe.Transform.State do
     dims), so the residual resize lands on the same target as a full-resolution
     decode. It stays in the storage frame — EXIF/user orientation is carried as a
     pending rotation on `pending_orientation` and flushed after the resize, so no
-    pre-resize op swaps these dimensions. Shrink-on-load is declined when a
-    quarter-turn rotate precedes the resize (see `ImagePipe.Transform.DecodePlanner`);
-    a preceding crop no longer declines it (#151). The residual resize clears it to
-    `nil`. A crop reached before the resize also clears it (the cropped live image is
-    then the frame the resize sizes against), alongside `decode_shrink`.
+    pre-resize op swaps these dimensions. A preceding crop or quarter-turn rotate no
+    longer declines shrink-on-load (#151); the resize target is expressed against the
+    cropped/displayed axes instead (see `ImagePipe.Transform.DecodePlanner`). The
+    residual resize clears it to `nil` (alongside `decode_shrink`), and a crop reached
+    before the resize clears both as well (the cropped live image is then the frame
+    the resize sizes against) — so neither survives into a later pipeline.
   - `decode_shrink`: the *realized* per-axis shrink factor `%{w: float, h: float}`
     (each `>= 1.0`, original ÷ decoded) actually applied by shrink-on-load, or `nil`
     when the decode was full-resolution. A crop preceding the resize rescales its
@@ -32,6 +33,9 @@ defmodule ImagePipe.Transform.State do
     crop selects the same source region on the shrunk image that it would at full
     resolution; relative (ratio/percent/focus-point) coordinates are untouched.
     For JPEG block shrink and WebP scale-on-load the factor is uniform across axes.
+    It is a storage-frame factor, so a gravity crop carrying a pending quarter-turn
+    swaps the per-axis factors before rescaling (the display-frame crop dims are
+    swapped into the storage frame after — `ImagePipe.Transform.PlanExecutor`).
   """
 
   defstruct image: nil,

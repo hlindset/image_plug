@@ -71,8 +71,13 @@ defmodule ImagePipe.Transform.Operation.Resize do
     case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
       {:ok, image} ->
         # The residual resize has finished the downscale: the image is now at its
-        # final resolution, so the stored shrink-on-load original no longer applies.
-        {:ok, %State{set_image(state, image) | source_dimensions: nil}}
+        # final resolution, so neither the stored original extent (source_dimensions)
+        # nor the realized shrink-on-load factor (decode_shrink) applies any longer.
+        # Clearing decode_shrink confines the preshrink coordinate rescale to the
+        # pipeline whose decode produced it, so an absolute crop in a later chained
+        # pipeline is sized against that pipeline's input, not divided by a stale
+        # factor (#180). See the scaleOnLoad row in docs/imgproxy_support_matrix.md.
+        {:ok, %State{set_image(state, image) | source_dimensions: nil, decode_shrink: nil}}
 
       {:error, reason} ->
         {:error, {__MODULE__, reason}}

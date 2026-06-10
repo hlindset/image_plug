@@ -319,6 +319,56 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
       assert Image.height(result.image) > Image.width(result.image)
     end
 
+    # #185: decode_shrink is a STORAGE-frame per-axis factor; a gravity crop is
+    # authored in the DISPLAY frame and `compensate_crop` swaps its axes after the
+    # decode-shrink rescale under a quarter turn. The per-axis factors must therefore
+    # be swapped before the rescale, or each display axis is divided by the wrong
+    # storage factor. Real shrink-on-load is uniform (w≈h), so this is only
+    # observable with asymmetric factors — set them directly, as the storage-frame
+    # test above sets source_dimensions.
+    #
+    # Display request 80×60 with decode_shrink {w: 2, h: 4} under a 90° turn:
+    # display width→storage height (h factor 4), display height→storage width
+    # (w factor 2) ⇒ storage crop (60/2)×(80/4) = 30×20, which the post-crop flush
+    # rotates to a 20×30 display frame. Pre-fix the un-swapped factors give storage
+    # 15×40 → display 40×15.
+    test "decode_shrink per-axis factors swap for a quarter-turn gravity crop" do
+      {:ok, rotate} = Operation.rotate(90)
+      {:ok, crop} = Operation.crop_guided({:px, 80}, {:px, 60}, :center)
+
+      {:ok, image} = Image.new(200, 200, color: :white)
+      state = %State{image: image, decode_shrink: %{w: 2.0, h: 4.0}}
+
+      assert {:ok, %State{} = result} =
+               Transform.execute_plan(plan([rotate, crop]), state, [])
+
+      assert {Image.width(result.image), Image.height(result.image)} == {20, 30}
+    end
+
+    # Region-crop variant of the above. A CropRegion authored in the display frame
+    # flushes the pending orientation first, then crops the oriented frame while
+    # decode_shrink is still set — so it needs the same per-axis swap: after a
+    # quarter-turn flush the display width axis came from the storage height axis (and
+    # vice versa), so a display dimension is divided by the factor of the storage axis
+    # it came from. CropRegion is product-neutral surface (no imgproxy region crop);
+    # this keeps it correct for any future parser that emits it.
+    #
+    # Display region 80×60 with decode_shrink {w: 2, h: 4} under a 90° turn ⇒ crop
+    # 80/4 × 60/2 = 20×30 on the flushed frame. Pre-fix the un-swapped factors give
+    # 80/2 × 60/4 = 40×15.
+    test "decode_shrink per-axis factors swap for a quarter-turn region crop" do
+      {:ok, rotate} = Operation.rotate(90)
+      {:ok, crop} = Operation.crop_region({:px, 40}, {:px, 40}, {:px, 80}, {:px, 60})
+
+      {:ok, image} = Image.new(200, 200, color: :white)
+      state = %State{image: image, decode_shrink: %{w: 2.0, h: 4.0}}
+
+      assert {:ok, %State{} = result} =
+               Transform.execute_plan(plan([rotate, crop]), state, [])
+
+      assert {Image.width(result.image), Image.height(result.image)} == {20, 30}
+    end
+
     test "user rotate folds into deferred orientation and flushes at the pipeline boundary" do
       assert {:ok, %State{} = state} =
                Transform.execute_plan(
