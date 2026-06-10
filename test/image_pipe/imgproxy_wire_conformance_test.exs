@@ -296,6 +296,21 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule SolidWideOrigin do
+    @moduledoc false
+    # Solid 400x300 (4:3) opaque red — larger than the extend targets below, so the
+    # fit shrink keeps imgproxy's DprScale at the requested dpr (a source smaller than
+    # the target collapses DprScale to 1.0 under enlarge-off). Opaque, so the
+    # transparent extend background is detectable by the output alpha channel.
+    def call(conn, _opts) do
+      body = Image.new!(400, 300, color: [255, 0, 0]) |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule UnavailableDetector do
     @moduledoc false
     @behaviour ImagePipe.Transform.Detector
@@ -2580,8 +2595,51 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  describe "extend dpr (wire)" do
+    # imgproxy dpr-scales BOTH the extend target box (TargetWidth = Scale(w, dpr),
+    # prepare.go) and the absolute extend offset (RoundToEven(offset * dpr),
+    # calc_position.go), keeping the composition dpr-stable. West gravity on a
+    # horizontally-letterboxed image (4:3 source into a 2:1 box) gives the x-offset
+    # real horizontal play, so both effects are observable at the response boundary.
+    test "dpr scales the extend canvas box and the absolute offset together" do
+      base =
+        call_imgproxy("/_/rs:fit:100:50/ex:1:we:5:0/plain/images/wide.png", solid_wide_opts())
+
+      dpr2 =
+        call_imgproxy(
+          "/_/rs:fit:100:50/ex:1:we:5:0/dpr:2/plain/images/wide.png",
+          solid_wide_opts()
+        )
+
+      assert base.status == 200
+      assert dpr2.status == 200
+
+      # The extend canvas box scales by dpr: 100×50 → Scale(100,2)×Scale(50,2).
+      assert dimensions(base) == {100, 50}
+      assert dimensions(dpr2) == {200, 100}
+
+      # The absolute west offset scales by dpr: image left edge 5 → RoundToEven(5×2).
+      assert image_left(base) == 5
+      assert image_left(dpr2) == 10
+    end
+  end
+
   defp trim_origin_opts, do: origin_opts(TrimOriginImage)
   defp uniform_origin_opts, do: origin_opts(UniformOriginImage)
+  defp solid_wide_opts, do: origin_opts(SolidWideOrigin)
+
+  # First column at mid-height whose pixel is opaque — the left edge of the embedded
+  # image inside the transparent extend canvas.
+  defp image_left(%Plug.Conn{} = conn) do
+    image = decoded_image(conn)
+    {width, height} = dimensions(image)
+    row = div(height, 2)
+
+    Enum.find(0..(width - 1), fn x -> opaque_pixel?(Image.get_pixel!(image, x, row)) end)
+  end
+
+  defp opaque_pixel?([_red, _green, _blue, alpha]), do: alpha > 0
+  defp opaque_pixel?([_red, _green, _blue]), do: true
 
   defp origin_opts(plug) do
     [

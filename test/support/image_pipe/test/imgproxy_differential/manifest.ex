@@ -12,11 +12,37 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Manifest do
   @spec write!(Path.t(), map()) :: :ok
   def write!(path, %{} = manifest) do
     File.mkdir_p!(Path.dirname(path))
+    # Run the term through the real code formatter so the committed file matches
+    # `mix format` (manifest.exs is in the formatter's scope). The formatter
+    # preserves map-key order, so the explicit key sort in `render/1` survives.
+    formatted = manifest |> render() |> Code.format_string!() |> IO.iodata_to_binary()
+    File.write!(path, formatted <> "\n")
+  end
 
-    File.write!(
-      path,
-      inspect(manifest, pretty: true, limit: :infinity, printable_limit: :infinity) <> "\n"
-    )
+  # `inspect` only sorts maps with ≤ 32 keys; a larger map leaks its internal
+  # (HAMT) iteration order, so once the harness crosses 32 constellations the
+  # `entries` map serializes in an unstable order and every regeneration churns the
+  # whole file. Emit `sources` and `entries` as explicitly key-sorted map literals
+  # (the formatter then lays them out canonically) so the committed manifest stays
+  # deterministically git-diffable at any size.
+  defp render(%{} = manifest) do
+    "%{" <>
+      "imgproxy_digest: #{inspect(manifest.imgproxy_digest)}," <>
+      "imgproxy_libvips: #{inspect(manifest.imgproxy_libvips)}," <>
+      "pipe_libvips_at_gen: #{inspect(manifest.pipe_libvips_at_gen)}," <>
+      "sources: #{sorted_map_literal(manifest.sources)}," <>
+      "entries: #{sorted_map_literal(manifest.entries)}}"
+  end
+
+  defp sorted_map_literal(map) do
+    body =
+      map
+      |> Enum.sort_by(fn {key, _value} -> key end)
+      |> Enum.map_join(",", fn {key, value} ->
+        "#{inspect(key)} => #{inspect(value, limit: :infinity, printable_limit: :infinity)}"
+      end)
+
+    "%{#{body}}"
   end
 
   @doc "Load and validate a manifest term from `path`."
