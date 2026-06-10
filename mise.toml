@@ -3,14 +3,15 @@ elixir = "1.20.0-otp-29"
 node = "latest"
 
 [tasks.setup]
-description = "Install Elixir and demo dependencies"
+description = "Install library and fiddle dependencies"
 run = [
   "mix deps.get",
-  "pnpm install --frozen-lockfile",
+  "cd fiddle && mix deps.get",
+  "pnpm -C fiddle install --frozen-lockfile",
 ]
 
 [tasks.precommit]
-description = "Elixir checks: format, compile (warnings as errors), credo, test"
+description = "Elixir library checks: format, compile (warnings as errors), credo, test"
 run = [
   "mix format --check-formatted",
   "mix compile --warnings-as-errors",
@@ -19,6 +20,20 @@ run = [
 ]
 
 [tasks."precommit:demo"]
-description = "Full precommit: Elixir checks plus the demo verify suite"
+description = "Library checks plus the fiddle verify suite"
 depends = ["precommit"]
-run = "mix demo.verify"
+run = [
+  "cd fiddle && mix format --check-formatted",
+  "cd fiddle && mix compile --warnings-as-errors",
+  "cd fiddle && mix test",
+  "pnpm -C fiddle/assets run test",
+  "pnpm -C fiddle/assets run check",
+  "pnpm -C fiddle/assets run format:check",
+  "pnpm -C fiddle/assets run lint",
+  "pnpm -C fiddle/assets run build",
+]
+
+[tasks.server]
+description = "Run the ImagePipe Fiddle dev server (Phoenix + Vite)"
+dir = "fiddle"
+run = "mix phx.server"

@@ -13,7 +13,8 @@ defmodule ImagePipeFiddle.Application do
     children =
       [
         ImagePipeFiddleWeb.Telemetry,
-        {DNSCluster, query: Application.get_env(:image_pipe_fiddle, :dns_cluster_query) || :ignore},
+        {DNSCluster,
+         query: Application.get_env(:image_pipe_fiddle, :dns_cluster_query) || :ignore},
         {Phoenix.PubSub, name: ImagePipeFiddle.PubSub},
         ImagePipeFiddleWeb.Endpoint,
         {ImagePipe.Transform.Detector.Warmup, detector: :default, classes: ["face"]}
