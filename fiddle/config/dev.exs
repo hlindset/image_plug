@@ -16,18 +16,30 @@ config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
   secret_key_base: "izuFtCiI7gl30datBKwIFoO7rq6LgsccMB04ylPiOd2nrd2ZgLmOJnsQeRU4ceTr",
   static_url: [host: "localhost", port: 5173],
   watchers: [
-    vite: [
-      "pnpm",
-      "exec",
-      "vite",
-      "dev",
-      "--host",
-      "localhost",
-      "--port",
-      "5173",
-      "--strictPort",
-      cd: Path.expand("../assets", __DIR__)
-    ]
+    # Run Vite's dev server via the mise-managed `node` and the locally installed
+    # vite entry. Phoenix treats the watcher KEY as the executable for the list
+    # form, so we use the MFA form instead: only `node` needs to be on PATH (not a
+    # global pnpm/npm/vite). The `:vite` key is required by
+    # `PhoenixVite.Components.has_vite_watcher?/1` to put the layout in dev mode.
+    vite:
+      {System, :cmd,
+       [
+         "node",
+         [
+           Path.expand("../assets/node_modules/vite/bin/vite.js", __DIR__),
+           "dev",
+           "--host",
+           "localhost",
+           "--port",
+           "5173",
+           "--strictPort"
+         ],
+         [
+           cd: Path.expand("../assets", __DIR__),
+           into: IO.stream(:stdio, :line),
+           stderr_to_stdout: true
+         ]
+       ]}
   ]
 
 # ## SSL Support
