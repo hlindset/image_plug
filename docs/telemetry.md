@@ -574,12 +574,32 @@ ImagePipe.Telemetry.attach_tracer(
 )
 ```
 
-**Correlation is trace-level:** logs and OTel spans share the `trace_id` (so a trace
-groups across logs and traces); OTel mints its own `span_id`. When ImagePipe is *not*
-the originating tracer (`extract_inbound: true` behind a traced caller), the root span
-is a real child of the caller. As the originator, the root carries a synthetic
-"remote parent" — cosmetic. If `:opentelemetry_api` is absent, `attach_tracer/1`
-raises; if present but the SDK isn't started, spans are silently dropped by the noop
+**Hierarchy and correlation:** spans are buffered per trace and replayed into the
+SDK top-down when the request's root span finishes, so every child is parented
+onto its parent's OTel-minted span context — the full span tree survives into
+Jaeger/Tempo. (The replay buffer is a GenServer supervised by ImagePipe's
+application; it is inert unless this exporter is attached, and best-effort:
+buffered traces are dropped on crash/shutdown, and under extreme load spans for
+new traces are shed rather than growing without bound.) Correlation with logs
+is trace-level: logs and OTel spans share the `trace_id`; OTel mints its own
+span ids, so the `span=` ids in `LogExporter` lines will not match OTel span
+ids. When ImagePipe is *not* the originating tracer (`extract_inbound: true`
+behind a traced caller), the root span is a real child of the caller. As the
+originator, only the root carries a synthetic "remote parent" (it forces
+ImagePipe's `trace_id` onto the OTel trace) — at most one out-of-trace parent
+reference per trace, on the root. Traces whose root never finishes (the
+emitting process died) are flushed flat after ~10 s, each span keeping its
+recorded parent id; spans finishing shortly after the root (cross-process
+stages) still parent correctly within the same window, except a late span
+whose own parent is also late and not yet replayed, which falls back to a
+dangling parent. One cosmetic side effect of forcing the `trace_id`: every
+replayed span is marked as having a *remote* parent (`parent_span_is_remote`),
+because the OTel SDK propagates the root's synthetic remote-parent flag down
+the tree. Hierarchy and trace identity are unaffected, but a `parent_based`
+sampler that treats remote and local parents differently will take its
+remote-parent branch for all ImagePipe spans — keep both branches on the same
+policy. If `:opentelemetry_api` is absent, `attach_tracer/1` raises;
+if present but the SDK isn't started, spans are silently dropped by the noop
 tracer (start the SDK). See `docs/cookbook/opentelemetry-jaeger.md`.
 
 **Forced sampled flag:** the OTel exporter always emits spans with the W3C `-01`
