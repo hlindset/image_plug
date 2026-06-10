@@ -2,7 +2,7 @@
 
 - Use `mise exec -- ...` to run things in this repo with the correct versions of things
 - Prefer the mise tasks for whole-repo workflows over invoking each tool by hand:
-  - `mise run setup` installs Elixir (`mix deps.get`) and demo (`pnpm install --frozen-lockfile`) dependencies.
+  - `mise run setup` installs the library and fiddle dependencies (`mix deps.get` for both, then `pnpm -C fiddle install --frozen-lockfile`).
   - `mise run precommit` runs the Elixir gate: `mix format --check-formatted`, `mix compile --warnings-as-errors`, `mix credo --strict`, `mix test`. Run it before finishing broader changes.
   - `mise run precommit:demo` runs the Elixir gate plus the fiddle verify suite (the fiddle's Elixir checks + JS test/check/lint/format/build). Use it when a change also touches the `fiddle/` app.
 - This project is a greenfield, unreleased library; backwards compatibility should not be a concern at this point in time
