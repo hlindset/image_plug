@@ -85,7 +85,14 @@ defmodule ImagePipe.Transform.Operation.Crop do
   import ImagePipe.Transform.State, only: [set_image: 2]
 
   import ImagePipe.Transform.Geometry,
-    only: [anchor_to_pixels: 3, image_height: 1, image_width: 1, to_pixels: 2]
+    only: [
+      anchor_to_pixels: 3,
+      center_origin: 2,
+      image_height: 1,
+      image_width: 1,
+      round_ties_to_even: 1,
+      to_pixels: 2
+    ]
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Focal
@@ -530,8 +537,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
   defp anchor_position(anchor, bounds, crop, offset, _bias) when anchor in [:right, :bottom],
     do: bounds - crop - round_offset_to_even(offset)
 
-  defp center_origin(bounds, crop), do: round_ties_to_even((bounds - crop + 1) / 2)
-
   # imgproxy converts every offset to an even integer before composing it with the
   # integer origin (ScaleToEven / RoundToEven, imath.go). The bare offset reaching
   # here is already resolved against the right bounds/scale, so round it the same
@@ -595,21 +600,6 @@ defmodule ImagePipe.Transform.Operation.Crop do
        do: {:ok, gravity}
 
   defp crop_gravity(value), do: {:error, {:invalid_crop_gravity, value}}
-
-  defp round_ties_to_even(value) when is_integer(value), do: value
-
-  defp round_ties_to_even(value) when is_float(value) do
-    floor = Float.floor(value)
-    fraction = value - floor
-    floor = trunc(floor)
-
-    cond do
-      fraction < 0.5 -> floor
-      fraction > 0.5 -> floor + 1
-      rem(floor, 2) == 0 -> floor
-      true -> floor + 1
-    end
-  end
 
   defp anchor_crop_to_pixels(
          %{left: left, top: top},

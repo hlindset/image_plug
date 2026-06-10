@@ -35,25 +35,33 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       c("alpha_resize", :alpha, "rs:fit:64:64"),
       c("rotate_exif", :exif_jpeg, "rs:fit:120:120"),
       c("enlarge_small", :small, "rs:fit:400:400/el:1"),
-      triage(
-        c("min_dims_clamp", :high_freq, "rs:fit:300:300/mw:280/mh:280"),
-        "dims 373x280 vs imgproxy 300x280 — min-dim aspect semantics (#194)"
-      ),
+      # #194: imgproxy runs a universal cropToResult — scale into the requested box,
+      # then crop back to it (gravity center). ImagePipe's fit path lacked it, so the
+      # mw/mh min-dimension upscale left the result at 373×280 instead of cropping to
+      # 300×280. Fixed in PlanExecutor/Resize (fit result-crop). The centered crop now
+      # matches imgproxy's content exactly; the residual pixel delta is libvips-version
+      # resampling skew on the high-frequency zone-plate source (max Δ27, zero
+      # structural flips). The Δ32 threshold absorbs that skew while still failing any
+      # crop misplacement — a 1px shift exceeds Δ32 on >148k band-bytes.
+      %{
+        c("min_dims_clamp", :high_freq, "rs:fit:300:300/mw:280/mh:280")
+        | tol: %{threshold: 32, budget: 64}
+      },
       c("zoom_marker", :marker, "z:0.5"),
-      triage(
-        c("fill_down_marker", :marker, "rs:fill-down:500:500"),
-        "~0.02% over Δ2 — fill-down crop seam vs 1px shift (#197)"
-      ),
+      # #197: not a placement shift — the differing band-bytes sit in 3 columns at a
+      # single sharp red→dark marker edge (max Δ14), with pixels identical on both
+      # sides of the edge and the edge at the same x in both. A 1px crop shift would
+      # diverge across every edge in the frame (thousands of band-bytes, Δ up to ~210),
+      # not 166 at one seam. It is libvips-version anti-aliasing skew at that edge, so
+      # the budget is widened (still Δ2; a real crop shift blows far past 256).
+      %{
+        c("fill_down_marker", :marker, "rs:fill-down:500:500")
+        | tol: %{threshold: 2, budget: 256}
+      },
       c("gravity_offset_marker", :marker, "rs:fill:120:120/g:no:10:20"),
       c("padding_border", :border, "rs:fit:120:120/pd:10:20"),
-      triage(
-        c("extend_small", :small, "rs:fit:300:200/ex:1"),
-        "~0.67% over Δ2 in the padded region (#195)"
-      ),
-      triage(
-        c("extend_ar_small", :small, "rs:fit:300:200/exar:1"),
-        "~0.5% over Δ2, same family as extend (#196)"
-      ),
+      c("extend_small", :small, "rs:fit:300:200/ex:1"),
+      c("extend_ar_small", :small, "rs:fit:300:200/exar:1"),
       c("dpr_marker", :marker, "rs:fit:80:80/dpr:2"),
       c("background_alpha", :alpha, "rs:fit:64:64/bg:255:0:0"),
       c("blur_zone", :high_freq, "rs:fit:240:240/bl:3"),
@@ -127,11 +135,4 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       tol: nil,
       divergence: nil
     }
-
-  # Marks a constellation as a recorded-but-unresolved imgproxy discrepancy. The
-  # comparison test tags it `:imgproxy_triage` (excluded by default) so it is
-  # skipped rather than failing, while staying visible and runnable via
-  # `--include imgproxy_triage`. `reason` carries the tracking issue (#NNN). Not an
-  # authored field — it does not affect `Manifest.authored_sha256/1`.
-  defp triage(constellation, reason), do: Map.put(constellation, :triage, reason)
 end

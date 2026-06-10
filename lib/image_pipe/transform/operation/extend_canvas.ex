@@ -158,7 +158,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   defp base_offset(:x, {:anchor, :left, _y}, _image_size, _canvas_size), do: 0
 
   defp base_offset(:x, {:anchor, :center, _y}, image_size, canvas_size),
-    do: div(canvas_size - image_size, 2)
+    do: center_origin(canvas_size, image_size)
 
   defp base_offset(:x, {:anchor, :right, _y}, image_size, canvas_size),
     do: canvas_size - image_size
@@ -166,7 +166,7 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   defp base_offset(:y, {:anchor, _x, :top}, _image_size, _canvas_size), do: 0
 
   defp base_offset(:y, {:anchor, _x, :center}, image_size, canvas_size),
-    do: div(canvas_size - image_size, 2)
+    do: center_origin(canvas_size, image_size)
 
   defp base_offset(:y, {:anchor, _x, :bottom}, image_size, canvas_size),
     do: canvas_size - image_size

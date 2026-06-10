@@ -858,7 +858,13 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       # cover + min-dimension under a quarter turn: the cross-axis min-dim
       # coupling must resolve in the display frame (#146 Bug 2)
       "/_/rs:fill:91:61/mw:140/g:no/f:png/plain/images/x.jpg",
-      "/_/rs:fill:90:90/mh:130/g:ce/f:png/plain/images/x.jpg"
+      "/_/rs:fill:90:90/mh:130/g:ce/f:png/plain/images/x.jpg",
+      # fit + min-dimension under a quarter turn (#194): mw/mh force a uniform
+      # upscale past the requested box, so the new fit result-crop fires; its box
+      # and the cross-axis coupling must land in the display frame too. Both crop in
+      # portrait (mw binds) and landscape (mh binds) display orientations.
+      "/_/rs:fit:80:80/mw:70/mh:70/f:png/plain/images/x.jpg",
+      "/_/rs:fit:91:61/mh:130/f:png/plain/images/x.jpg"
     ]
 
     for orientation <- 1..8, path <- paths do
