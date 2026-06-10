@@ -144,7 +144,12 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "application boundary owns OTP startup and depends on request lifecycle infrastructure" do
     application = boundary_declaration(ImagePipe.Application)
 
-    assert_boundary_deps(application, [ImagePipe.Output, ImagePipe.Request])
+    assert_boundary_deps(application, [
+      ImagePipe.Output,
+      ImagePipe.Request,
+      ImagePipe.Telemetry
+    ])
+
     assert_boundary_exports(application, [])
   end
 
@@ -286,6 +291,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     # Trace.OpenTelemetryExporter is the built-in opt-in exporter a host names directly
     # in attach_tracer/1, so it is a public entry point (it uses only the public
     # OpenTelemetry API; the boundary stays dependency-free).
+    # Trace.OtelReplay is exported solely so ImagePipe.Application can supervise it; it is
+    # exported-but-internal (@moduledoc false), the same posture as Trace.Stack.
     assert_boundary_exports(telemetry, [
       ImagePipe.Telemetry.Trace,
       ImagePipe.Telemetry.Trace.Stack,
@@ -293,7 +300,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Telemetry.Trace.Span,
       ImagePipe.Telemetry.Trace.Exporter,
       ImagePipe.Telemetry.Trace.ReqStep,
-      ImagePipe.Telemetry.Trace.OpenTelemetryExporter
+      ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
+      ImagePipe.Telemetry.Trace.OtelReplay
     ])
   end
 

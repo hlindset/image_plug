@@ -5,7 +5,8 @@ defmodule ImagePipe.Application do
     top_level?: true,
     deps: [
       ImagePipe.Output,
-      ImagePipe.Request
+      ImagePipe.Request,
+      ImagePipe.Telemetry
     ]
 
   use Application
@@ -14,10 +15,12 @@ defmodule ImagePipe.Application do
 
   alias ImagePipe.Output.Capabilities
 
+  @impl true
   def start(_type, _args) do
     Capabilities.probe()
 
     children = [
+      ImagePipe.Telemetry.Trace.OtelReplay,
       ImagePipe.Request.SourceSessionSupervisor
     ]
 

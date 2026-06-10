@@ -23,10 +23,11 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporterTest do
   defp event_system_time_native(event), do: otel_event(event, :system_time_native)
   defp event_attributes(event), do: otel_event(event, :attributes)
 
-  alias ImagePipe.Telemetry.Trace.{OpenTelemetryExporter, Span}
+  alias ImagePipe.Telemetry.Trace.{OpenTelemetryExporter, OtelReplay, Span}
 
   setup do
     :otel_simple_processor.set_exporter(:otel_exporter_pid, self())
+    OtelReplay.reset()
     :ok
   end
 
@@ -40,7 +41,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporterTest do
       start_time: System.system_time(),
       duration_native: 1_000,
       status: :ok,
-      trace_flags: 1
+      trace_flags: 1,
+      root: true
     }
 
     assert :ok = OpenTelemetryExporter.export(span)
@@ -199,7 +201,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporterTest do
         start_time: System.system_time(),
         duration_native: 1,
         status: :ok,
-        trace_flags: 1
+        trace_flags: 1,
+        root: true
       },
       overrides
     )
