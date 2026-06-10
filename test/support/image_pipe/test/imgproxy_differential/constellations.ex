@@ -48,27 +48,22 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       c("sharpen_zone", :high_freq, "rs:fit:240:240/sh:2"),
       c("strip_exif", :exif_jpeg, "rs:fit:120:120/sm:1"),
 
-      # --- :diverges (structured metric, not skew-gated) ---
-      # scp:0 alone: ImagePipe skips the P3->sRGB conversion while imgproxy always
-      # imports to the working space, so a flat saturated-P3 patch diverges
-      # systematically. NO tone op -- `sa`/saturation is imgproxy Pro-only and would
-      # 404 on darthsim non-pro. Re-validate the floor against the real fixture.
+      # icc_p3 trim agrees with imgproxy in stored pixels; the trim-detection
+      # colorspace difference is behavioral-only (not observable here), so this is
+      # an :equal conformance case on a profiled source.
+      c("trim_icc_p3", :icc_p3, "t:10"),
+
+      # --- :diverges (whole-frame fraction metric; runs regardless of libvips skew) ---
+      # #124: with scp:0 ImagePipe skips the P3 working-space conversion imgproxy
+      # always performs, so processing diverges. The effect is diffuse (~2.6% of
+      # band-bytes exceed Δ2 on the P3 source), so it is measured as a whole-frame
+      # fraction-over-Δ, not a flat-region mean. (`sa`/tone ops would amplify it but
+      # are imgproxy Pro-only.) Floor set below the measured value with margin.
       diverge(
         "scp0_colorspace_124",
         :icc_p3,
         "rs:fit:200:200/scp:0",
-        %{metric: :region_mean_delta, region: {40, 40, 80, 80}, floor: 4.0, issue: "#124"}
-      ),
-      diverge(
-        "trim_detection_space",
-        :icc_p3,
-        "t:10",
-        %{
-          metric: :region_mean_delta,
-          region: {0, 0, 32, 32},
-          floor: 3.0,
-          issue: "#124 (trim detection)"
-        }
+        %{metric: :fraction_over, threshold: 2, floor: 0.01, issue: "#124"}
       ),
 
       # --- lossy group: contract-only (dims/content-type/decode), no pixel claim ---

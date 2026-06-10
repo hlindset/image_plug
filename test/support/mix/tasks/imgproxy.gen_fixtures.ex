@@ -13,7 +13,7 @@ if Code.ensure_loaded?(Testcontainers) do
 
     alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest}
 
-    @image "darthsim/imgproxy@sha256:REPLACE_WITH_PINNED_DIGEST"
+    @image "darthsim/imgproxy@sha256:9ed8f87b34d55c7844951ff65bcf6605de54ba6670f64951c7215f9b125a482e"
     @base "test/support/image_pipe/test/imgproxy_differential"
     @sources_dir "#{@base}/sources"
     @fixtures_dir "#{@base}/fixtures"
@@ -24,7 +24,15 @@ if Code.ensure_loaded?(Testcontainers) do
     def run(_args) do
       {:ok, _} = Application.ensure_all_started(:image)
       {:ok, _} = Application.ensure_all_started(:req)
-      {:ok, _} = Testcontainers.start_link()
+      # Start testcontainers' app deps (hackney/tesla) AND its GenServer (which the
+      # app does not auto-start).
+      {:ok, _} = Application.ensure_all_started(:testcontainers)
+
+      case Testcontainers.start_link() do
+        {:ok, _} -> :ok
+        {:error, {:already_started, _}} -> :ok
+      end
+
       File.mkdir_p!(@fixtures_dir)
 
       container =
@@ -118,12 +126,20 @@ if Code.ensure_loaded?(Testcontainers) do
       end
     end
 
-    # imgproxy does NOT expose its libvips version over HTTP; read it from inside
-    # the container. The darthsim image ships the `vips` CLI, which prints e.g.
-    # "vips-8.16.0".
+    # imgproxy exposes no libvips version over HTTP, and the darthsim image has no
+    # `vips` CLI — read the bundled .so realname (e.g. "libvips.so.42.20.2") and
+    # record its ABI version ("42.20.2") as the skew identifier.
     defp container_libvips(started) do
-      {out, 0} = System.cmd("docker", ["exec", started.container_id, "vips", "--version"])
-      out |> String.trim() |> String.replace_prefix("vips-", "")
+      {out, 0} =
+        System.cmd("docker", [
+          "exec",
+          started.container_id,
+          "sh",
+          "-c",
+          "readlink -f /opt/imgproxy/lib/libvips.so.42 | xargs basename"
+        ])
+
+      out |> String.trim() |> String.replace_prefix("libvips.so.", "")
     end
 
     defp write_report!(manifest) do

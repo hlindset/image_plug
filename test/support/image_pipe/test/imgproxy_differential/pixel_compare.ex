@@ -36,20 +36,17 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompare do
   end
 
   @doc """
-  Mean absolute per-channel delta over the `{left, top, width, height}` region.
+  Fraction (0.0..1.0) of band-bytes whose absolute delta exceeds `threshold` — a
+  whole-frame divergence metric. Raises on dimension/band-layout mismatch.
   """
-  @spec region_mean_delta(
-          VipsImage.t(),
-          VipsImage.t(),
-          {integer(), integer(), pos_integer(), pos_integer()}
-        ) :: float()
-  def region_mean_delta(a, b, {left, top, width, height}) do
-    {:ok, ra} = Image.crop(a, left, top, width, height)
-    {:ok, rb} = Image.crop(b, left, top, width, height)
-    {:ok, ab} = VipsImage.write_to_binary(ra)
-    {:ok, bb} = VipsImage.write_to_binary(rb)
-    {sum, n} = sum_abs_delta(ab, bb, 0, 0)
-    if n == 0, do: 0.0, else: sum / n
+  @spec fraction_over(VipsImage.t(), VipsImage.t(), non_neg_integer()) :: float()
+  def fraction_over(a, b, threshold) do
+    {:ok, ab} = VipsImage.write_to_binary(a)
+
+    case byte_size(ab) do
+      0 -> 0.0
+      total -> outliers(a, b, threshold) / total
+    end
   end
 
   # Counts band-bytes (not pixels) whose absolute delta exceeds the threshold.
@@ -60,11 +57,5 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompare do
   defp count_outliers(<<av, arest::binary>>, <<bv, brest::binary>>, t, acc) do
     acc = if abs(av - bv) > t, do: acc + 1, else: acc
     count_outliers(arest, brest, t, acc)
-  end
-
-  defp sum_abs_delta(<<>>, <<>>, sum, n), do: {sum, n}
-
-  defp sum_abs_delta(<<av, arest::binary>>, <<bv, brest::binary>>, sum, n) do
-    sum_abs_delta(arest, brest, sum + abs(av - bv), n + 1)
   end
 end

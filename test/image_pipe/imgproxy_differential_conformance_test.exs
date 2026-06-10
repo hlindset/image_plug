@@ -34,43 +34,24 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
 
   setup_all do
     manifest = if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: nil
+
+    # Warn-and-attempt: ImagePipe tracks bleeding-edge libvips while imgproxy lags,
+    # so the versions rarely match. Empirically the ✅ stages still agree to
+    # tolerance across minor libvips gaps, so we compare anyway and warn once — a
+    # failure may reflect a libvips version difference rather than a regression.
+    if manifest && not Skew.aligned?(manifest) do
+      IO.puts(
+        :stderr,
+        "[imgproxy-differential] libvips skew: fixtures baked on #{manifest.imgproxy_libvips}, " <>
+          "running #{Skew.runtime_libvips()}. Comparing anyway."
+      )
+    end
+
     {:ok, manifest: manifest}
-  end
-
-  setup context do
-    cond do
-      context[:differential] != true ->
-        :ok
-
-      is_nil(context[:manifest]) ->
-        :ok
-
-      context[:verdict] == :diverges ->
-        :ok
-
-      Skew.aligned?(context.manifest) ->
-        :ok
-
-      true ->
-        {:skip,
-         "libvips #{Skew.runtime_libvips()} != fixtures' #{context.manifest.imgproxy_libvips}"}
-    end
-  end
-
-  test "CI must not be green-by-skip: a present manifest under CI must align", %{
-    manifest: manifest
-  } do
-    if manifest && Skew.ci?() do
-      assert Skew.aligned?(manifest),
-             "CI libvips #{Skew.runtime_libvips()} != fixtures' #{manifest.imgproxy_libvips}; " <>
-               "regenerate fixtures on CI's libvips."
-    end
   end
 
   for constellation <- Constellations.all() do
     @c constellation
-    @tag :differential
-    @tag verdict: constellation.verdict
 
     test "#{@c.id} (#{@c.verdict}/#{@c.group})", %{manifest: manifest} do
       if is_nil(manifest) do
@@ -106,11 +87,11 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
     fixture = fixture_image(c, entry)
     assert_same_dims!(c, out, fixture)
 
-    %{metric: :region_mean_delta, region: region, floor: floor} = c.divergence
-    delta = PixelCompare.region_mean_delta(out, fixture, region)
+    %{metric: :fraction_over, threshold: threshold, floor: floor} = c.divergence
+    frac = PixelCompare.fraction_over(out, fixture, threshold)
 
-    assert delta >= floor,
-           "#{c.id}: expected divergence ≥ #{floor} over #{inspect(region)}, got #{Float.round(delta, 3)}. " <>
+    assert frac >= floor,
+           "#{c.id}: expected ≥ #{floor} fraction of band-bytes over Δ#{threshold}, got #{Float.round(frac, 4)}. " <>
              "If ImagePipe now matches imgproxy, flip this constellation to :equal and update the matrix."
   end
 

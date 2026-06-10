@@ -39,11 +39,18 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompareTest do
     end
   end
 
-  describe "region_mean_delta/3" do
-    test "mean absolute per-channel delta over a region equals a uniform offset" do
-      a = img(32, 32, [40, 40, 40])
-      b = img(32, 32, [46, 46, 46])
-      assert_in_delta PixelCompare.region_mean_delta(a, b, {8, 8, 16, 16}), 6.0, 0.001
+  describe "fraction_over/3" do
+    test "fraction of band-bytes exceeding the threshold" do
+      a = img(16, 16, [10, 20, 30])
+      b = img(16, 16, [12, 22, 32])
+      # every band-byte differs by exactly 2: none exceed Δ2, all exceed Δ1
+      assert PixelCompare.fraction_over(a, b, 2) == 0.0
+      assert PixelCompare.fraction_over(a, b, 1) == 1.0
+    end
+
+    test "identical images have zero fraction" do
+      a = img(16, 16, [10, 20, 30])
+      assert PixelCompare.fraction_over(a, a, 0) == 0.0
     end
   end
 end
