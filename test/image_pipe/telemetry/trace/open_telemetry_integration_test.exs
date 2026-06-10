@@ -20,7 +20,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{LogExporter, OpenTelemetryExporter, Span}
+  alias ImagePipe.Telemetry.Trace.{LogExporter, OpenTelemetryExporter, OtelReplay, Span}
   alias ImgproxyWireConformanceTest.CacheProbe
 
   # Inline plug: serves beach.jpg for any request path (ignores query params).
@@ -66,8 +66,10 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
   end
 
   # Route OTel spans to the test process; next test's setup re-points the exporter.
+  # Resetting the replay buffer also fences pending casts from a prior test.
   setup do
     :otel_simple_processor.set_exporter(:otel_exporter_pid, self())
+    OtelReplay.reset()
     :ok
   end
 
@@ -163,7 +165,8 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
       start_time: System.system_time(),
       duration_native: 1,
       status: :ok,
-      trace_flags: 1
+      trace_flags: 1,
+      root: true
     }
 
     assert :ok = OpenTelemetryExporter.export(span)
@@ -201,6 +204,44 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     # Source-fetch spans are reliably present on a cache-miss request.
     assert "image_pipe.source.fetch" in names
     assert "image_pipe.source.fetch_decode" in names
+  end
+
+  # ── test 4: hierarchy — the Jaeger "missing parent spans" regression ──────────
+  #
+  # Pre-fix, every exported span referenced an internal (never-exported) parent id,
+  # so Jaeger flagged all spans as missing their parent and rendered the trace flat.
+  # Post-fix, every non-root span must point at another exported span's OTel-minted
+  # id; only the request root keeps a synthetic out-of-trace parent (it forces
+  # ImagePipe's trace_id).
+
+  test "every non-root span parents onto another exported span" do
+    attach_otel_tracer()
+
+    conn = call(request_path(), miss_opts())
+    assert conn.status == 200
+
+    # A synchronous call fences every add/2 cast enqueued before it; the drain
+    # window covers cross-process spans still finishing after the response.
+    :ok = OtelReplay.sweep()
+
+    recs = drain_spans()
+    assert recs != [], "no spans exported — request/drain not wired"
+
+    req = Enum.find(recs, &(otel_span(&1, :name) == "image_pipe.request"))
+    assert req, "request root span missing"
+
+    trace_id = otel_span(req, :trace_id)
+    trace_recs = Enum.filter(recs, &(otel_span(&1, :trace_id) == trace_id))
+    assert length(trace_recs) >= 3
+
+    minted = MapSet.new(trace_recs, &otel_span(&1, :span_id))
+
+    dangling =
+      Enum.reject(trace_recs, fn rec ->
+        MapSet.member?(minted, otel_span(rec, :parent_span_id))
+      end)
+
+    assert dangling == [req]
   end
 
   # ── test 3: URL safety — signed source URL must not leak into OTel attrs ───────
