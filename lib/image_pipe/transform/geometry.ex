@@ -52,4 +52,29 @@ defmodule ImagePipe.Transform.Geometry do
         {to_pixels(width, x_scale), to_pixels(height, y_scale)}
     end
   end
+
+  # imgproxy `imath.RoundToEven`: round half to even (banker's rounding). imgproxy
+  # composes integer origins with even-rounded offsets, so positions stay
+  # integer-faithful only when ties round the same way.
+  def round_ties_to_even(value) when is_integer(value), do: value
+
+  def round_ties_to_even(value) when is_float(value) do
+    floor = Float.floor(value)
+    fraction = value - floor
+    floor = trunc(floor)
+
+    cond do
+      fraction < 0.5 -> floor
+      fraction > 0.5 -> floor + 1
+      rem(floor, 2) == 0 -> floor
+      true -> floor + 1
+    end
+  end
+
+  # Centered placement of an `inner`-sized box in an `outer`-sized frame, mirroring
+  # imgproxy calc_position.go: `ShrinkToEven(outer - inner + 1, 2)`. Shared by the
+  # result crop and the canvas embed so the two place a centered rectangle
+  # identically; the `+1` then round-half-to-even biases an odd gap toward the far
+  # edge, where a plain `div(gap, 2)` floors toward the near edge.
+  def center_origin(outer, inner), do: round_ties_to_even((outer - inner + 1) / 2)
 end

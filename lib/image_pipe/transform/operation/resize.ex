@@ -40,6 +40,8 @@ defmodule ImagePipe.Transform.Operation.Resize do
           requested_height: pos_integer() | :auto,
           target_width: pos_integer() | :auto,
           target_height: pos_integer() | :auto,
+          result_box_width: pos_integer() | :auto,
+          result_box_height: pos_integer() | :auto,
           intermediate_width: pos_integer(),
           intermediate_height: pos_integer(),
           effective_dpr: float()
@@ -106,16 +108,41 @@ defmodule ImagePipe.Transform.Operation.Resize do
         operation.enlarge
       )
 
+    result_box = result_crop_box(operation, effective_dpr)
+
     %{
       requested_width: requested.width,
       requested_height: requested.height,
       target_width: target.width,
       target_height: target.height,
+      result_box_width: result_box.width,
+      result_box_height: result_box.height,
       intermediate_width: intermediate.width,
       intermediate_height: intermediate.height,
       effective_dpr: effective_dpr
     }
   end
+
+  # The result-crop box mirrors imgproxy's TargetWidth/TargetHeight
+  # (`Scale(po.Width, DprScale * ZoomWidth)`, prepare.go calcSizes): the literal
+  # requested dimensions scaled by DPR and zoom, with NO min-dimension expansion
+  # and NO fit-inside reduction. imgproxy's universal `cropToResult` step crops the
+  # scaled image down to this box (center gravity), bounded to the image. For a
+  # plain fit the scaled image already fits inside the box so the crop is a no-op;
+  # under `mw`/`mh` the min-dimension upscale pushes the scaled image past the box
+  # on one axis and the crop trims it back. An `:auto` axis (`po.Width == 0`) is
+  # unconstrained, matching imgproxy's `MinNonZero` treatment of a zero crop side.
+  defp result_crop_box(%__MODULE__{} = operation, effective_dpr) do
+    %{
+      width: result_box_axis(operation.width, operation.zoom_x, effective_dpr),
+      height: result_box_axis(operation.height, operation.zoom_y, effective_dpr)
+    }
+  end
+
+  defp result_box_axis(:auto, _zoom, _effective_dpr), do: :auto
+
+  defp result_box_axis(value, zoom, effective_dpr),
+    do: positive_round(value * zoom * effective_dpr)
 
   defp resize_image(%State{} = state, width, height) do
     source_width = image_width(state)

@@ -147,6 +147,47 @@ defmodule ImagePipe.Transform.ResizeDimensionTest do
     assert result.intermediate_height == 300
   end
 
+  test "fit min-dimensions expose a result box smaller than the upscaled intermediate (#194)" do
+    # rs:fit:300:300/mw:280/mh:280 on a 4:3 source: fit lands 300x225, then mh:280
+    # forces a uniform upscale to 373x280. The result box stays the literal requested
+    # 300x300 (NOT the min-expanded 373x280), so PlanExecutor crops the intermediate
+    # back to it (gravity center) — matching imgproxy's cropToResult to 300x280.
+    operation = %Resize{
+      mode: :fit,
+      width: {:pixels, 300},
+      height: {:pixels, 300},
+      min_width: {:pixels, 280},
+      min_height: {:pixels, 280},
+      enlarge: false
+    }
+
+    result = Resize.resolve_dimensions(operation, source_width: 1600, source_height: 1200)
+
+    assert result.intermediate_width == 373
+    assert result.intermediate_height == 280
+    assert result.result_box_width == 300
+    assert result.result_box_height == 300
+    # the result box bites on the upscaled axis, trimming 373 -> 300 (width) while
+    # the min-dimension axis (280) survives intact
+    assert result.result_box_width < result.intermediate_width
+    assert result.result_box_height > result.intermediate_height
+  end
+
+  test "fit without min-dimensions keeps the result box at or above the intermediate (no crop)" do
+    # A plain fit scales inside the requested box, so the result box never bites and
+    # the fit path stays a single resize.
+    operation = %Resize{mode: :fit, width: {:pixels, 300}, height: {:pixels, 300}}
+
+    result = Resize.resolve_dimensions(operation, source_width: 1600, source_height: 1200)
+
+    assert result.intermediate_width == 300
+    assert result.intermediate_height == 225
+    assert result.result_box_width == 300
+    assert result.result_box_height == 300
+    refute result.result_box_width < result.intermediate_width
+    refute result.result_box_height < result.intermediate_height
+  end
+
   test "fill resolves intermediate dimensions to the cover resize box" do
     operation = %Resize{
       mode: :fill,

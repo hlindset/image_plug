@@ -409,8 +409,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp update_execution_context(_operation, %State{}, context), do: context
 
-  defp executable_operations(%PlanResize{mode: :fit} = operation, %State{}, _context) do
-    [resize_from(operation, :fit)]
+  defp executable_operations(%PlanResize{mode: :fit} = operation, %State{} = state, _context) do
+    fit_resize_and_result_crop(resize_from(operation, :fit), operation, state)
   end
 
   defp executable_operations(%PlanResize{mode: :cover} = operation, %State{} = state, _context) do
@@ -561,8 +561,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
     )
   end
 
-  defp tagged_executable_resize_operations(:fit, %Resize{} = resize, _operation, %State{}) do
-    [resize]
+  defp tagged_executable_resize_operations(:fit, %Resize{} = resize, operation, %State{} = state) do
+    fit_resize_and_result_crop(resize, operation, state)
   end
 
   defp cover_resize_and_crop(%Resize{} = resize, %State{} = state, gravity, {x_offset, y_offset}) do
@@ -587,6 +587,46 @@ defmodule ImagePipe.Transform.PlanExecutor do
       }
     ]
   end
+
+  # A fit resize mirrors imgproxy's scale → cropToResult: scale into the requested
+  # box, then crop back to it. The crop bites only when min-dimensions (mw/mh)
+  # forced the scaled image past the box on an axis; a plain fit scales inside the
+  # box and stays a single resize. The crop box is the literal requested dimensions
+  # (result_box_*), NOT the min-expanded target, so the min-dimension guarantee on
+  # the short axis survives while the long axis is trimmed (imgproxy prepare.go
+  # TargetWidth + crop.go cropToResult).
+  defp fit_resize_and_result_crop(%Resize{} = resize, %PlanResize{} = operation, %State{} = state) do
+    {src_w, src_h} = State.effective_source_dims(state)
+    dimensions = Resize.resolve_dimensions(resize, source_width: src_w, source_height: src_h)
+
+    if fit_result_crop_bites?(dimensions) do
+      [
+        resize,
+        %Crop{
+          width: result_box_crop_dimension(dimensions.result_box_width),
+          height: result_box_crop_dimension(dimensions.result_box_height),
+          crop_from: :gravity,
+          gravity: tagged_executable_gravity(operation.guide),
+          x_offset: operation.x_offset,
+          y_offset: operation.y_offset,
+          offset_scale: dimensions.effective_dpr
+        }
+      ]
+    else
+      [resize]
+    end
+  end
+
+  defp fit_result_crop_bites?(dimensions) do
+    fit_axis_exceeds?(dimensions.result_box_width, dimensions.intermediate_width) or
+      fit_axis_exceeds?(dimensions.result_box_height, dimensions.intermediate_height)
+  end
+
+  defp fit_axis_exceeds?(:auto, _intermediate), do: false
+  defp fit_axis_exceeds?(box, intermediate), do: box < intermediate
+
+  defp result_box_crop_dimension(:auto), do: :auto
+  defp result_box_crop_dimension(value), do: {:pixels, value}
 
   # True when this PlanResize expands into a cover (fill) resize + result-crop —
   # either an explicit cover, or an auto resize whose branch resolves to cover.
