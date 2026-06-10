@@ -1,7 +1,7 @@
 defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   use ExUnit.Case, async: false
   alias ImagePipe.Telemetry
-  alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
+  alias ImagePipe.Telemetry.Trace.{Context, Inbound, Span, TestExporter}
 
   setup do
     TestExporter.set_receiver(self())
@@ -66,7 +66,7 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
   end
 
   test "an inbound-continued root keeps root: true despite a non-nil parent" do
-    ImagePipe.Telemetry.Trace.Inbound.put(%ImagePipe.Telemetry.Trace.Context{
+    Inbound.put(%Context{
       trace_id: "0123456789abcdef0123456789abcdef",
       span_id: "fedcba9876543210",
       trace_flags: 1
