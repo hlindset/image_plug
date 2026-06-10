@@ -10,6 +10,7 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
     [:parse],
     [:send],
     [:encode],
+    [:deliver],
     [:source, :resolve],
     [:source, :fetch],
     [:source, :fetch_decode],

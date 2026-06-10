@@ -32,6 +32,53 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "cache lookup: hit"
   end
 
+  test "renders the encode span with its output format" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :stop],
+          %{duration: System.convert_time_unit(3, :millisecond, :native)},
+          %{result: :ok, output_format: :jpeg}
+        )
+      end)
+
+    assert log =~ "encode: ok (jpeg)"
+  end
+
+  test "escalates an encode processing error to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :encode, :stop],
+          %{duration: 1000},
+          %{result: :processing_error, output_format: :jpeg, error: :empty_stream}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "encode: processing_error"
+  end
+
+  test "renders the deliver span and does not escalate a client disconnect" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :deliver, :stop],
+          %{duration: 1000},
+          %{result: :client_closed, output_format: :jpeg, status: 200}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "deliver: client_closed"
+  end
+
   test "escalates error outcomes to warning" do
     Telemetry.attach_default_logger(level: :info)
 

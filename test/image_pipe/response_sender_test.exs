@@ -318,7 +318,7 @@ defmodule ImagePipe.Response.SenderTest do
     cancel_ref = make_ref()
     response = %Response{}
 
-    attach_telemetry([[:image_pipe, :encode, :stop]])
+    attach_telemetry([[:image_pipe, :deliver, :stop]])
 
     prepared =
       prepared_stream(
@@ -340,7 +340,7 @@ defmodule ImagePipe.Response.SenderTest do
     assert conn.private.image_pipe_send_result == :processing_error
     assert_receive ^cancel_ref
 
-    assert_receive {:telemetry_event, [:image_pipe, :encode, :stop], _measurements,
+    assert_receive {:telemetry_event, [:image_pipe, :deliver, :stop], _measurements,
                     %{
                       result: :processing_error,
                       stream_phase: :encode,
@@ -354,7 +354,7 @@ defmodule ImagePipe.Response.SenderTest do
     parent = self()
     cancel_ref = make_ref()
 
-    attach_telemetry([[:image_pipe, :encode, :stop]])
+    attach_telemetry([[:image_pipe, :deliver, :stop]])
 
     prepared =
       prepared_stream(
@@ -378,7 +378,7 @@ defmodule ImagePipe.Response.SenderTest do
     assert conn.resp_body == "first"
     assert_receive ^cancel_ref
 
-    assert_receive {:telemetry_event, [:image_pipe, :encode, :stop], _measurements,
+    assert_receive {:telemetry_event, [:image_pipe, :deliver, :stop], _measurements,
                     %{
                       result: :client_closed,
                       stream_phase: :client,
@@ -392,7 +392,7 @@ defmodule ImagePipe.Response.SenderTest do
     parent = self()
     cancel_ref = make_ref()
 
-    attach_telemetry([[:image_pipe, :encode, :stop]])
+    attach_telemetry([[:image_pipe, :deliver, :stop]])
 
     prepared =
       prepared_stream(
@@ -414,7 +414,7 @@ defmodule ImagePipe.Response.SenderTest do
     assert conn.private.image_pipe_send_result == :processing_error
     assert_receive ^cancel_ref
 
-    assert_receive {:telemetry_event, [:image_pipe, :encode, :stop], _measurements,
+    assert_receive {:telemetry_event, [:image_pipe, :deliver, :stop], _measurements,
                     %{
                       result: :processing_error,
                       stream_phase: :encode,
@@ -475,7 +475,7 @@ defmodule ImagePipe.Response.SenderTest do
 
   # Telemetry handlers run synchronously in the emitting process, but the handler
   # table is global. Under `async: true`, concurrent modules that emit
-  # `[:image_pipe, :encode, :stop]` (e.g. full-request telemetry tests) would
+  # `[:image_pipe, :deliver, :stop]` (e.g. full-request telemetry tests) would
   # otherwise have this handler fire and deliver their events into this test's
   # mailbox, contaminating `assert_receive`. Forward only events this test
   # emitted itself: `self() == test_pid` holds exactly for in-process emissions.

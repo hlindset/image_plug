@@ -9,7 +9,7 @@ defmodule ImagePipe.Test.Telemetry do
   delivering it to the attaching test's mailbox. That contaminates
   `assert_receive`/`refute_received`: a foreign module emitting the same event
   (e.g. another module exercising `[:transform, :detect, :stop]` or
-  `[:image_pipe, :encode, :stop]`) lands a `^ref`-matching message in this test's
+  `[:image_pipe, :deliver, :stop]`) lands a `^ref`-matching message in this test's
   mailbox even though this test never triggered it.
 
   `attach_own_event_handlers/2` closes that hole by forwarding only events emitted

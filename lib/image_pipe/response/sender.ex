@@ -246,13 +246,13 @@ defmodule ImagePipe.Response.Sender do
 
     Telemetry.span(
       telemetry_opts,
-      [:encode],
+      [:deliver],
       output_metadata(prepared_stream.resolved_output),
       fn ->
         prepared_stream = merge_prepared_stream_headers(conn, prepared_stream, prepared)
         {conn, outcome} = do_send_prepared_stream(conn, prepared_stream)
 
-        {conn, prepared_encode_stop_metadata(outcome, conn, prepared_stream.resolved_output)}
+        {conn, deliver_stop_metadata(outcome, conn, prepared_stream.resolved_output)}
       end
     )
   end
@@ -482,14 +482,14 @@ defmodule ImagePipe.Response.Sender do
 
   defp output_metadata(%Resolved{format: format}), do: %{output_format: format}
 
-  defp encode_stop_metadata(:ok, %Plug.Conn{status: status}, %Resolved{} = resolved_output),
+  defp deliver_ok_metadata(:ok, %Plug.Conn{status: status}, %Resolved{} = resolved_output),
     do: Map.merge(%{result: :ok, status: status}, output_metadata(resolved_output))
 
-  defp prepared_encode_stop_metadata(:ok, %Plug.Conn{} = conn, %Resolved{} = resolved_output) do
-    encode_stop_metadata(:ok, conn, resolved_output)
+  defp deliver_stop_metadata(:ok, %Plug.Conn{} = conn, %Resolved{} = resolved_output) do
+    deliver_ok_metadata(:ok, conn, resolved_output)
   end
 
-  defp prepared_encode_stop_metadata(
+  defp deliver_stop_metadata(
          {:error, {:client_closed, _reason}},
          %Plug.Conn{status: status},
          %Resolved{} = resolved_output
@@ -505,7 +505,7 @@ defmodule ImagePipe.Response.Sender do
     )
   end
 
-  defp prepared_encode_stop_metadata(
+  defp deliver_stop_metadata(
          {:error, reason},
          %Plug.Conn{status: status},
          %Resolved{} = resolved_output
