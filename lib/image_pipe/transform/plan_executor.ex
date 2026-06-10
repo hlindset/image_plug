@@ -171,14 +171,15 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # Resize: compensate for a pending orientation, run, then flush so the cover
   # result-crop and tail are post-flush/literal.
   #
-  # A quarter turn cannot be compensated by swapping the *request* and resolving
-  # in the storage frame: imgproxy resolves scale in the DISPLAY frame (source
-  # dims already swapped by ExtractGeometry) and swaps only the final scale
-  # factors (scale.go:10-12), so the min-dimension cross-axis coupling
-  # (prepare.go:146-158) happens on the display axes. "Swap the request, resolve
-  # against storage" is the algebraic dual for plain fit/fill but BREAKS the
-  # min-dim coupling. For the quarter-turn cover/auto-cover expansion we instead
-  # resolve in the display frame and swap the resolved RESULT dims into storage.
+  # A quarter turn cannot be compensated by swapping the *request* and resolving in
+  # the storage frame: scale resolves in the DISPLAY frame (source dims already
+  # swapped to the display orientation) and only the final scale factors are swapped
+  # onto the stored pixels, so the min-dimension cross-axis coupling happens on the
+  # display axes. "Swap the request, resolve against storage" is the algebraic dual
+  # for plain fit/fill but BREAKS the min-dim coupling. For the quarter-turn
+  # cover/auto-cover expansion we instead resolve in the display frame and swap the
+  # resolved RESULT dims into storage. (imgproxy parity — see the scale row in
+  # docs/imgproxy_support_matrix.md.)
   defp execute_operation(
          %PlanResize{} = operation,
          %State{pending_orientation: po} = state,
@@ -324,12 +325,11 @@ defmodule ImagePipe.Transform.PlanExecutor do
     else
       # The executable crop carries offsets in their tagged unit form
       # ({:pixels, v} | {:scale, v} | {:scale, n, d} | {:percent, v} | number).
-      # Orientation.compensate_gravity_for/2 ports imgproxy's RotateAndFlip, which
-      # operates on the bare float offset (gravity.go uses a single float64 X/Y).
-      # Unwrap to the bare magnitude, compensate, then re-wrap — and on a quarter
-      # turn the X/Y *values* swap (g.X, g.Y = g.Y, ...), so the unit wrappers swap
-      # with them. The parser emits both offsets in the same unit, but tracking the
-      # wrapper per-axis keeps the swap correct even if they ever differ.
+      # Orientation.compensate_gravity_for/2 operates on the bare float offset, so
+      # unwrap to the bare magnitude, compensate, then re-wrap — and on a quarter
+      # turn the X/Y *values* swap, so the unit wrappers swap with them. The parser
+      # emits both offsets in the same unit, but tracking the wrapper per-axis keeps
+      # the swap correct even if they ever differ.
       {x_unit, x_value} = split_offset(crop.x_offset)
       {y_unit, y_value} = split_offset(crop.y_offset)
 
@@ -342,7 +342,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
       # A centered crop with an odd extent difference discards one extra pixel; the
       # storage-frame near-side bias lands on the wrong display side when the flush
       # reverses that storage axis. center_discard_sides/1 reports per storage axis
-      # whether to flip the discard so the kept pixel matches imgproxy's display-
+      # whether to flip the discard so the kept pixel matches the intended display-
       # frame placement (#146 Bug 2). Harmless on non-center axes (ignored there).
       center_bias = Orientation.center_discard_sides(po)
 
@@ -597,18 +597,19 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp cover_resize?(%PlanResize{}, %State{}), do: false
 
-  # Quarter-turn cover expansion resolved in the DISPLAY frame (imgproxy parity).
+  # Quarter-turn cover expansion resolved in the DISPLAY frame.
   #
-  # imgproxy's calcScale runs against the display-frame source dims (swapped by
-  # ExtractGeometry) and the min-dimension coupling (prepare.go:146-158) closes
-  # over those display axes; scale.go:10-12 then swaps only the scale factors to
-  # apply them to the stored pixels. We mirror that: swap the storage source dims
-  # to the display frame, resolve `resolve_dimensions` with the ORIGINAL request,
-  # then swap the resolved intermediate/target back into the storage frame. The
-  # executable resize is a forcing resize onto the storage-frame intermediate so
-  # Resize.execute reproduces those exact dims rather than re-deriving (and
-  # re-coupling) them in the storage frame. The result-crop carries the
-  # display-frame target dims and is swapped + remapped by compensate_crop.
+  # Scale resolves against the display-frame source dims (the storage dims swapped
+  # to the display orientation) and the min-dimension coupling closes over those
+  # display axes; only the final scale factors are then swapped onto the stored
+  # pixels. We mirror that: swap the storage source dims to the display frame,
+  # resolve `resolve_dimensions` with the ORIGINAL request, then swap the resolved
+  # intermediate/target back into the storage frame. The executable resize is a
+  # forcing resize onto the storage-frame intermediate so Resize.execute reproduces
+  # those exact dims rather than re-deriving (and re-coupling) them in the storage
+  # frame. The result-crop carries the display-frame target dims and is swapped +
+  # remapped by compensate_crop. (imgproxy parity — see the scale row in
+  # docs/imgproxy_support_matrix.md.)
   defp cover_resize_and_crop_display_frame(%PlanResize{} = operation, %State{} = state) do
     {src_w, src_h} = State.effective_source_dims(state)
     resize = resize_from(operation, :cover)
@@ -674,14 +675,13 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # Rescale an executable crop's ABSOLUTE coordinates for shrink-on-load through a
   # preceding crop (#151). Shrink-on-load decoded the image smaller by the realized
   # per-axis factor, so a crop expressed in stored-source pixels must divide by that
-  # factor to select the same region on the shrunk frame — imgproxy's
-  # `CropWidth = max(1, Shrink(CropWidth, wpreshrink))` and the absolute-gravity-
-  # offset adjustment (scale_on_load.go:136-153). Width/height and explicit
+  # factor to select the same region on the shrunk frame. Width/height and explicit
   # region coordinates rescale unconditionally when absolute; pixel gravity offsets
-  # rescale only for non-focus-point gravity (imgproxy guards on `Type !=
-  # GravityFocusPoint`, since focus coords are inherently relative). Relative
-  # ({:scale,_}/{:percent,_}) dims, coords, and offsets, and `:auto`, are untouched
-  # because they already track the shrunk frame proportionally.
+  # rescale only for non-focus-point gravity, since focus coords are inherently
+  # relative. Relative ({:scale,_}/{:percent,_}) dims, coords, and offsets, and
+  # `:auto`, are untouched because they already track the shrunk frame
+  # proportionally. (imgproxy parity — see the scaleOnLoad row in
+  # docs/imgproxy_support_matrix.md.)
   defp rescale_crop_for_decode_shrink(%Crop{} = crop, nil), do: crop
 
   defp rescale_crop_for_decode_shrink(%Crop{} = crop, %{w: wshrink, h: hshrink}) do
@@ -695,7 +695,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
     }
   end
 
-  # imgproxy: CropWidth = max(1, Round(CropWidth / preshrink)).
+  # Absolute crop dimension: max(1, round(value / preshrink)).
   defp shrink_abs_dimension({:pixels, value}, shrink),
     do: {:pixels, max(1, round(value / shrink))}
 
@@ -712,10 +712,10 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp shrink_abs_coordinate(other, _shrink), do: other
 
-  # Absolute pixel gravity offsets rescale by RoundToEven(offset / preshrink), but
-  # NOT for focus-point gravity (imgproxy leaves GravityFocusPoint offsets alone —
-  # focus coords are relative). Relative offsets ({:scale,_}/{:percent,_}/number)
-  # are already proportional to the shrunk bounds and pass through.
+  # Absolute pixel gravity offsets rescale by round-half-to-even(offset / preshrink),
+  # but NOT for focus-point gravity (focus coords are relative and left alone).
+  # Relative offsets ({:scale,_}/{:percent,_}/number) are already proportional to the
+  # shrunk bounds and pass through.
   defp shrink_abs_offset(offset, {:fp, _x, _y}, _shrink), do: offset
 
   defp shrink_abs_offset({:pixels, value}, _gravity, shrink),

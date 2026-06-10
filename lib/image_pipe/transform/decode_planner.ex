@@ -57,16 +57,16 @@ defmodule ImagePipe.Transform.DecodePlanner do
   defp shrink_axes(dims, false), do: dims
 
   # Whether the *combined* net orientation turn applied before the residual resize
-  # is a quarter turn (90°/270° mod 180), which transposes the displayed axes. This
-  # mirrors imgproxy's `ExtractGeometry`: it swaps the source dims iff
-  # `(angle + baseAngle) % 180 != 0`, where `angle` is the EXIF-derived angle (0
-  # unless auto-rotate is on) and `baseAngle` is the user `po.Rotate()`
-  # (prepare.go:11-22, 270). The EXIF angle contributes a quarter turn iff
-  # auto-rotate is enabled *and* the orientation tag is 5/6/7/8 (`exif_quarter_turn?`);
-  # 1/2 (0°) and 3/4 (180°) do not. The user contribution is the sum of `%Rotate{}`
-  # angles before the first resize. Deferred orientation (#146) folds both into a
-  # single pending turn whose `quarter_turn?` predicate the residual resize
-  # compensates against, so the shrink-axis swap must agree with that same net turn.
+  # is a quarter turn (90°/270° mod 180), which transposes the displayed axes. The
+  # net turn is the EXIF-derived angle (0 unless auto-rotate is on) plus the user
+  # rotate before the resize, taken mod 180. The EXIF angle contributes a quarter
+  # turn iff auto-rotate is enabled *and* the orientation tag is 5/6/7/8
+  # (`exif_quarter_turn?`); 1/2 (0°) and 3/4 (180°) do not. The user contribution is
+  # the sum of `%Rotate{}` angles before the first resize. Deferred orientation
+  # (#146) folds both into a single pending turn whose `quarter_turn?` predicate the
+  # residual resize compensates against, so the shrink-axis swap must agree with
+  # that same net turn. (imgproxy parity — see the scaleOnLoad row in
+  # docs/imgproxy_support_matrix.md.)
   defp net_quarter_turn?(chain, exif_quarter_turn?, auto_rotate?) do
     exif_angle = if auto_rotate? and exif_quarter_turn?, do: 90, else: 0
     rem(exif_angle + user_rotate_angle_before_resize(chain), 180) == 90
@@ -93,14 +93,13 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # shrink against the residual resize's *effective* target, which `dpr` and `zoom`
   # inflate.
   #
-  # A crop reaching the chain before the resize is allowed through (imgproxy
-  # parity, #151): the crop reduces the pixels feeding the resize, so the shrink is
-  # sized against the *cropped* extent — `min(crop_dim, src_dim)` per axis, mirroring
-  # imgproxy's `widthToScale = MinNonZero(CropWidth, SrcWidth)` (prepare.go:275-278)
-  # — never the full source, which would over-shrink the cropped region. The crop's
-  # absolute pixel dims and gravity offsets are rescaled by the realized shrink at
-  # execution time (PlanExecutor); relative (ratio/percent/focus-point) crops shrink
-  # in place and need no coordinate rescale.
+  # A crop reaching the chain before the resize is allowed through (#151): the crop
+  # reduces the pixels feeding the resize, so the shrink is sized against the
+  # *cropped* extent — `min(crop_dim, src_dim)` per axis — never the full source,
+  # which would over-shrink the cropped region. The crop's absolute pixel dims and
+  # gravity offsets are rescaled by the realized shrink at execution time
+  # (PlanExecutor); relative (ratio/percent/focus-point) crops shrink in place and
+  # need no coordinate rescale.
   #
   # A quarter-turn rotate reaching the chain before the resize is also allowed
   # through (#151): orientation is deferred (#146) and flushed *after* the residual
@@ -120,9 +119,10 @@ defmodule ImagePipe.Transform.DecodePlanner do
   # feeds it: a preceding crop narrows that extent (per axis) to the cropped size.
   defp compute_load_shrink(chain, src_w, src_h) do
     if Enum.any?(chain, &match?(%PlanTrim{}, &1)) do
-      # Trim redefines source dimensions (imgproxy nils ImgData), so any shrink
-      # sized against the original would be wrong. Forgo shrink-on-load — only
-      # affects the first pipeline, matching imgproxy (trim disables scaleOnLoad).
+      # Trim redefines the source dimensions, so any shrink sized against the
+      # original would be wrong. Forgo shrink-on-load — only affects the first
+      # pipeline. (imgproxy parity — see the trim/scaleOnLoad rows in
+      # docs/imgproxy_support_matrix.md.)
       1.0
     else
       {crop_w, crop_h} = crop_extent_before_resize(chain, src_w, src_h)
@@ -135,10 +135,9 @@ defmodule ImagePipe.Transform.DecodePlanner do
   end
 
   # The extent feeding the first resize, per axis: the cropped dimension when a
-  # crop precedes the resize, else the full source dimension. Mirrors imgproxy's
-  # `widthToScale = MinNonZero(CropWidth, SrcWidth)` (prepare.go:275-276). Absolute
-  # pixel crops clamp to the source; relative crops scale the source; `:full_axis`
-  # leaves the axis at full source extent.
+  # crop precedes the resize, else the full source dimension. Absolute pixel crops
+  # clamp to the source; relative crops scale the source; `:full_axis` leaves the
+  # axis at full source extent.
   #
   # The canonical pipeline (orientation → crop → resize → …) has at most ONE crop
   # before the resize, so we halt at the first crop and ignore any later one: a

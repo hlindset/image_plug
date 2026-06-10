@@ -1,10 +1,11 @@
 defmodule ImagePipe.Transform.Operation.Trim do
   @moduledoc """
-  Executable uniform-border trim. Replicates imgproxy `vips_trim`
-  (`vips/vips.c`): prepare a detection copy (sRGB convert; magenta-flatten alpha),
-  resolve the background (top-left pixel for `:auto`, else the explicit color),
-  `find_trim`, symmetrize via `equal_hor`/`equal_ver`, return unchanged on a
-  degenerate box, and extract from the original image.
+  Executable uniform-border trim: prepare a detection copy (sRGB convert;
+  magenta-flatten alpha), resolve the background (top-left pixel for `:auto`, else
+  the explicit color), `find_trim`, symmetrize via `equal_hor`/`equal_ver`, return
+  unchanged on a degenerate box, and extract from the original image.
+
+  imgproxy parity — see the `trim` row in `docs/imgproxy_support_matrix.md`.
   """
 
   use ImagePipe.Transform
@@ -93,8 +94,8 @@ defmodule ImagePipe.Transform.Operation.Trim do
   end
 
   # equal_hor/equal_ver: grow the box on the more-trimmed side so opposite margins
-  # equal the smaller inset. Mirrors imgproxy vips.c lines 927-949. `near` is the
-  # near-edge margin (left/top), `extent` the box size, `total` the original axis.
+  # equal the smaller inset. `near` is the near-edge margin (left/top), `extent`
+  # the box size, `total` the original axis.
   defp equalize(false, near, extent, _total), do: {near, extent}
 
   defp equalize(true, near, extent, total) do

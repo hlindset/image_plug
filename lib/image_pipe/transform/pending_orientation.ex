@@ -2,9 +2,8 @@ defmodule ImagePipe.Transform.PendingOrientation do
   @moduledoc false
   # Deferred orientation carried on Transform.State: EXIF auto-orient ∘ user
   # rotate ∘ user flip, applied late by Transform.OrientationFlush. Pure data +
-  # the EXIF-tag → (angle, horizontal-mirror) mapping. Verify the mapping against
-  # `local/imgproxy-master/processing/prepare.go` (angleFlip): 3/4→180, 5/6→90,
-  # 7/8→270; horizontal mirror on 2/4/5/7.
+  # the EXIF-tag → (angle, horizontal-mirror) mapping (standard EXIF orientation
+  # semantics): 3/4→180, 5/6→90, 7/8→270; horizontal mirror on 2/4/5/7.
 
   defstruct auto_rotate?: false,
             exif_angle: 0,

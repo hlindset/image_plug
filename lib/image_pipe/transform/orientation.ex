@@ -9,25 +9,25 @@ defmodule ImagePipe.Transform.Orientation do
   # identical, the pre-flush crop's gravity (type + X/Y offset) and the pre-flush
   # resize's requested dimensions must be expressed in the *storage* frame.
   #
-  # This module is a verbatim port of imgproxy's gravity compensation:
-  # `local/imgproxy-master/processing/gravity.go` — `RotateAndFlip` (lines
-  # 88-156) plus the rotation/flip type maps (lines 8-57). The offset switches
-  # in `RotateAndFlip` key on the *already-remapped* gravity type, and this port
-  # preserves that ordering.
+  # It remaps a crop's gravity (type + X/Y offset) so that cropping in the storage
+  # frame and then flushing orientation matches cropping the oriented image with the
+  # original gravity. The offset switches key on the *already-remapped* gravity type,
+  # and this preserves that ordering. (imgproxy parity — this module ports imgproxy's
+  # gravity compensation; see the rotateAndFlip row in
+  # docs/imgproxy_support_matrix.md.)
   #
   # Gravity representation (executable frame, see Transform.PlanExecutor):
   #   {:anchor, :left | :center | :right, :top | :center | :bottom}
   #   {:fp, x :: float, y :: float}        (focus point, fractional coords)
   #   :smart | {:smart, :face_assist} | {:detect, term}   (never remapped)
   #
-  # For a focus point the tuple coords carry imgproxy's GravityFocusPoint X/Y
-  # (where the focus coords *are* the gravity X/Y), so they rotate/flip via the
-  # FP fraction rules (rotate_fp, `1 - fx`). ImagePipe additionally supports a
-  # SEPARATE crop offset that imgproxy's FP path has no analog for
-  # (calc_position.go uses only the focus coords for GravityFocusPoint). That
-  # separate offset is a plain displacement, so it transforms like the
-  # GravityCenter vector (negate/axis-swap), NOT via the `1 - x` fraction rule —
-  # applying the fraction rule to it injected a spurious 1px shift at 90/270.
+  # For a focus point the tuple coords carry the focus X/Y (the focus coords *are*
+  # the gravity X/Y), so they rotate/flip via the FP fraction rules (rotate_fp,
+  # `1 - fx`). ImagePipe additionally supports a SEPARATE crop offset that the
+  # focus-point path has no analog for (placement uses only the focus coords). That
+  # separate offset is a plain displacement, so it transforms like the gravity-
+  # center vector (negate/axis-swap), NOT via the `1 - x` fraction rule — applying
+  # the fraction rule to it injected a spurious 1px shift at 90/270.
 
   alias ImagePipe.Transform.PendingOrientation
 
@@ -50,7 +50,7 @@ defmodule ImagePipe.Transform.Orientation do
   @doc """
   Compensate a crop's gravity (type + X/Y offset) for a pending orientation.
 
-  Applies `RotateAndFlip` user-first, then EXIF, so that cropping with the
+  Applies the rotate/flip remap user-first, then EXIF, so that cropping with the
   returned gravity in the storage frame and then flushing orientation matches
   cropping in the oriented frame with the original gravity.
   """
@@ -81,18 +81,18 @@ defmodule ImagePipe.Transform.Orientation do
   Per-storage-axis center-crop discard side under a pending orientation.
 
   A centered crop with an odd extent difference must discard one extra pixel from
-  one side. imgproxy crops in the *display* frame and always rounds the discard so
-  the extra kept pixel sits toward the near (top/left) display edge
-  (`ShrinkToEven`, calc_position.go:37-38). ImagePipe crops in the *storage* frame
-  and flushes orientation after, so a storage-frame near-side bias lands on the
-  wrong display side whenever the flush reverses that storage axis's direction.
+  one side. The reference placement crops in the *display* frame and always rounds
+  the discard so the extra kept pixel sits toward the near (top/left) display edge.
+  ImagePipe crops in the *storage* frame and flushes orientation after, so a
+  storage-frame near-side bias lands on the wrong display side whenever the flush
+  reverses that storage axis's direction.
 
   Returns `{x_side, y_side}` for the storage X and Y axes, each `:near` (default
-  `ShrinkToEven` rounding) or `:far` (round the other way) so that, after the
-  flush, the kept pixel lands on imgproxy's near display edge. The flip is needed
-  exactly when a storage axis's near (origin) edge maps to a far (right/bottom)
-  display edge under the composed orientation (autorotate ∘ user rotate ∘ user
-  hflip ∘ user vflip — OrientationFlush.apply_orientation order).
+  near-edge rounding) or `:far` (round the other way) so that, after the flush, the
+  kept pixel lands on the near display edge. The flip is needed exactly when a
+  storage axis's near (origin) edge maps to a far (right/bottom) display edge under
+  the composed orientation (autorotate ∘ user rotate ∘ user hflip ∘ user vflip —
+  OrientationFlush.apply_orientation order).
   """
   @spec center_discard_sides(PendingOrientation.t()) :: {:near | :far, :near | :far}
   def center_discard_sides(%PendingOrientation{} = po) do
@@ -128,8 +128,8 @@ defmodule ImagePipe.Transform.Orientation do
   defp flip_y_point(point, false), do: point
   defp flip_y_point({u, v}, true), do: {u, 1.0 - v}
 
-  # Near (left/top) display edges keep the imgproxy rounding; far (right/bottom)
-  # edges require the flipped discard side.
+  # Near (left/top) display edges keep the default near-edge rounding; far
+  # (right/bottom) edges require the flipped discard side.
   defp discard_side({u, v}) do
     cond do
       u < 0.25 -> :near
@@ -158,7 +158,7 @@ defmodule ImagePipe.Transform.Orientation do
     }
   end
 
-  # ── Core port of RotateAndFlip (gravity.go:88-156) ───────────────────────────
+  # ── Core rotate/flip gravity remap ───────────────────────────────────────────
 
   @spec rotate_and_flip(gravity_with_offset(), angle(), boolean(), boolean()) ::
           gravity_with_offset()
@@ -171,8 +171,7 @@ defmodule ImagePipe.Transform.Orientation do
     |> apply_rotate(angle)
   end
 
-  # flipX: remap type via flipX map, then transform offset keyed on the new type
-  # (gravity.go:91-102).
+  # flipX: remap type via flipX map, then transform offset keyed on the new type.
   defp apply_flip_x(state, false), do: state
 
   defp apply_flip_x({gravity, x, y}, true) do
@@ -180,17 +179,16 @@ defmodule ImagePipe.Transform.Orientation do
 
     case gravity do
       {:anchor, :center, v} when v in [:top, :bottom, :center] -> {gravity, -x, y}
-      # The FP tuple coords flip via `1 - fx` (imgproxy's GravityFocusPoint X/Y
-      # ARE the focus coords). The SEPARATE crop offset is a plain displacement,
-      # not a focus coord, so it negates like a vector (the Center X-rule) — the
-      # `1 - x` fraction rule must NOT touch it.
+      # The FP tuple coords flip via `1 - fx` (the focus X/Y ARE the focus coords).
+      # The SEPARATE crop offset is a plain displacement, not a focus coord, so it
+      # negates like a vector (the center X-rule) — the `1 - x` fraction rule must
+      # NOT touch it.
       {:fp, fx, fy} -> {{:fp, 1.0 - fx, fy}, -x, y}
       _ -> {gravity, x, y}
     end
   end
 
-  # flipY: remap type via flipY map, then transform offset keyed on the new type
-  # (gravity.go:104-115).
+  # flipY: remap type via flipY map, then transform offset keyed on the new type.
   defp apply_flip_y(state, false), do: state
 
   defp apply_flip_y({gravity, x, y}, true) do
@@ -205,7 +203,7 @@ defmodule ImagePipe.Transform.Orientation do
   end
 
   # rotate: remap type via rotation map, then transform offset keyed on the new
-  # type (gravity.go:117-155).
+  # type.
   defp apply_rotate(state, 0), do: state
 
   defp apply_rotate({gravity, x, y}, angle) when angle in [90, 180, 270] do
@@ -213,15 +211,15 @@ defmodule ImagePipe.Transform.Orientation do
     rotate_offset(gravity, angle, x, y)
   end
 
-  # 90° (gravity.go:124-132): post-remap {Center,East,West} -> X,Y = Y,-X.
+  # 90°: post-remap {center, east, west} -> X,Y = Y,-X.
   defp rotate_offset({:anchor, :center, :center} = g, 90, x, y), do: {g, y, -x}
 
   defp rotate_offset({:anchor, h, :center} = g, 90, x, y) when h in [:left, :right],
     do: {g, y, -x}
 
-  # FP tuple coords rotate via rotate_fp (the imgproxy GravityFocusPoint coord
-  # rule); the SEPARATE crop offset is a plain displacement and rotates like the
-  # GravityCenter vector (90 -> {y, -x}), NOT via the `1 - x` fraction rule.
+  # FP tuple coords rotate via rotate_fp (the focus-coord rule); the SEPARATE crop
+  # offset is a plain displacement and rotates like the gravity-center vector
+  # (90 -> {y, -x}), NOT via the `1 - x` fraction rule.
   defp rotate_offset({:fp, fx, fy}, 90, x, y) do
     {fx2, fy2} = rotate_fp(fx, fy, 90)
     {{:fp, fx2, fy2}, y, -x}
@@ -229,7 +227,7 @@ defmodule ImagePipe.Transform.Orientation do
 
   defp rotate_offset({:anchor, _, _} = g, 90, x, y), do: {g, y, x}
 
-  # 180° (gravity.go:133-143)
+  # 180°
   defp rotate_offset({:anchor, :center, :center} = g, 180, x, y), do: {g, -x, -y}
 
   defp rotate_offset({:anchor, :center, v} = g, 180, x, y) when v in [:top, :bottom],
@@ -241,13 +239,13 @@ defmodule ImagePipe.Transform.Orientation do
   defp rotate_offset({:fp, _, _} = g, 180, x, y) do
     {fx, fy} = fp_coords(g)
     {fx2, fy2} = rotate_fp(fx, fy, 180)
-    # FP offset rotates like the GravityCenter vector (180 -> {-x, -y}).
+    # FP offset rotates like the gravity-center vector (180 -> {-x, -y}).
     {{:fp, fx2, fy2}, -x, -y}
   end
 
   defp rotate_offset({:anchor, _, _} = g, 180, x, y), do: {g, x, y}
 
-  # 270° (gravity.go:144-152): post-remap {Center,North,South} -> X,Y = -Y,X.
+  # 270°: post-remap {center, north, south} -> X,Y = -Y,X.
   defp rotate_offset({:anchor, :center, :center} = g, 270, x, y), do: {g, -y, x}
 
   defp rotate_offset({:anchor, :center, v} = g, 270, x, y) when v in [:top, :bottom],
@@ -255,30 +253,30 @@ defmodule ImagePipe.Transform.Orientation do
 
   defp rotate_offset({:fp, fx, fy}, 270, x, y) do
     {fx2, fy2} = rotate_fp(fx, fy, 270)
-    # FP offset rotates like the GravityCenter vector (270 -> {-y, x}).
+    # FP offset rotates like the gravity-center vector (270 -> {-y, x}).
     {{:fp, fx2, fy2}, -y, x}
   end
 
   defp rotate_offset({:anchor, _, _} = g, 270, x, y), do: {g, y, x}
 
-  # Never-remapped gravity types (smart/detect): offset is untouched
-  # (gravity.go has no rotation-map entry, so the offset switch never matches).
+  # Never-remapped gravity types (smart/detect): offset is untouched — they have no
+  # rotation-map entry, so the offset switch never matches.
   defp rotate_offset(gravity, angle, x, y) when angle in [90, 180, 270], do: {gravity, x, y}
 
-  # ── Type bijection (gravity.go:8-57) ─────────────────────────────────────────
+  # ── Type bijection ──────────────────────────────────────────────────────────
 
-  # flipX type map (gravity.go:41-48): E↔W and the four corners swap left/right.
+  # flipX type map: E↔W and the four corners swap left/right.
   defp flip_x_type({:anchor, :left, v}), do: {:anchor, :right, v}
   defp flip_x_type({:anchor, :right, v}), do: {:anchor, :left, v}
   defp flip_x_type(other), do: other
 
-  # flipY type map (gravity.go:50-57): N↔S and the four corners swap top/bottom.
+  # flipY type map: N↔S and the four corners swap top/bottom.
   defp flip_y_type({:anchor, h, :top}), do: {:anchor, h, :bottom}
   defp flip_y_type({:anchor, h, :bottom}), do: {:anchor, h, :top}
   defp flip_y_type(other), do: other
 
-  # Rotation type map (gravity.go:8-39). Center and the non-anchor types
-  # (smart/detect) have no entry and pass through.
+  # Rotation type map. Center and the non-anchor types (smart/detect) have no entry
+  # and pass through.
   defp rotate_type({:anchor, :center, :center} = g, _angle), do: g
 
   defp rotate_type({:anchor, _, _} = g, 90), do: rotate_anchor_90(g)
@@ -287,7 +285,7 @@ defmodule ImagePipe.Transform.Orientation do
 
   defp rotate_type(other, _angle), do: other
 
-  # 90° (gravity.go:9-18)
+  # 90°
   defp rotate_anchor_90({:anchor, :center, :top}), do: {:anchor, :left, :center}
   defp rotate_anchor_90({:anchor, :right, :center}), do: {:anchor, :center, :top}
   defp rotate_anchor_90({:anchor, :center, :bottom}), do: {:anchor, :right, :center}
@@ -297,7 +295,7 @@ defmodule ImagePipe.Transform.Orientation do
   defp rotate_anchor_90({:anchor, :left, :bottom}), do: {:anchor, :right, :bottom}
   defp rotate_anchor_90({:anchor, :right, :bottom}), do: {:anchor, :right, :top}
 
-  # 180° (gravity.go:19-28); corners are antipodal.
+  # 180°; corners are antipodal.
   defp rotate_anchor_180({:anchor, :center, :top}), do: {:anchor, :center, :bottom}
   defp rotate_anchor_180({:anchor, :right, :center}), do: {:anchor, :left, :center}
   defp rotate_anchor_180({:anchor, :center, :bottom}), do: {:anchor, :center, :top}
@@ -307,7 +305,7 @@ defmodule ImagePipe.Transform.Orientation do
   defp rotate_anchor_180({:anchor, :left, :bottom}), do: {:anchor, :right, :top}
   defp rotate_anchor_180({:anchor, :right, :bottom}), do: {:anchor, :left, :top}
 
-  # 270° (gravity.go:29-38)
+  # 270°
   defp rotate_anchor_270({:anchor, :center, :top}), do: {:anchor, :right, :center}
   defp rotate_anchor_270({:anchor, :right, :center}), do: {:anchor, :center, :bottom}
   defp rotate_anchor_270({:anchor, :center, :bottom}), do: {:anchor, :left, :center}
@@ -317,8 +315,8 @@ defmodule ImagePipe.Transform.Orientation do
   defp rotate_anchor_270({:anchor, :left, :bottom}), do: {:anchor, :left, :top}
   defp rotate_anchor_270({:anchor, :right, :bottom}), do: {:anchor, :left, :bottom}
 
-  # Focus-point coordinate rotation (gravity.go FP offset rows, which are the
-  # focus coords): 90→{y,1-x}, 180→{1-x,1-y}, 270→{1-y,x}.
+  # Focus-point coordinate rotation (the focus coords):
+  # 90→{y,1-x}, 180→{1-x,1-y}, 270→{1-y,x}.
   defp rotate_fp(fx, fy, 90), do: {fy, 1.0 - fx}
   defp rotate_fp(fx, fy, 180), do: {1.0 - fx, 1.0 - fy}
   defp rotate_fp(fx, fy, 270), do: {1.0 - fy, fx}
