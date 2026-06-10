@@ -137,10 +137,14 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
   # ---- handlers --------------------------------------------------------------
 
   defp on_start(name, measurements, meta, config) do
-    {trace_id, parent_id, flags} =
+    {trace_id, parent_id, flags, root?} =
       case Stack.current() do
-        nil -> root_ids(config)
-        %Span{trace_id: t, span_id: s, trace_flags: pf} -> {t, s, pf}
+        nil ->
+          {trace_id, parent_id, flags} = root_ids(config)
+          {trace_id, parent_id, flags, true}
+
+        %Span{trace_id: t, span_id: s, trace_flags: pf} ->
+          {t, s, pf, false}
       end
 
     Stack.push(%Span{
@@ -153,7 +157,8 @@ defmodule ImagePipe.Telemetry.Trace.Capture do
       trace_flags: flags,
       attributes: safe_attrs(meta),
       pid: self(),
-      node: node()
+      node: node(),
+      root: root?
     })
   end
 

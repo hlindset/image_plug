@@ -54,4 +54,28 @@ defmodule ImagePipe.Telemetry.Trace.CaptureTest do
     assert_receive {:span, %Span{name: "image_pipe.request", status: :error} = s}
     assert Enum.any?(s.events, &(&1.name == "exception"))
   end
+
+  test "marks the trace root with root: true and children with root: false" do
+    emit_nested()
+
+    assert_receive {:span, %Span{name: "image_pipe.transform.execute"} = child}
+    assert_receive {:span, %Span{name: "image_pipe.request"} = root}
+
+    assert root.root
+    refute child.root
+  end
+
+  test "an inbound-continued root keeps root: true despite a non-nil parent" do
+    ImagePipe.Telemetry.Trace.Inbound.put(%ImagePipe.Telemetry.Trace.Context{
+      trace_id: "0123456789abcdef0123456789abcdef",
+      span_id: "fedcba9876543210",
+      trace_flags: 1
+    })
+
+    Telemetry.span([], [:request], %{}, fn -> {:ok, %{result: :ok}} end)
+
+    assert_receive {:span, %Span{name: "image_pipe.request"} = root}
+    assert root.root
+    assert root.parent_span_id == "fedcba9876543210"
+  end
 end

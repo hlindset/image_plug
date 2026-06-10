@@ -5,6 +5,9 @@ defmodule ImagePipe.Telemetry.Trace.Span do
   OTel-shaped so a Jaeger/Tempo/OTLP mapping is mechanical. `duration_native` is the
   honest timing source (raw monotonic units from `:telemetry.span/3`); `start_time`/
   `end_time` are wall-clock (`system_time`) for export.
+
+  `root` marks the span that opened its trace in this node (set even when an inbound W3C
+  parent gives it a remote `parent_span_id`).
   """
 
   @enforce_keys [:trace_id, :span_id, :name, :start_time]
@@ -22,6 +25,7 @@ defmodule ImagePipe.Telemetry.Trace.Span do
     :pid,
     :node,
     trace_flags: 1,
+    root: false,
     attributes: %{},
     events: [],
     links: []
@@ -41,6 +45,7 @@ defmodule ImagePipe.Telemetry.Trace.Span do
           pid: pid() | nil,
           node: node() | nil,
           trace_flags: non_neg_integer(),
+          root: boolean(),
           attributes: map(),
           events: [map()],
           links: [map()]
