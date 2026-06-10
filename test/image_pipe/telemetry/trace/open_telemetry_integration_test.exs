@@ -220,8 +220,10 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     conn = call(request_path(), miss_opts())
     assert conn.status == 200
 
-    # A synchronous call fences every add/2 cast enqueued before it; the drain
-    # window covers cross-process spans still finishing after the response.
+    # A synchronous call fences every add cast enqueued before it — and the
+    # cross-process spans (cache.write, source.fetch_decode) are all cast
+    # before the 200 response returns, so they are covered by the fence. The
+    # drain window below covers any stragglers.
     :ok = OtelReplay.sweep()
 
     recs = drain_spans()
