@@ -34,7 +34,7 @@ run = [
 ]
 
 [tasks."worktrees:clean"]
-description = "Remove regenerable dirs (deps, fiddle/deps, .dexter, .expert) from every worktree under .worktrees and .claude/worktrees"
+description = "Remove regenerable dirs (deps, _build, fiddle deps/_build/node_modules, .dexter, .expert) from every worktree under .worktrees and .claude/worktrees"
 run = """
 set -eu
 root=$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")
@@ -53,7 +53,7 @@ for base in "$root/.worktrees" "$root/.claude/worktrees"; do
   [ -d "$base" ] || continue
   for wt in "$base"/*/; do
     [ -d "$wt" ] || continue
-    for target in deps fiddle/deps .dexter .expert; do
+    for target in deps _build fiddle/deps fiddle/_build fiddle/node_modules fiddle/assets/node_modules .dexter .expert; do
       path="$wt$target"
       [ -e "$path" ] || continue
       real=$(resolve "$path") || { echo "skip (unresolvable): $path" >&2; continue; }
