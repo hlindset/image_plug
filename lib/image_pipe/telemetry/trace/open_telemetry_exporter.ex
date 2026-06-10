@@ -17,18 +17,17 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
 
   alias ImagePipe.Telemetry.Trace.Span
 
-  # We detect availability via the Erlang `:otel_tracer` module rather than the
-  # Elixir `OpenTelemetry.Tracer` module so that Elixir 1.20's stricter
-  # `require`-on-unloaded-module check never fires. All calls go through the
-  # Erlang `:otel_tracer`/`:otel_span` modules directly, which is what the
-  # `OpenTelemetry.Tracer` macros expand to anyway. They are guarded at runtime
-  # by `@otel_api_loaded`; when the optional `:opentelemetry_api` is absent they
-  # never run, so suppress the undefined-module warnings for that build.
+  # Span operations use the Elixir OTel API (`OpenTelemetry.Span` / `OpenTelemetry`);
+  # starting a span and the traceparent setup in `parent_ctx/1` fall back to the
+  # Erlang API (rationale at the call sites). All of these reference the optional
+  # `:opentelemetry_api` and are runtime-guarded by `@otel_api_loaded`; when it is
+  # absent they never run, so the undefined-module warnings are suppressed here.
   @compile {:no_warn_undefined,
             [
+              OpenTelemetry,
+              OpenTelemetry.Span,
               :opentelemetry,
               :otel_tracer,
-              :otel_span,
               :otel_ctx,
               :otel_propagator_text_map,
               :otel_propagator_trace_context
@@ -62,6 +61,9 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
     tracer = :opentelemetry.get_application_tracer(__MODULE__)
     ctx = parent_ctx(span)
 
+    # Erlang API: the Elixir `OpenTelemetry.Tracer.start_span` is a macro, which
+    # would need `require OpenTelemetry.Tracer` — impossible to do conditionally
+    # for an optional dep. Call its expansion (`:otel_tracer.start_span/4`) directly.
     span_ctx =
       :otel_tracer.start_span(ctx, tracer, span.name, %{
         start_time: native_start,
@@ -74,10 +76,10 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
 
     case events(span, native_end) do
       [] -> :ok
-      evs -> :otel_span.add_events(span_ctx, evs)
+      evs -> OpenTelemetry.Span.add_events(span_ctx, evs)
     end
 
-    :otel_span.end_span(span_ctx, native_end)
+    OpenTelemetry.Span.end_span(span_ctx, native_end)
     :ok
   end
 
@@ -87,6 +89,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
     parent_hex = parent || own
     traceparent = "00-#{trace}-#{parent_hex}-01"
 
+    # Erlang API: the W3C propagator and context modules have no Elixir wrapper.
     :otel_propagator_text_map.extract_to(
       :otel_ctx.new(),
       :otel_propagator_trace_context,
@@ -102,7 +105,10 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
   # what #175's :ok semantically means; capture.ex sets :ok for result :ok OR nil).
   # Setting OTel OK would over-claim an explicit success override.
   defp maybe_set_status(span_ctx, %Span{status: :error} = span) do
-    :otel_span.set_status(span_ctx, :opentelemetry.status(:error, span.status_message || ""))
+    OpenTelemetry.Span.set_status(
+      span_ctx,
+      OpenTelemetry.status(:error, span.status_message || "")
+    )
   end
 
   defp maybe_set_status(_span_ctx, _span), do: :ok
@@ -120,7 +126,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
   defp events(%Span{events: events}, native_end) do
     Enum.map(events, fn ev ->
       ts = Map.get(ev, :time) || native_end
-      :opentelemetry.event(ts, ev[:name], event_attrs(ev))
+      OpenTelemetry.event(ts, ev[:name], event_attrs(ev))
     end)
   end
 
