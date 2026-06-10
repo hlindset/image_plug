@@ -81,5 +81,10 @@ defmodule ImagePipe.ImgproxyGenReportTest do
     for c <- Constellations.all() do
       assert html =~ ~s(id="#{c.id}"), "report missing card anchor for #{c.id}"
     end
+
+    assert html =~ "band-bytes over Δ", "per-case metric text not rendered"
+    # The quarantined cases surface their live over-budget divergence (the triage
+    # state annotates, it does not suppress the metric).
+    assert html =~ "over_budget", "expected quarantined cases to show over-budget divergence"
   end
 end

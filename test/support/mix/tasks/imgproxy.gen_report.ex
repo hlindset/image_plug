@@ -17,20 +17,21 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   import Plug.Test, only: [conn: 2]
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest}
+  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest, OptsSummary, PixelCompare}
 
   @base "test/support/image_pipe/test/imgproxy_differential"
   @sources_dir "#{@base}/sources"
+  @fixtures_dir "#{@base}/fixtures"
   @manifest_path "#{@base}/manifest.exs"
   @default_out "#{@base}/report.html"
+  @default_tol %{threshold: 2, budget: 64}
 
   @impl Mix.Task
   def run(args) do
     {opts, _, _} = OptionParser.parse(args, strict: [out: :string])
     out = Keyword.get(opts, :out, @default_out)
 
-    {:ok, _} = Application.ensure_all_started(:image)
-    {:ok, _} = Application.ensure_all_started(:req)
+    {:ok, _} = Application.ensure_all_started(:image_pipe)
 
     manifest = Manifest.load!(@manifest_path)
     plug_opts = plug_opts()
@@ -43,16 +44,106 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
 
   # Throwaway placeholder body — replaced by the real HTML renderer in a later task.
   defp stub_html(cards) do
-    body = Enum.map_join(cards, "\n", fn c -> ~s(<div id="#{c.id}">#{c.id}</div>) end)
+    body =
+      Enum.map_join(cards, "\n", fn c ->
+        ~s(<div id="#{c.id}">#{c.id} — #{c.status} — #{c.metric_text}</div>)
+      end)
+
     "<!doctype html><meta charset=\"utf-8\"><body>#{body}</body>"
   end
 
-  # Card assembly stub — fleshed out in later tasks. For now just render the pipe
-  # output so the end-to-end render path is exercised.
-  defp build_card(c, _manifest, plug_opts) do
-    {_body, _ct} = render(c, plug_opts)
-    %{id: c.id}
+  defp build_card(c, manifest, plug_opts) do
+    entry = Map.fetch!(manifest.entries, c.id)
+    {body, content_type} = render(c, plug_opts)
+    pipe = Image.open!(body, access: :random, fail_on: :error)
+
+    %{
+      id: c.id,
+      group: display_group(c),
+      verdict: c.verdict,
+      url: Constellations.imgproxy_path(c),
+      summary: OptsSummary.describe(c.opts),
+      triage: c.triage,
+      tol: c.tol,
+      hash_drift?: Manifest.authored_sha256(c) != entry.authored_sha256,
+      pipe_dims: dims(pipe)
+    }
+    |> Map.merge(group_fields(c, entry, pipe, content_type))
+    |> finalize_attention()
   end
+
+  # The `:diverges` constellation is stored as `group: :transform, verdict:
+  # :diverges` (it IS a fixture pixel comparison). For the report's display
+  # category/filter/counts it's its own bucket; the metric dispatch below still
+  # uses the constellation's real `group`/`verdict`, so this is display-only.
+  defp display_group(%{verdict: :diverges}), do: :diverges
+  defp display_group(%{group: group}), do: group
+
+  # transform / :diverges: compare against the committed fixture image.
+  defp group_fields(%{group: :transform} = c, entry, pipe, _content_type) do
+    fixture = fixture_image(entry)
+    fixture_dims = dims(fixture)
+
+    if fixture_dims != dims(pipe) do
+      %{
+        fixture_dims: fixture_dims,
+        status: :dims_mismatch,
+        metric_text: "dims #{fmt_dims(dims(pipe))} ≠ imgproxy #{fmt_dims(fixture_dims)}"
+      }
+    else
+      Map.put(metric_fields(c, pipe, fixture), :fixture_dims, fixture_dims)
+    end
+  end
+
+  defp group_fields(%{group: :lossy}, entry, pipe, content_type) do
+    ok? = dims(pipe) == {entry.width, entry.height} and content_type == entry.content_type
+
+    %{
+      fixture_dims: nil,
+      status: if(ok?, do: :contract_ok, else: :contract_mismatch),
+      metric_text:
+        "dims #{fmt_dims(dims(pipe))} (expected #{fmt_dims({entry.width, entry.height})}); " <>
+          "type #{inspect(content_type)} (expected #{inspect(entry.content_type)})"
+    }
+  end
+
+  defp metric_fields(%{verdict: :diverges} = c, pipe, fixture) do
+    %{metric: :fraction_over, threshold: threshold, floor: floor} = c.divergence
+    frac = PixelCompare.fraction_over(pipe, fixture, threshold)
+
+    %{
+      status: if(frac >= floor, do: :diverges_ok, else: :diverges_below_floor),
+      metric_text: "#{Float.round(frac, 4)} fraction over Δ#{threshold} (floor #{floor})"
+    }
+  end
+
+  defp metric_fields(%{verdict: :equal} = c, pipe, fixture) do
+    tol = c.tol || @default_tol
+    outliers = PixelCompare.outliers(pipe, fixture, tol.threshold)
+
+    %{
+      status: if(outliers <= tol.budget, do: :pass, else: :over_budget),
+      metric_text: "#{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})"
+    }
+  end
+
+  defp finalize_attention(card) do
+    attention? =
+      card.hash_drift? or
+        card.status in [:over_budget, :diverges_below_floor, :dims_mismatch, :contract_mismatch]
+
+    Map.put(card, :attention?, attention?)
+  end
+
+  defp fixture_image(entry) do
+    Image.open!(File.read!(Path.join(@fixtures_dir, entry.fixture_filename)),
+      access: :random,
+      fail_on: :error
+    )
+  end
+
+  defp dims(image), do: {Image.width(image), Image.height(image)}
+  defp fmt_dims({w, h}), do: "#{w}×#{h}"
 
   defp render(c, plug_opts) do
     conn =
