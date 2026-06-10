@@ -29,17 +29,21 @@ jobs:
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
         run: mise exec -- mix local.rebar --force
-      - name: Install Elixir dependencies
+      - name: Install library dependencies
         run: mise exec -- mix deps.get
-      - name: Install demo dependencies
-        run: mise exec -- mix demo.setup
-      - name: Check formatting
+      - name: Install fiddle Elixir dependencies
+        run: cd fiddle && mise exec -- mix deps.get
+      - name: Install fiddle JS dependencies
+        run: mise exec -- pnpm -C fiddle install --frozen-lockfile
+      - name: Check library formatting
         run: mise exec -- mix format --check-formatted
       - name: Run Credo
         run: mise exec -- mix credo --strict
-      - name: Demo type-check
-        run: mise exec -- mix demo.check
-      - name: Demo format check
-        run: mise exec -- mix demo.format.check
-      - name: Demo lint
-        run: mise exec -- mix demo.lint
+      - name: Check fiddle formatting
+        run: cd fiddle && mise exec -- mix format --check-formatted
+      - name: Fiddle type-check
+        run: mise exec -- pnpm -C fiddle/assets run check
+      - name: Fiddle format check
+        run: mise exec -- pnpm -C fiddle/assets run format:check
+      - name: Fiddle lint
+        run: mise exec -- pnpm -C fiddle/assets run lint

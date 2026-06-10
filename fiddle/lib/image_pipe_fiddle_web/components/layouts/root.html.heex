@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ImagePipe Fiddle</title>
+    <PhoenixVite.Components.assets
+      names={["main.ts"]}
+      manifest={{:image_pipe_fiddle, "priv/static/.vite/manifest.json"}}
+      dev_server={PhoenixVite.Components.has_vite_watcher?(ImagePipeFiddleWeb.Endpoint)}
+      to_url={fn p -> static_url(@conn, p) end}
+    />
+  </head>
+  <body>
+    {@inner_content}
+  </body>
+</html>

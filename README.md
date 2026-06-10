@@ -152,42 +152,32 @@ ImagePipe's fixed plan order.
   (`address_policy`), custom DNS resolution (`address_resolver`), and the
   DNS-rebinding limitation.
 
-## Local demo server
+## Demo
 
-The repository includes a development server for local testing:
-
-```sh
-mise exec -- mix image_pipe.server
-mise exec -- mix image_pipe.server --port 4001
-mise exec -- mix image_pipe.server --cache
-```
-
-The development server runs without cache by default. Pass `--cache` to enable
-the filesystem cache under `_build/dev/image_pipe/cache`, or `--no-cache` to
-spell out cache-off mode.
-
-The development server also serves a local demo fiddle at `/demo`. The fiddle is
-a small Svelte/Vite UI for changing common path options and previewing the
-generated SimpleServer request. Install the demo dependencies once before using
-the server or `demo.verify` aliases:
+The interactive demo (ImagePipe Fiddle) is a standalone Phoenix app in `fiddle/`.
 
 ```sh
-mise exec -- mix demo.setup
+mise run setup       # installs library + fiddle deps
+mise run server      # boots Phoenix (:4000) + Vite (:5173)
 ```
 
-Starting `mix image_pipe.server` also starts the Vite development server on
-`http://localhost:5173`, while the demo itself remains available through the
-development server:
-
-```sh
-mise exec -- mix image_pipe.server
-open http://localhost:4000/demo
-```
+Open http://localhost:4000. The imgproxy-compatible processing endpoint is
+mounted at `/img`.
 
 ![Demo fiddle desktop screenshot](docs/assets/demo-fiddle-desktop.png)
 
-Pass `--no-vite` to run only the image server without the demo asset server:
+### Tracing (OpenTelemetry → Jaeger)
+
+The fiddle can export its `image_pipe.*` spans to a local Jaeger, demonstrating
+the library's OpenTelemetry exporter end to end (see
+[the cookbook](docs/cookbook/opentelemetry-jaeger.md)):
 
 ```sh
-mise exec -- mix image_pipe.server --no-vite
+mise run jaeger        # start Jaeger (OTLP + UI) via fiddle/docker-compose.yml
+mise run server:otel   # boots the dev server with tracing on (FIDDLE_OTEL=1)
 ```
+
+Issue an `/img` request, then open the Jaeger UI at http://localhost:16686 and
+look for the `image_pipe.request` trace under the `image_pipe_fiddle` service.
+Plain `mise run server` leaves tracing off (no `FIDDLE_OTEL`), so it needs no
+Jaeger.
