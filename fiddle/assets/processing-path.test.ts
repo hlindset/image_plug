@@ -95,7 +95,7 @@ describe("processing path generation", () => {
     });
   });
 
-  it("builds the default SimpleServer-compatible processing path", () => {
+  it("builds the default processing path", () => {
     expect(optionSegments(defaultDemoState)).toEqual([]);
     expect(buildProcessingPath(defaultDemoState)).toBe("/img/_/plain/local:///images/dog.jpg");
   });

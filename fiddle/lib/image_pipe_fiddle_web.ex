@@ -79,8 +79,6 @@ defmodule ImagePipeFiddleWeb do
     quote do
       # HTML escaping functionality
       import Phoenix.HTML
-      # Core UI components
-      import ImagePipeFiddleWeb.CoreComponents
 
       # Common modules used in templates
       alias Phoenix.LiveView.JS

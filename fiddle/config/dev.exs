@@ -63,9 +63,6 @@ config :image_pipe_fiddle, ImagePipeFiddleWeb.Endpoint,
     ]
   ]
 
-# Enable dev routes for dashboard and mailbox
-config :image_pipe_fiddle, dev_routes: true
-
 # Set to enable a bounded filesystem cache for the dev demo:
 # config :image_pipe_fiddle, :cache,
 #   {ImagePipe.Cache.FileSystem,
