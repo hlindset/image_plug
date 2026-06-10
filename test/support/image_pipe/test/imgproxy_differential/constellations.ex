@@ -73,6 +73,88 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # an :equal conformance case on a profiled source.
       c("trim_icc_p3", :icc_p3, "t:10"),
 
+      # --- combination constellations: option intersections (the isolated suite
+      # crosses none of these) ---
+      #
+      # extend + absolute gravity offset + dpr. The source (1600×1200) is LARGER
+      # than the requested box, so the fit shrink keeps imgproxy's DprScale at the
+      # full 2.0 (a source smaller than the target collapses DprScale to 1.0 under
+      # enlarge-off, masking the interaction — see prepare.go calcScale). The
+      # integer-clean 400×150 box scales the image to exactly 400×300 (no fractional
+      # fit rounding, isolating the dpr interaction from [[extend_ar_dpr_marker]]).
+      # imgproxy then dpr-scales BOTH the extend target box — TargetWidth =
+      # Scale(400, 2) = 800 (prepare.go:176) — and the absolute west offset —
+      # offX = RoundToEven(5 × 2) = 10 (calc_position.go:25-35) — so the canvas is
+      # 800×300 with the image at x=10, full height. (West + a horizontally-
+      # letterboxed image leaves no vertical room, so the y-offset is held at 0 to
+      # avoid imgproxy's calcPosition clamp, which ExtendCanvas does not replicate —
+      # tracked under the east/south case [[extend_offset_east_marker]].) ImagePipe
+      # threaded neither dpr to the canvas op (it produced a 400×300 canvas at x=5);
+      # resolved by carrying the canvas-preserving resize scale into ExtendCanvas,
+      # the same way padding does.
+      c("extend_offset_dpr_marker", :marker, "rs:fit:400:150/ex:1:we:5:0/dpr:2"),
+      # extend + EAST gravity + absolute offset. Quarantined (#200): a pre-existing
+      # sign divergence the dpr fix does not touch. imgproxy moves the image AWAY
+      # from the anchored edge — east: left = width − innerWidth − offX
+      # (calc_position.go:44-46) → left = 400 − 200 − 20 = 180. ExtendCanvas anchors
+      # right (canvas − image) then ADDS the offset, landing the image past the east
+      # edge (clamped by embed). Independent of dpr (shown here at dpr:1); the dpr
+      # fix scales the magnitude but not the sign, so it stays quarantined.
+      %{
+        c("extend_offset_east_marker", :marker, "rs:fit:400:150/ex:1:ea:20:0")
+        | triage: %{
+            reason: "extend east/south offset sign (adds, should subtract)",
+            issue: "#200"
+          }
+      },
+      # extend-aspect-ratio + dpr. Quarantined (#199): the AR canvas dims match
+      # (600×400) and the placement is correct, but the centred image is 1px wider
+      # than imgproxy's (534 vs 533) — ImagePipe rounds the fit dimension and THEN
+      # multiplies by dpr (round(266.67)=267, ×2=534) where imgproxy folds dpr into
+      # one scale (round(266.67×2)=533, imath.Scale). One full column (col 567)
+      # diverges at Δ255. A general fit+dpr fractional-rounding divergence, not an
+      # extend bug; the resize-scale rework is out of scope for this PR.
+      %{
+        c("extend_ar_dpr_marker", :marker, "rs:fit:300:200/exar:1/dpr:2")
+        | triage: %{reason: "fit+dpr separate-rounding 1px width divergence", issue: "#199"}
+      },
+      # extend + non-center gravity, no dpr. small (120×90) is smaller than the
+      # 300×200 box on both axes, so south gravity has real vertical play: the
+      # image lands bottom-centre, not centre. Exercises non-center extend
+      # placement without the dpr interaction above.
+      c("extend_gravity_small", :small, "rs:fit:300:200/ex:1:so"),
+      # min-dims + dpr. Exercises #198's result_box effective_dpr path: the mw/mh
+      # floor upscales past the dpr-scaled fit box (→ 600×560), so the result crop
+      # must compute its box against the effective dpr, not the raw request. Dims
+      # match; the residual is a libvips-version resampling seam — 188 band-bytes
+      # over Δ2 confined to 2 columns (x=19, x=143) at sharp marker edges, max Δ29,
+      # the edges at the SAME x in both (a 1px crop shift would diverge every edge
+      # at near-full contrast, thousands of bytes). Budget is set just above the
+      # 188-byte seam while KEEPING the strict Δ2 threshold — that rejects a
+      # structural shift (which blows the budget) yet absorbs the AA skew, more
+      # sensitive than raising the threshold to 32.
+      %{
+        c("min_dims_dpr_marker", :marker, "rs:fit:300:300/mw:280/mh:280/dpr:2")
+        | tol: %{threshold: 2, budget: 256}
+      },
+      # fit + min-dims + non-center gravity. The fit result-crop (#194) must honor
+      # north gravity, cropping the mw/mh-upscaled frame from the top, not center —
+      # which it does (a center crop would shift content half the surplus and blow
+      # the budget). The residual is the same libvips-version upscale seam as
+      # [[min_dims_dpr_marker]]: 94 band-bytes over Δ2 in 2 columns (x=9, x=71), max
+      # Δ29, edges unshifted. Budget set just above the seam at the strict Δ2.
+      %{
+        c("fit_min_dims_gravity_marker", :marker, "rs:fit:300:300/mw:280/mh:280/g:no")
+        | tol: %{threshold: 2, budget: 128}
+      },
+      # cover/fill + min-dims. imgproxy's cropToResult box for the cover path is the
+      # literal requested dims (TargetWidth/Height), independent of the mw/mh floor
+      # that drove the scale; verifies ImagePipe crops to the same 300×200 box.
+      c("cover_min_dims_marker", :marker, "rs:fill:300:200/mw:280/mh:200"),
+      # padding + dpr. Padding sides scale by dpr (ScaleToEven), the already-covered
+      # interaction for extend; the existing padding_border case has no dpr.
+      c("padding_dpr_border", :border, "rs:fit:120:120/pd:10:20/dpr:2"),
+
       # --- :diverges (whole-frame fraction metric; runs regardless of libvips skew) ---
       # #124: with scp:0 ImagePipe skips the P3 working-space conversion imgproxy
       # always performs, so processing diverges. The effect is diffuse (~2.6% of
@@ -103,6 +185,9 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
     "/unsafe/#{opts_segment}/plain/local:///#{Map.fetch!(@source_files, source)}"
   end
 
+  # `triage: nil` is a non-authored field (see Manifest.@authored_keys): a truthy
+  # value quarantines the case behind `--include imgproxy_triage` without touching
+  # the authored hash, so quarantining alone needs no reauthor.
   defp c(id, source, opts),
     do: %{
       id: id,
@@ -111,7 +196,8 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       verdict: :equal,
       group: :transform,
       tol: nil,
-      divergence: nil
+      divergence: nil,
+      triage: nil
     }
 
   defp diverge(id, source, opts, divergence),
@@ -122,7 +208,8 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       verdict: :diverges,
       group: :transform,
       tol: nil,
-      divergence: divergence
+      divergence: divergence,
+      triage: nil
     }
 
   defp lossy(id, source, opts),
@@ -133,6 +220,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       verdict: :equal,
       group: :lossy,
       tol: nil,
-      divergence: nil
+      divergence: nil,
+      triage: nil
     }
 end

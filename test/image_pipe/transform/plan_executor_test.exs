@@ -246,7 +246,11 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
                  []
                )
 
-      assert dimensions(state.image) == {200, 105}
+      # The extend canvas box dpr-scales with the same canvas-preserving scale
+      # (TargetWidth = Scale(200, 0.5) = 100, like imgproxy), then the padding adds
+      # round_half_to_even(10 * 0.5) = 5 to the height — NOT 10, which the compensated
+      # :resize scale (0.5 / 0.5 = 1.0) would have produced.
+      assert dimensions(state.image) == {100, 55}
     end
 
     test "padding without a preceding resize uses requested pixel ratio" do

@@ -464,16 +464,24 @@ defmodule ImagePipe.Transform.PlanExecutor do
     [rescale_crop_for_decode_shrink(crop, state.decode_shrink)]
   end
 
-  defp executable_operations(%Canvas{} = operation, %State{}, _context) do
-    width = canvas_dimension(operation.width)
-    height = canvas_dimension(operation.height)
+  defp executable_operations(%Canvas{} = operation, %State{}, context) do
+    # imgproxy dpr-scales the extend target box (TargetWidth = Scale(width, DprScale),
+    # prepare.go) and absolute extend offsets (RoundToEven(offset * DprScale),
+    # calc_position.go), keeping the composition dpr-stable — it skips the enlarge-off
+    # DprScale compensation when extend is enabled. The resize op records exactly that
+    # composition-preserving scale; thread it into the canvas op the same way padding
+    # does via scaled_padding_side. (Like padding, zoom is not folded into the scale.)
+    scale = context.canvas_preserving_padding_scale || 1.0
+
+    width = operation.width |> canvas_dimension() |> scale_canvas_dimension(scale)
+    height = operation.height |> canvas_dimension() |> scale_canvas_dimension(scale)
 
     [
       %ExtendCanvas{
         rule: canvas_rule(width, height),
         gravity: tagged_executable_gravity(operation.placement),
-        x_offset: operation.x_offset,
-        y_offset: operation.y_offset,
+        x_offset: scale_extend_offset(operation.x_offset, scale),
+        y_offset: scale_extend_offset(operation.y_offset, scale),
         background: executable_fill(operation.fill)
       }
     ]
@@ -769,6 +777,23 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp canvas_rule({:ratio, width}, {:ratio, height}), do: {:aspect_ratio, {width, height}}
   defp canvas_rule(width, height), do: {:dimensions, width, height}
+
+  # imgproxy scales the fixed extend target box by the effective DPR
+  # (TargetWidth = imath.Scale(width, DprScale); imath.Scale rounds half away from
+  # zero, matching Erlang round/1). `:auto` (keep the image size) and `{:ratio, _}`
+  # (the aspect-ratio canvas, computed from the already-dpr-scaled image) are not
+  # pixel boxes and are left untouched.
+  defp scale_canvas_dimension({:pixels, value}, scale), do: {:pixels, round(value * scale)}
+  defp scale_canvas_dimension(dimension, _scale), do: dimension
+
+  # imgproxy dpr-scales an absolute extend offset (|offset| >= 1.0) by
+  # imath.RoundToEven (calc_position.go). A fractional (|offset| < 1.0) offset is
+  # imgproxy's "fraction of the dimension" form, which ImagePipe does not implement;
+  # it is passed through unchanged rather than mis-scaled.
+  defp scale_extend_offset(offset, scale) when abs(offset) >= 1.0,
+    do: round_half_to_even(offset * scale)
+
+  defp scale_extend_offset(offset, _scale), do: offset
 
   defp executable_fill(:transparent), do: :transparent
 
