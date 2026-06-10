@@ -1,6 +1,6 @@
 # imgproxy differential pixel conformance — design
 
-**Status:** approved (brainstorm), pending implementation plan
+**Status:** approved (brainstorm + parallel review applied), pending implementation plan
 **Date:** 2026-06-10
 **Compatibility target:** imgproxy (`docs/imgproxy_support_matrix.md`)
 
@@ -14,8 +14,10 @@ verdicts into live, enforced tests.
 
 Why it is viable here: imgproxy and ImagePipe both sit on libvips (imgproxy directly,
 ImagePipe via Vix). For the stages the matrix marks ✅, the same resize kernels /
-convolutions / `find_trim` mean near-exact pixel agreement is realistic — not merely
-"looks similar."
+convolutions / `find_trim` mean near-exact pixel agreement is realistic — *provided
+both sides invoke the same operation with the same parameters on the same libvips
+version*. The skew gate and the dimension-equality precondition (below) exist to make
+that proviso explicit rather than assumed.
 
 This **complements** the existing self-derived
 `test/image_pipe/imgproxy_wire_conformance_test.exs` (which asserts ImagePipe's own
@@ -27,10 +29,10 @@ missing third-party ground truth.
 - Not on the precommit/CI hot path for generation — CI only ever *reads* committed
   fixtures. No Docker in the hot path.
 - Not testing imgproxy Pro features (smart/object gravity, advanced filters).
-- Not testing ImagePipe's S3 source adapter — that is a separate feature/lane (a
-  future MinIO service can join the testcontainers setup without coupling).
-- Not changing any parser / encode / stage behavior. This is a test harness only;
-  no ✅/⚠️ verdict *content* changes.
+- Not testing ImagePipe's S3 source adapter — separate feature/lane (a future MinIO
+  service can join the testcontainers setup without coupling).
+- Not changing any parser / encode / stage behavior. Test harness only; no ✅/⚠️
+  verdict *content* changes.
 
 ## Architecture — two decoupled artifacts
 
@@ -40,183 +42,230 @@ missing third-party ground truth.
 
 - Brings up a pinned `darthsim/imgproxy@sha256:<digest>` (non-pro config) via the
   **testcontainers-elixir** library, with a `LOCAL_FILESYSTEM_ROOT` bind of the
-  committed sources dir so imgproxy fetches sources via `local://`.
+  committed sources dir so imgproxy fetches sources via `local://`. Container config
+  must **not** set `IMGPROXY_USE_LINEAR_COLORSPACE` (default off; resize runs in
+  working/sRGB space on both sides — confirmed `processing/scale.go:18-37`,
+  `config.go`).
+- Before generating, asserts the bound source files match the source hashes recorded
+  in the manifest, so a stale/locally-regenerated source cannot bake a fixture that
+  disagrees with what the comparison test will load.
 - Walks the declarative constellation list, issues each request, **decodes
   imgproxy's output and re-saves it as lossless PNG** (compare in decoded-pixel
-  space, never encoded bytes — JPEG/WebP/AVIF encoder settings differ even when
-  pixels match).
+  space, never encoded bytes). Encoder effort/threads pinned for reproducibility.
 - Writes: per-constellation fixture PNGs, the generated manifest, and `REPORT.md`.
-- The testcontainers dependency is env-gated like the existing `:image_vision`
-  precedent (conditional dep in `mix.exs` + opt-in invocation), so the default
-  build never pulls it.
 
-`mix imgproxy.gen_sources` (separate one-shot): builds the committed source images
-deliberately. Sources are synthesized **once and committed as fixed lossless
-inputs**; normal fixture regeneration reuses them. This prevents a dev's libvips
-bump from silently changing inputs at generation time.
+**Dependency gating (blocker — must be exact).** The testcontainers dep is gated by an
+env var at `deps/0` time, following the `:image_vision` pattern in `mix.exs:140-150`:
+e.g. `System.get_env("IMGPROXY_DIFF") in ["1","true"]` adds
+`{:testcontainers, "~> …", only: :test, runtime: false}`. **But that precedent is a
+*dependency* gate, not a *task* gate** — a Mix task lives under `lib/mix/tasks/` and
+therefore compiles in *every* env, including the plain `dev` compile precommit runs
+(`mise.toml` → `mix compile --warnings-as-errors`). A top-level reference to
+`Testcontainers.*` from that always-compiled module breaks precommit when the dep is
+absent.
+
+→ The task module **must compile-gate its body** so no compile-time reference to the
+conditional dep exists when it's absent — mirroring the OTel optional-dep pattern
+(`mix.exs:110-114`): wrap the testcontainers-touching code in
+`if Code.ensure_loaded?(Testcontainers) do … end` / dispatch via `apply/3`. The task
+runs under `MIX_ENV=test` with `IMGPROXY_DIFF=1` so the dep is present at run time.
+
+**Acceptance criterion:** bare `mix compile --warnings-as-errors` (no special env)
+compiles both Mix task modules cleanly, with the testcontainers dep absent.
+
+### Source builder (separate one-shot)
+
+`mix imgproxy.gen_sources`: builds the committed source images deliberately. Sources
+are synthesized **once and committed as fixed inputs**; normal fixture regeneration
+reuses them. Prevents a dev's libvips bump from silently changing inputs at generation
+time. (Some sources are JPEG/WebP — see below; "fixed input" is the guarantee, not
+"lossless".)
 
 ### Comparison test (default precommit/CI lane)
 
 Runs in the normal `mix test` gate — fast, reads committed PNGs, re-runs ImagePipe
-transforms through `ImagePipe.Plug.call/2`, decodes both sides, compares pixels. No
-Docker, no opt-in tag for the reader. Self-skips loudly on libvips skew (below).
+transforms through `ImagePipe.Plug.call/2`, decodes both sides, compares. No Docker,
+no opt-in tag. Skew handling below.
 
 ## Source-of-truth split (joined by `id`)
 
-A constellation has authored-intent fields (human-written) and generated-provenance
-fields (machine-written). They live separately:
-
 ### Canonical authored list — code module
 
-`test/support/imgproxy_differential/constellations.ex`, imported by **both** the
-generator and the test (so the list cannot drift):
+`ImagePipe.Test.ImgproxyDifferential.Constellations` at
+`test/support/image_pipe/test/imgproxy_differential/constellations.ex`
+(`use Boundary, top_level?: true, deps: []` — pure data, no `lib/` deps), imported by
+**both** the generator and the test:
 
 ```elixir
 %{
   id: "rs_fill_zone_q4",
-  source: :high_freq,          # :high_freq | :marker | :border | :alpha
-                               # | :exif_jpeg | :icc_p3 | :small
+  source: :high_freq,          # see source table
   opts: "rs:fill:240:180/...", # imgproxy processing option string
   verdict: :equal,             # :equal | :diverges
-  group: :transform,           # :transform | :lossy
+  group: :transform | :lossy,
   tol: nil,                    # optional per-constellation tolerance override
-  note: nil                    # e.g. "#124 colorspace" for :diverges rows
+  divergence: nil              # for :diverges rows: {metric, region, floor, "#124"}
 }
 ```
 
 ### Generated manifest — machine-only, committed
 
-Provenance, written by the generator:
+Provenance, written by the generator; **shape validated on load** (fail loudly on a
+malformed entry, not a raw match error):
 
-- `imgproxy_digest` — the pinned image digest used.
-- `imgproxy_libvips` — libvips version inside that container (the version that
-  baked the fixture pixels; the skew-gate reference).
-- `pipe_libvips_at_gen` — ImagePipe's `Vix.Vips.version()` at generation time
-  (provenance/debugging; the generator warns if it differs from `imgproxy_libvips`,
-  since then even generation-time validation was not truly same-kernel).
-- per-`id`: `{fixture_filename, sha256}`.
+- `imgproxy_digest`, `imgproxy_libvips` (the version that baked the pixels; skew-gate
+  reference), `pipe_libvips_at_gen` (provenance; generator warns if it differs from
+  `imgproxy_libvips`).
+- per source: `sha256` of the committed source file.
+- per `id`: `{fixture_filename, fixture_sha256, authored_sha256}` where
+  `authored_sha256` is a hash of the canonicalized authored fields
+  (`{source, opts, verdict, group, tol, divergence}`).
 
-Rules:
-- A constellation listed in the code module with **no committed fixture** → the test
-  **fails** (forces regeneration). This is the "same list" guarantee in action.
-- The test verifies each committed PNG against its manifest `sha256` (detects
-  accidental edits / corruption).
-- A **verdict flip** (`:diverges` → `:equal` after a fix) is a pure code edit; the
-  fixture is unchanged, so no regeneration is required.
+Drift rules — three guards, closing the middle case sha256-on-bytes alone leaves open:
+- Listed constellation with **no committed fixture** → test **fails** (forces regen).
+- Committed PNG must match its manifest `fixture_sha256` (corruption/edit guard).
+- The current `constellations.ex` entry's authored hash must match the manifest's
+  `authored_sha256` (catches an edited `opts`/`source`/`verdict` without
+  regeneration — otherwise ImagePipe would run new opts against a fixture baked from
+  old opts, a silent false pass under tolerance).
+- A **verdict flip** (`:diverges` → `:equal`) changes the authored hash, so it *does*
+  require touching the manifest — but the fixture bytes are unchanged, so no container
+  run is needed; the generator has a `--reauthor` path that refreshes authored hashes
+  without re-running imgproxy.
 
 ### `REPORT.md` — committed, human-readable
 
 Written on each generation: old→new `imgproxy_digest` + libvips, and per-constellation
-max-delta-vs-previous-fixture, verdict, and pass/fail against the running ImagePipe.
-The PR diff of **this file** is the reviewable record of a digest bump — not the
-binary PNG diffs.
+max-delta-vs-previous-fixture, verdict, pass/fail against the running ImagePipe. The PR
+diff of **this file** is the reviewable record of a digest bump — not the binary PNGs.
 
-## Sources — synthesized once, committed, static
+## Sources — synthesized once, committed, fixed
 
-The large high-frequency source is the only big file, amortized across all
-constellations (outputs are small). Every constellation goes through the downscale
-path by default, exercising shrink-on-load (`scaleOnLoad`, stage 3) as the normal
-mode; output sizes are swept across the integer shrink-factor boundaries
-(1/8, 1/4, 1/2 + residual scale). One explicit **enlarge** constellation uses the
-small source.
+The large source is the only big file, amortized across all constellations (outputs
+are small). Shrink-on-load (`scaleOnLoad`, stage 3) **only fires for JPEG/WebP** in
+imgproxy (`processing/scale_on_load.go:25-27`; PNG load has no shrink param) — so the
+shrink-boundary sweep is driven by JPEG/WebP sources, **not PNG**.
 
-| key | shape | purpose |
-|-----|-------|---------|
-| `high_freq` | large zone-plate / radial chirp / fine checkerboard | resampling divergence is visible (flat/gradient hides it); drives downscale-by-default + shrink-boundary sweep |
-| `marker` | off-center solid block | unambiguous crop / gravity anchoring |
-| `border` | uniform frame | trim has something to detect |
-| `alpha` | RGBA with transparency | alpha handling / flatten |
-| `exif_jpeg` | JPEG with a real EXIF orientation tag | orientation (must be JPEG — PNG carries no EXIF orientation) |
-| `icc_p3` | non-sRGB ICC (Display P3); commits the `.icc` | carries the #124 colorspace divergence |
-| `small` | small source | enlarge / extend-aspect-ratio constellations |
+| key | format | shape | purpose |
+|-----|--------|-------|---------|
+| `high_freq` | **JPEG** | zone-plate / radial chirp / fine checkerboard | drives downscale-by-default + the 1/8·1/4·1/2 + residual shrink-factor sweep (stage 3); high frequency makes resampling divergence visible. JPEG so shrink-on-load actually fires; ImagePipe `jpeg_shrink_n` is a port of `calcJpegShink`, so {1,2,4,8} boundaries agree exactly. |
+| `high_freq_webp` | **WebP** | same pattern | the continuous-scale residual path (`vips_webpload` `scale:1.0/shrink`), where imgproxy's `imath.Scale` denominator rounding vs ImagePipe's float target is the most likely ±1px divergence — exercised explicitly. |
+| `marker` | PNG | off-center solid block at known coords | unambiguous crop / gravity anchoring (centering already matched via `center_bias` ↔ `ShrinkToEven`). |
+| `border` | PNG, sRGB | uniform frame | trim — `:equal` (exact `find_trim` + `equal_hor`/`equal_ver` box math). |
+| `alpha` | PNG, RGBA | transparency | alpha flatten/resize (verify ImagePipe premultiplies around resize/blur like imgproxy, `vips/vips.c:421-425,745-755`). |
+| `exif_jpeg` | JPEG | real EXIF orientation tag | orientation (PNG carries no EXIF orientation). |
+| `icc_p3` | PNG + Display-P3 ICC (committed `.icc`); **sharp saturated P3-only edges + a uniform border region** | carries the #124 colorspace divergence (with `scp:0` + a tone effect) *and* the trim-detection-space divergence (imgproxy converts to sRGB pre-trim regardless of `scp`; ImagePipe detects in source space). Sharp edges so the divergence is robustly measurable, not a smooth gradient that falls below the floor. |
+| `small` | PNG | small source | enlarge / extend-aspect-ratio (no shrink-on-load on the enlarge path). |
 
 No real-photo datasets (licensing); synthetic covers everything that matters.
 
-## Comparison semantics — all skew-gated
+## Comparison semantics
 
-### Skew gate
+### Dimension-equality precondition (all groups)
 
-The fixture pixels were baked by a specific libvips (`imgproxy_libvips`). The premise
-"same kernels → near-exact" only holds when ImagePipe runs that same version. So:
+Before any pixel/contract comparison, assert ImagePipe's output dimensions equal the
+committed fixture's, as a **distinct, loud failure** ("dims differ: …"). A ±1px
+scale-factor route difference (imgproxy's `WScale` exactness-snap vs ImagePipe's
+integer-target-then-divide) must surface as this, not as corrupted pixel deltas.
 
-- Assert only when runtime `Vix.Vips.version()` == manifest `imgproxy_libvips`.
-- Otherwise `ExUnit` **skip** with a clear message — never a silent pass, never a
-  spurious fail.
-- Consequence: CI generates fixtures on its own libvips, so CI always hits the real
-  assertions and is the enforcement point; a contributor on a different local libvips
-  skips rather than flakes. Fixtures should be generated on the libvips CI runs (and
-  ideally one matching the imgproxy container's, so "same kernels" is literally true).
+### Skew gate — default lane + CI guard
 
-### `:equal` — transform group
+The `:equal` and lossy-contract assertions are meaningful only when ImagePipe runs the
+libvips that baked the fixtures:
 
-Decode ImagePipe's PNG response and the committed PNG; compare with **tight max
-per-channel delta + small outlier budget**:
+- Assert only when runtime `Vix.Vips.version()` **exactly** equals manifest
+  `imgproxy_libvips` (kernels can change on a patch bump, so exact-match; regeneration
+  is required on any bump, on CI's libvips). Otherwise `ExUnit`-**skip** with a clear
+  reason.
+- **CI skew-guard:** a meta-test detects CI (env) and **fails** if skew would skip the
+  suite — so CI can never be green-by-skip and must run on the fixtures' libvips.
+  Locally, mismatched libvips skips loudly; matched libvips runs the real assertions.
 
-- Primary: max per-channel absolute delta ≤ N on every pixel.
-- Plus: a small budget of outlier pixels allowed to exceed N (absorbs a few
-  edge/seam pixels from affine resampling).
-- Provisional starting values: N ≈ 2/255, outlier budget ≈ 0.05% of pixels capped at
-  ≤ 8/255. **Tuned against real fixtures during implementation.** Both knobs are
-  per-constellation overridable via `tol`.
+### `:equal` — transform group (PNG output only)
 
-### `:diverges`
+Decode ImagePipe's PNG response and the committed PNG; compare with a **count-based
+outlier budget**, modeled on the existing wire test's trusted primitive
+(`pixel_diverges?` far-count tied to edge length) rather than a hard per-pixel max:
 
-Assert the delta **exceeds a floor** somewhere (per-constellation). If ImagePipe
-accidentally **converges** with imgproxy (e.g. a partial #124 fix), the test fails —
-forcing the author to flip the verdict to `:equal` and update the matrix in the same
-change. True bidirectional matrix enforcement. Each `:diverges` row is paired with a
-source that makes its divergence measurable (`icc_p3` for #124; `border` for
-trim-detection space). Floor assertions are skew-gated too, for consistency.
+- Count pixels whose max per-channel absolute delta exceeds a small threshold `T`;
+  require that count ≤ budget `B`.
+- `T` and `B` tuned empirically against real fixtures, per-constellation overridable.
+- Rationale: with same libvips + identical scale factor (the dimension precondition
+  guarantees the factor matched) + default kernel (Lanczos3, no `centre` —
+  `vips/vips.c:413`), resize is deterministic and near-exact even on high-frequency
+  content; `B` absorbs the handful of sub-pixel seam pixels. If a tight `B` proves
+  *infeasible* on the high-frequency source despite matching dimensions, that is a
+  real scale-factor/kernel mismatch to investigate — not something to paper over by
+  loosening tolerance. (Honesty note, per repo guidelines: this is correctness-
+  verified, not a perf claim.)
 
-### lossy group — `f:webp/avif/jpeg`, `q:`
+### `:diverges` — structured metric, NOT skew-gated
 
-Encoding (quantization) depends on each side's encoder library + settings, configured
-independently — so decoded-pixel agreement is inherently loose here even with shared
-libvips. These constellations request their real format, decode both sides, and use a
-deliberately **loose** tolerance, quarantining independent-encoder noise from the
-transform-fidelity assertions.
+Assert a **structured** divergence appropriate to the mechanism, over the affected
+region/channel — never "delta exceeds floor *somewhere*" (one ringing pixel makes that
+tautological). E.g. for #124, a *mean* per-channel delta over a flat P3 patch exceeds
+the floor; a colorspace difference is a systematic regional bias, not a stray pixel.
+Each `:diverges` row carries `divergence: {metric, region, floor, issue}`.
+
+These assertions run **regardless of skew**: the divergences they pin (#124 colorspace
+order, trim-detection space) are *algorithmic* and version-independent. If ImagePipe
+accidentally converges (e.g. a partial #124 fix), the metric drops below the floor and
+the test fails — forcing a verdict flip to `:equal` + a matrix update in the same
+change. True bidirectional matrix enforcement.
+
+### Lossy group — contract-only, no pixel claim
+
+`f:webp/avif/jpeg` and `q:` exercise encoders configured independently on each side, so
+decoded-pixel agreement (even loose) mostly measures unrelated quantization noise.
+These constellations assert **dimensions + content-type + clean-decode (+ ballpark
+byte-size sanity)** — no decoded-pixel comparison. Transform-pixel fidelity stays
+entirely on the PNG group; encoder *selection* is a format/header contract here.
 
 ## Coverage (non-pro)
 
-resize fit/fill/auto, non-smart gravity, enlarge, extend, extend-aspect-ratio,
-padding, dpr, quality, format, background, blur, sharpen, rotate, trim, strip.
-Excludes smart/object gravity and Pro filters. Each constellation maps to a ✅ stage
-(→ `:equal`) or a ⚠️ stage (→ `:diverges`).
+resize fit/fill/fill-down/auto, non-smart gravity (+ offsets), enlarge, extend,
+extend-aspect-ratio, padding, dpr, **min-width/min-height** (notably *disables*
+shrink-on-load — a distinct stage-3 branch, `decode_planner.ex:169-171`), **zoom**,
+quality, format, background, blur, sharpen, rotate, trim, strip. Excludes smart/object
+gravity and Pro filters. Each constellation maps to a ✅ stage (→ `:equal`/lossy
+contract) or a ⚠️ stage (→ `:diverges`).
 
 ## Process & documentation discipline (per CLAUDE.md)
 
 - **Matrix doc sync:** add a "Differential conformance" subsection to
-  `docs/imgproxy_support_matrix.md` documenting the harness and the verdict↔stage-row
-  mapping. Axis: this records *how conformance is now verified*; no ✅/⚠️ verdict
-  content changes (the harness changes no behavior).
-- **Review cycle:** after the implementation plan is written, run disjoint-focus
-  parallel reviewers and apply accepted feedback before implementation. At least one
-  reviewer takes the **compatibility lens**: validate the constellation verdicts,
-  divergence pairings, and tolerance choices against the real upstream imgproxy (local
-  checkout / source), not just internal correctness. Commit the reviewed plan before
-  implementation starts.
-- **Demo UI:** no new transform parameters → the `fiddle/` app is untouched.
+  `docs/imgproxy_support_matrix.md` documenting the harness + the verdict↔stage-row
+  mapping. Axis: records *how* conformance is verified; no ✅/⚠️ content change.
+- **Review cycle:** the implementation plan gets a disjoint-focus parallel review
+  before execution, including a **compatibility-lens reviewer** validating the
+  constellation verdicts, divergence pairings, and tolerance choices against real
+  upstream imgproxy (`/Users/hlindset/src/imgproxy`). Commit the reviewed plan first.
+- **Demo UI:** no new transform parameters → `fiddle/` untouched.
+- **Contributor loop (documented in the test failure message + a README):** add row →
+  `MIX_ENV=test IMGPROXY_DIFF=1 mix imgproxy.gen_fixtures` (needs Docker) → commit PNG
+  + manifest → push. The "missing fixture → fail" rule reddens CI until fixtures are
+  committed; this is intended (forces generation) and the failure names the task.
 
 ## Layout
 
 ```
 docs/imgproxy_support_matrix.md                       # + "Differential conformance" subsection
-test/support/imgproxy_differential/
-  constellations.ex                                   # canonical authored list (compiled, :test)
-  sources/                                            # committed static sources (+ .icc)
-  fixtures/                                            # committed reference PNGs
-  manifest.<term|json>                                # generated provenance
+test/support/image_pipe/test/imgproxy_differential/
+  constellations.ex                                   # ImagePipe.Test.ImgproxyDifferential.Constellations (Boundary, deps: [])
+  sources/                                            # committed fixed sources (jpeg/webp/png + .icc)
+  fixtures/                                           # committed reference PNGs
+  manifest.<term|json>                                # generated provenance (shape-validated on load)
   REPORT.md                                           # generated, human-readable bump record
-lib/mix/tasks/imgproxy.gen_sources.ex                 # one-shot source builder
-lib/mix/tasks/imgproxy.gen_fixtures.ex                # generator (testcontainers, env-gated dep)
-test/image_pipe/imgproxy_differential_conformance_test.exs  # default-lane comparison test
+lib/mix/tasks/imgproxy.gen_sources.ex                 # one-shot source builder (compile-clean w/o dep)
+lib/mix/tasks/imgproxy.gen_fixtures.ex                # generator (compile-gated testcontainers body)
+test/image_pipe/imgproxy_differential_conformance_test.exs  # default-lane comparison test + CI skew-guard
 ```
 
 ## Open implementation details (decided during planning, not forks)
 
-- Exact tolerance constants (tuned against real fixtures).
-- Manifest serialization format (Elixir term vs JSON).
-- imgproxy non-pro container config (URL signing off / `unsafe`, FS root, format
-  availability).
-- testcontainers health-wait strategy and the dep env-gate spelling.
-- Fixture filename convention (by `id`).
+- Tolerance constants `T`/`B` per group/constellation (tuned against real fixtures).
+- Manifest serialization (Elixir term vs JSON) + its load-time shape validator.
+- imgproxy non-pro container config (URL signing `unsafe`, FS root, format
+  availability, encoder effort/threads pinned, no linear colorspace).
+- testcontainers health-wait strategy.
+- Exact `:diverges` metric/region/floor per divergent constellation.
+- Whether `high_freq_webp` residual-scale cases need a wider `B` than JPEG boundaries.
