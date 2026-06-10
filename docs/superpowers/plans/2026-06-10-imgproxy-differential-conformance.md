@@ -22,7 +22,8 @@
 | `test/support/image_pipe/test/imgproxy_differential/constellations.ex` | Canonical authored constellation list + shared imgproxy request-path builder (`use Boundary`). |
 | `test/support/image_pipe/test/imgproxy_differential/skew.ex` | Runtime libvips read, manifest alignment check, CI detection. |
 | `test/support/mix/tasks/imgproxy.gen_sources.ex` | One-shot source-image builder (no Docker). |
-| `test/support/mix/tasks/imgproxy.gen_fixtures.ex` | Fixture generator (testcontainers; module defined only when dep present). |
+| `test/support/mix/tasks/imgproxy.gen_fixtures.ex` | Fixture generator (testcontainers; module defined only when dep present; `:test`-only). |
+| `test/support/mix/tasks/imgproxy.reauthor.ex` | Docker-free manifest authored-hash refresh (tol/verdict-only edits). |
 | `test/support/image_pipe/test/imgproxy_differential/sources/` | Committed synthetic source images + `.icc`. |
 | `test/support/image_pipe/test/imgproxy_differential/fixtures/` | Committed reference PNGs. |
 | `test/support/image_pipe/test/imgproxy_differential/manifest.exs` | Generated provenance (committed, git-diffable Elixir term). |
@@ -34,7 +35,7 @@
 
 **Naming/namespace conventions (locked):**
 - Modules: `ImagePipe.Test.ImgproxyDifferential.{PixelCompare,Manifest,Constellations,Skew}`.
-- Mix tasks: `Mix.Tasks.Imgproxy.GenSources`, `Mix.Tasks.Imgproxy.GenFixtures`.
+- Mix tasks: `Mix.Tasks.Imgproxy.GenSources`, `Mix.Tasks.Imgproxy.GenFixtures`, `Mix.Tasks.Imgproxy.Reauthor` — under `test/support/mix/tasks/`, so they compile only in `:test` and never enter the `:dev`/`:prod` compile or the hex package.
 - Run generation with `MIX_ENV=test IMGPROXY_DIFF=1 mise exec -- mix imgproxy.gen_fixtures`.
 - Always run repo commands via `mise exec -- ...`.
 
@@ -179,8 +180,9 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompare do
   def same_dims?(a, b), do: dims(a) == dims(b)
 
   @doc """
-  Count of pixels whose maximum per-channel absolute delta exceeds `threshold`.
-  Raises `ArgumentError` if the two images differ in dimensions or band layout.
+  Count of band-bytes whose absolute delta exceeds `threshold` (band-byte counting
+  upper-bounds pixel outliers — the stricter choice). Raises `ArgumentError` if the
+  two images differ in dimensions or band layout.
   """
   @spec outliers(VipsImage.t(), VipsImage.t(), non_neg_integer()) :: non_neg_integer()
   def outliers(a, b, threshold) do
@@ -512,7 +514,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       c("alpha_resize", :alpha, "rs:fit:64:64"),
       c("rotate_exif", :exif_jpeg, "rs:fit:120:120"),
       c("enlarge_small", :small, "rs:fit:400:400/el:1"),
-      c("min_dims_no_shrink_load", :high_freq, "rs:fit:300:300/mw:280/mh:280"),
+      c("min_dims_clamp", :high_freq, "rs:fit:300:300/mw:280/mh:280"),
       c("zoom_marker", :marker, "z:0.5"),
       c("fill_down_marker", :marker, "rs:fill-down:500:500"),
       c("gravity_offset_marker", :marker, "rs:fill:120:120/g:no:10:20"),
@@ -526,10 +528,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       c("strip_exif", :exif_jpeg, "rs:fit:120:120/sm:1"),
 
       # --- :diverges (structured metric, not skew-gated) ---
+      # scp:0 alone: ImagePipe skips the P3→sRGB conversion while imgproxy always
+      # imports to the working space, so a flat saturated-P3 patch diverges
+      # systematically. NO tone op — `sa`/saturation is imgproxy Pro-only and would
+      # 404 on darthsim non-pro. Re-validate the floor against the real fixture.
       diverge(
         "scp0_colorspace_124",
         :icc_p3,
-        "rs:fit:200:200/scp:0/sa:1.5",
+        "rs:fit:200:200/scp:0",
         %{metric: :region_mean_delta, region: {40, 40, 80, 80}, floor: 4.0, issue: "#124"}
       ),
       diverge(
@@ -784,12 +790,17 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
     cy = h / 2
     k = 0.00025
 
-    for y <- 0..(h - 1), x <- 0..(w - 1), into: <<>> do
-      dx = x - cx
-      dy = y - cy
-      v = trunc(127.5 * (1.0 + :math.cos(k * (dx * dx + dy * dy))))
-      <<v, v, v>>
+    # Build an iolist then flatten once — avoids O(n^2) binary re-copy that a
+    # `for … into: <<>>` accumulation incurs over millions of pixels.
+    for y <- 0..(h - 1) do
+      for x <- 0..(w - 1) do
+        dx = x - cx
+        dy = y - cy
+        v = trunc(127.5 * (1.0 + :math.cos(k * (dx * dx + dy * dy))))
+        <<v, v, v>>
+      end
     end
+    |> IO.iodata_to_binary()
   end
 
   defp chirp_image(w, h) do
@@ -843,35 +854,27 @@ git commit -m "feat(test): synthetic source builder + committed sources for diff
 
 ---
 
-## Task 7: Fixture generator Mix task
+## Task 7: Fixture generator + reauthor Mix tasks
 
 **Files:**
 - Create: `test/support/mix/tasks/imgproxy.gen_fixtures.ex`
-- Test: `test/image_pipe/imgproxy_differential/gen_fixtures_test.exs`
+- Create: `test/support/mix/tasks/imgproxy.reauthor.ex`
 
-The module is defined **only when `:testcontainers` is loaded** (file-level guard), so
-it is invisible to any compile where the dep is absent — no warnings, in any env.
+Both tasks live under `test/support/mix/tasks/`, so they compile **only in `:test`**
+(`elixirc_paths(:test)` includes `test/support`) and never touch the `:dev`/`:prod`
+compile, the precommit `mix compile`, or the hex package. The generator additionally
+references `:testcontainers`, which is absent from a plain `mix test` (IMGPROXY_DIFF
+unset) — so its module is wrapped in a **file-level `if Code.ensure_loaded?(Testcontainers)`
+guard**: when the dep is absent the module is simply not defined, so the `:test`
+compile has no dangling reference and emits no warning. The reauthor task needs no
+container and is always defined.
 
-- [ ] **Step 1: Write the failing test (pure helper + guard behavior)**
+There is no failing-test-first step here: the generator is a Docker-driven manual
+script (the spec classifies it as off the hot path), and its compile-safety contract
+is enforced by the compile commands in Step 3 and Task 1 Step 3 — **not** by an
+ExUnit existence assertion (which the repo's "Tests not to write" rule forbids).
 
-```elixir
-# test/image_pipe/imgproxy_differential/gen_fixtures_test.exs
-defmodule Mix.Tasks.Imgproxy.GenFixturesTest do
-  use ExUnit.Case, async: true
-
-  test "the task module is defined iff testcontainers is loaded" do
-    assert Code.ensure_loaded?(Testcontainers) ==
-             Code.ensure_loaded?(Mix.Tasks.Imgproxy.GenFixtures)
-  end
-end
-```
-
-- [ ] **Step 2: Run the test (passes without the dep — both sides false)**
-
-Run: `mise exec -- mix test test/image_pipe/imgproxy_differential/gen_fixtures_test.exs`
-Expected: PASS — without IMGPROXY_DIFF, both `Code.ensure_loaded?` calls are `false`, so the equality holds and the generator is absent. (This is the compile-safety guarantee, asserted as a test.)
-
-- [ ] **Step 3: Implement the guarded task**
+- [ ] **Step 1: Implement the guarded generator task**
 
 ```elixir
 # test/support/mix/tasks/imgproxy.gen_fixtures.ex
@@ -888,7 +891,6 @@ if Code.ensure_loaded?(Testcontainers) do
     use Mix.Task
 
     alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest}
-    alias Vix.Vips.Image, as: VipsImage
 
     @image "darthsim/imgproxy@sha256:REPLACE_WITH_PINNED_DIGEST"
     @base "test/support/image_pipe/test/imgproxy_differential"
@@ -904,12 +906,13 @@ if Code.ensure_loaded?(Testcontainers) do
       {:ok, _} = Testcontainers.start_link()
       File.mkdir_p!(@fixtures_dir)
 
+      # Signature checking is OFF whenever no IMGPROXY_KEY/SALT are set, which lets
+      # the `/unsafe/` prefix work. LOCAL_FILESYSTEM_ROOT + a read-only bind serve
+      # the committed sources via `local:///<file>`.
       container =
         Testcontainers.Container.new(@image)
         |> Testcontainers.Container.with_exposed_port(8080)
-        |> Testcontainers.Container.with_environment("IMGPROXY_USE_UNSAFE_URL", "1")
         |> Testcontainers.Container.with_environment("IMGPROXY_LOCAL_FILESYSTEM_ROOT", "/srv")
-        # IMGPROXY_USE_LINEAR_COLORSPACE intentionally unset (default off).
         |> Testcontainers.Container.with_bind_mount(Path.expand(@sources_dir), "/srv", "ro")
 
       {:ok, started} = Testcontainers.start_container(container)
@@ -918,8 +921,8 @@ if Code.ensure_loaded?(Testcontainers) do
 
       wait_until_ready!(base_url)
 
-      imgproxy_libvips = fetch_imgproxy_libvips(base_url)
-      pipe_libvips = VipsImage.version()
+      imgproxy_libvips = container_libvips(started)
+      pipe_libvips = Vix.Vips.version()
 
       if imgproxy_libvips != pipe_libvips do
         Mix.shell().info(
@@ -952,8 +955,8 @@ if Code.ensure_loaded?(Testcontainers) do
 
     defp generate_entry(c, base_url) do
       url = base_url <> Constellations.imgproxy_path(c)
-      %Req.Response{status: 200, body: body, headers: headers} = Req.get!(url, decode_body: false)
-      content_type = headers |> Map.new() |> Map.get("content-type") |> List.wrap() |> List.first()
+      %Req.Response{status: 200, body: body} = resp = Req.get!(url, decode_body: false)
+      content_type = resp |> Req.Response.get_header("content-type") |> List.first()
       decoded = Image.open!(body, access: :random, fail_on: :error)
 
       authored = Manifest.authored_sha256(c)
@@ -988,28 +991,21 @@ if Code.ensure_loaded?(Testcontainers) do
 
     defp wait_until_ready!(base_url, attempts) do
       case Req.get(base_url <> "/health", retry: false) do
-        {:ok, %Req.Response{status: 200}} -> :ok
+        {:ok, %Req.Response{status: 200}} ->
+          :ok
+
         _ ->
           Process.sleep(500)
           wait_until_ready!(base_url, attempts - 1)
       end
     end
 
-    defp fetch_imgproxy_libvips(base_url) do
-      # imgproxy exposes its build/libvips version on /health's headers in recent
-      # builds; fall back to the dedicated endpoint if present. Adjust to the
-      # pinned image's actual surface during the bootstrap run.
-      case Req.get(base_url <> "/health") do
-        {:ok, %Req.Response{headers: headers}} ->
-          headers
-          |> Map.new()
-          |> Map.get("x-imgproxy-libvips-version", ["unknown"])
-          |> List.wrap()
-          |> List.first()
-
-        _ ->
-          "unknown"
-      end
+    # imgproxy does NOT expose its libvips version over HTTP; read it from inside
+    # the container. The darthsim image ships the `vips` CLI, which prints e.g.
+    # "vips-8.16.0".
+    defp container_libvips(started) do
+      {out, 0} = System.cmd("docker", ["exec", started.container_id, "vips", "--version"])
+      out |> String.trim() |> String.replace_prefix("vips-", "")
     end
 
     defp write_report!(manifest) do
@@ -1036,43 +1032,84 @@ if Code.ensure_loaded?(Testcontainers) do
 end
 ```
 
-> **Bootstrap-time API confirmation:** during the first real run, confirm against the
-> pinned image (a) the `/health` readiness contract, (b) how imgproxy reports its
-> libvips version (header name or a `GET /` info endpoint) and adjust
-> `fetch_imgproxy_libvips/1`, and (c) the testcontainers `mapped_port/2` return shape.
-> These are container-surface details that can only be verified with Docker present.
+> **Bootstrap-time confirmation (Docker required, container-surface only):** on the
+> first run confirm against the pinned image (a) the `/health` readiness contract,
+> (b) that `started.container_id` is the testcontainers field holding the Docker id
+> (adjust if the struct names it differently), and (c) the `vips --version` output
+> shape. These cannot be verified without Docker present.
 
-- [ ] **Step 4: Run the guard test again (still passes without the dep)**
+- [ ] **Step 2: Implement the Docker-free reauthor task**
 
-Run: `mise exec -- mix test test/image_pipe/imgproxy_differential/gen_fixtures_test.exs`
-Expected: PASS.
+This refreshes the manifest's `authored_sha256` values from the current
+`constellations.ex` **without** re-running the container — for `tol` tweaks and
+`:diverges`→`:equal` verdict flips, which change authored fields but not fixture
+bytes. It needs no testcontainers, so it is always defined.
 
-- [ ] **Step 5: Confirm the compile-safety acceptance criterion still holds**
+```elixir
+# test/support/mix/tasks/imgproxy.reauthor.ex
+defmodule Mix.Tasks.Imgproxy.Reauthor do
+  @shortdoc "Refresh manifest authored-field hashes without re-running imgproxy"
+  @moduledoc """
+  Recomputes `authored_sha256` for every constellation from `constellations.ex`
+  and rewrites the manifest, leaving fixtures and REPORT untouched. Use after a
+  `tol` tweak or a `:diverges`→`:equal` verdict flip (no pixels change).
+
+      MIX_ENV=test mise exec -- mix imgproxy.reauthor
+  """
+  use Mix.Task
+
+  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest}
+
+  @manifest_path "test/support/image_pipe/test/imgproxy_differential/manifest.exs"
+
+  @impl Mix.Task
+  def run(_args) do
+    manifest = Manifest.load!(@manifest_path)
+    by_id = Map.new(Constellations.all(), fn c -> {c.id, c} end)
+
+    entries =
+      Map.new(manifest.entries, fn {id, entry} ->
+        {id, %{entry | authored_sha256: Manifest.authored_sha256(Map.fetch!(by_id, id))}}
+      end)
+
+    Manifest.write!(@manifest_path, %{manifest | entries: entries})
+    Mix.shell().info("Reauthored #{map_size(entries)} manifest entries")
+  end
+end
+```
+
+- [ ] **Step 3: Confirm the compile-safety acceptance criterion (no Docker)**
 
 Run: `MIX_ENV=test mise exec -- mix compile --warnings-as-errors`
-Expected: clean — the generator module is not defined (no `:testcontainers`), so no static reference to it exists.
+Expected: clean. The generator module is not defined (no `:testcontainers`), so there
+is no dangling reference; the reauthor task compiles fine.
 
-- [ ] **Step 6: Pin the digest, then BOOTSTRAP-generate fixtures (requires Docker)**
+Run: `mise exec -- mix compile --warnings-as-errors`
+Expected: clean (dev compile never sees `test/support`).
+
+- [ ] **Step 4: Pin the digest, then BOOTSTRAP-generate fixtures (requires Docker)**
 
 Find the current `darthsim/imgproxy` digest and replace `REPLACE_WITH_PINNED_DIGEST`:
 ```bash
 docker pull darthsim/imgproxy:latest
 docker inspect --format='{{index .RepoDigests 0}}' darthsim/imgproxy:latest
 ```
-Put the `sha256:…` into `@image` in the task.
+Put the `sha256:…` into `@image` in `imgproxy.gen_fixtures.ex`.
 
 Run: `MIX_ENV=test IMGPROXY_DIFF=1 mise exec -- mix imgproxy.gen_fixtures`
-Expected: prints the fixture/manifest/report summary; `fixtures/` fills with PNGs; `manifest.exs` and `REPORT.md` appear. Adjust the bootstrap-time API details (Step 3 note) if the run errors, then re-run.
+Expected: prints the fixture/manifest/report summary; `fixtures/` fills with PNGs;
+`manifest.exs` and `REPORT.md` appear. Resolve the Step-1 bootstrap-confirmation items
+if the run errors, then re-run.
 
-- [ ] **Step 7: Commit the generator, fixtures, manifest, and report**
+- [ ] **Step 5: Commit the tasks, fixtures, manifest, and report**
 
 ```bash
 git add test/support/mix/tasks/imgproxy.gen_fixtures.ex \
-        test/image_pipe/imgproxy_differential/gen_fixtures_test.exs \
+        test/support/mix/tasks/imgproxy.reauthor.ex \
         test/support/image_pipe/test/imgproxy_differential/fixtures/ \
         test/support/image_pipe/test/imgproxy_differential/manifest.exs \
         test/support/image_pipe/test/imgproxy_differential/REPORT.md
-git commit -m "feat(test): imgproxy fixture generator + bootstrap fixtures/manifest/report"
+git commit -m "feat(test): imgproxy fixture generator + reauthor task + bootstrap fixtures"
 ```
 
 ---
@@ -1101,29 +1138,32 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
   import Plug.Test
 
   alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest, PixelCompare, Skew}
+  alias ImagePipe.SourceTest.RootHTTPAdapter
 
   @base "test/support/image_pipe/test/imgproxy_differential"
-  @sources_dir "#{@base}/sources"
   @fixtures_dir "#{@base}/fixtures"
   @manifest_path "#{@base}/manifest.exs"
 
-  # Default outlier tolerance for the transform group. Threshold = max per-band
-  # delta tolerated per byte; budget = how many band-bytes may exceed it. Tuned
-  # during the bootstrap run against the real fixtures; per-constellation `tol`
-  # overrides via %{threshold: t, budget: b}.
+  # Transform-group tolerance: threshold = max per-band delta tolerated per byte;
+  # budget = how many band-bytes may exceed it. Tuned against real fixtures during
+  # bootstrap; per-constellation `tol` overrides via %{threshold: t, budget: b}.
   @default_tol %{threshold: 2, budget: 64}
 
-  # Origin plug that serves the committed source files imgproxy fetched via local://.
+  # Serves the committed source files. imgproxy fetched them via local:///<file>,
+  # which the imgproxy parser maps to a Plan.Source.Path; RootHTTPAdapter then
+  # requests http://origin.test/<file>, so conn.request_path is "/<file>".
   defmodule SourceOrigin do
     @sources_dir "test/support/image_pipe/test/imgproxy_differential/sources"
     def init(opts), do: opts
+
     def call(conn, _opts) do
       file = Path.basename(conn.request_path)
-      body = File.read!(Path.join(@sources_dir, file))
+
       conn
       |> Plug.Conn.put_resp_content_type(content_type(file))
-      |> Plug.Conn.send_resp(200, body)
+      |> Plug.Conn.send_resp(200, File.read!(Path.join(@sources_dir, file)))
     end
+
     defp content_type(f) do
       case Path.extname(f) do
         ".jpg" -> "image/jpeg"
@@ -1134,10 +1174,20 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
   end
 
   setup_all do
-    if File.exists?(@manifest_path) do
-      {:ok, manifest: Manifest.load!(@manifest_path)}
-    else
-      {:ok, manifest: nil}
+    manifest = if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: nil
+    {:ok, manifest: manifest}
+  end
+
+  # Real ExUnit skip on libvips skew, for the skew-gated groups only. :diverges
+  # assertions are algorithmic/version-independent and always run; the CI-guard
+  # and bootstrap-missing cases are not tagged :differential, so they always run.
+  setup context do
+    cond do
+      context[:differential] != true -> :ok
+      is_nil(context[:manifest]) -> :ok
+      context[:verdict] == :diverges -> :ok
+      Skew.aligned?(context.manifest) -> :ok
+      true -> {:skip, "libvips #{Skew.runtime_libvips()} != fixtures' #{context.manifest.imgproxy_libvips}"}
     end
   end
 
@@ -1146,40 +1196,44 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
       assert Skew.aligned?(manifest),
              "CI libvips #{Skew.runtime_libvips()} != fixtures' #{manifest.imgproxy_libvips}; " <>
                "regenerate fixtures on CI's libvips."
-    else
-      :ok
     end
   end
 
   for constellation <- Constellations.all() do
     @c constellation
+    @tag :differential
+    @tag verdict: constellation.verdict
 
     test "#{@c.id} (#{@c.verdict}/#{@c.group})", %{manifest: manifest} do
-      cond do
-        is_nil(manifest) ->
-          flunk(
-            "No manifest at #{@manifest_path}. Bootstrap with: " <>
-              "MIX_ENV=test IMGPROXY_DIFF=1 mix imgproxy.gen_fixtures"
-          )
-
-        true ->
-          entry = Map.fetch!(manifest.entries, @c.id)
-
-          assert entry.authored_sha256 == Manifest.authored_sha256(@c),
-                 "#{@c.id}: authored fields changed since generation — regenerate fixtures."
-
-          run_constellation(@c, entry, manifest)
+      if is_nil(manifest) do
+        flunk("No manifest at #{@manifest_path}. Bootstrap: MIX_ENV=test IMGPROXY_DIFF=1 mix imgproxy.gen_fixtures")
       end
+
+      entry = fetch_entry!(manifest, @c.id)
+
+      assert entry.authored_sha256 == Manifest.authored_sha256(@c),
+             "#{@c.id}: authored fields changed since generation — run `mix imgproxy.reauthor` " <>
+               "(tol/verdict-only edits) or regenerate fixtures."
+
+      run_constellation(@c, entry)
     end
   end
 
-  # :diverges runs regardless of skew (algorithmic, version-independent).
-  defp run_constellation(%{verdict: :diverges} = c, _entry, _manifest) do
-    out = imagepipe_image(c)
-    fixture = fixture_image(c)
+  defp fetch_entry!(manifest, id) do
+    case Map.fetch(manifest.entries, id) do
+      {:ok, entry} ->
+        entry
 
-    assert PixelCompare.same_dims?(out, fixture),
-           "#{c.id}: dims #{inspect(PixelCompare.dims(out))} != fixture #{inspect(PixelCompare.dims(fixture))}"
+      :error ->
+        flunk("#{id}: no manifest entry. Run: MIX_ENV=test IMGPROXY_DIFF=1 mix imgproxy.gen_fixtures")
+    end
+  end
+
+  # :diverges — structured regional metric, runs regardless of skew.
+  defp run_constellation(%{verdict: :diverges} = c, entry) do
+    out = imagepipe_image(c)
+    fixture = fixture_image(c, entry)
+    assert_same_dims!(c, out, fixture)
 
     %{metric: :region_mean_delta, region: region, floor: floor} = c.divergence
     delta = PixelCompare.region_mean_delta(out, fixture, region)
@@ -1189,25 +1243,11 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
              "If ImagePipe now matches imgproxy, flip this constellation to :equal and update the matrix."
   end
 
-  # :equal and :lossy are skew-gated.
-  defp run_constellation(c, entry, manifest) do
-    if Skew.aligned?(manifest) do
-      run_aligned(c, entry)
-    else
-      IO.puts(
-        "  [skip] #{c.id}: libvips #{Skew.runtime_libvips()} != fixtures' #{manifest.imgproxy_libvips}"
-      )
-
-      :ok
-    end
-  end
-
-  defp run_aligned(%{group: :transform} = c, _entry) do
+  # :equal transform — tight count-based pixel agreement (skew-gated via setup).
+  defp run_constellation(%{group: :transform} = c, entry) do
     out = imagepipe_image(c)
-    fixture = fixture_image(c)
-
-    assert PixelCompare.same_dims?(out, fixture),
-           "#{c.id}: dims #{inspect(PixelCompare.dims(out))} != fixture #{inspect(PixelCompare.dims(fixture))}"
+    fixture = fixture_image(c, entry)
+    assert_same_dims!(c, out, fixture)
 
     tol = c.tol || @default_tol
     outliers = PixelCompare.outliers(out, fixture, tol.threshold)
@@ -1216,7 +1256,8 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
            "#{c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})"
   end
 
-  defp run_aligned(%{group: :lossy} = c, entry) do
+  # Lossy — dimension + content-type contract only (skew-gated via setup).
+  defp run_constellation(%{group: :lossy} = c, entry) do
     {out, content_type} = imagepipe_response(c)
 
     assert {Image.width(out), Image.height(out)} == {entry.width, entry.height},
@@ -1224,6 +1265,11 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
 
     assert content_type == entry.content_type,
            "#{c.id}: content-type #{inspect(content_type)} != #{inspect(entry.content_type)}"
+  end
+
+  defp assert_same_dims!(c, out, fixture) do
+    assert PixelCompare.same_dims?(out, fixture),
+           "#{c.id}: dims #{inspect(PixelCompare.dims(out))} != fixture #{inspect(PixelCompare.dims(fixture))}"
   end
 
   defp imagepipe_response(c) do
@@ -1243,49 +1289,59 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
 
   defp imagepipe_image(c), do: elem(imagepipe_response(c), 0)
 
-  defp fixture_image(c) do
-    entry_file = "#{c.id}.png"
-    Image.open!(File.read!(Path.join(@fixtures_dir, entry_file)), access: :random, fail_on: :error)
+  # Reads the committed fixture and verifies it against the manifest sha256 (the
+  # byte-corruption/edit guard); missing fixtures fail loudly, not with a KeyError.
+  defp fixture_image(c, entry) do
+    path = Path.join(@fixtures_dir, entry.fixture_filename)
+
+    unless File.exists?(path) do
+      flunk("#{c.id}: missing fixture #{path}. Run: MIX_ENV=test IMGPROXY_DIFF=1 mix imgproxy.gen_fixtures")
+    end
+
+    assert Manifest.file_sha256(path) == entry.fixture_sha256,
+           "#{c.id}: fixture #{path} sha256 mismatch — corrupted or edited; regenerate."
+
+    Image.open!(File.read!(path), access: :random, fail_on: :error)
   end
 
-  # Mirror the imgproxy parser + source setup from the existing wire test, but
-  # point the source origin at SourceOrigin. Fill in to match
-  # imgproxy_wire_conformance_test.exs's default opts shape (Step 1).
   defp plug_opts do
     ImagePipe.Plug.init(
       parser: ImagePipe.Parser.Imgproxy,
-      source: {ImagePipe.Source.Plug, SourceOrigin}
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: SourceOrigin]}
+      ]
     )
   end
 end
 ```
 
-> **Wiring note:** `plug_opts/0` and `SourceOrigin` must match the exact option shape
-> the existing `imgproxy_wire_conformance_test.exs` uses for its parser + origin
-> adapter (Step 1 surfaces it). Adjust `plug_opts/0` to that shape; the test cannot
-> pass until ImagePipe is actually invoked the same way the wire test invokes it.
+> **Wiring note:** the `sources: [path: {RootHTTPAdapter, …, req_options: [plug: SourceOrigin]}]`
+> shape is copied verbatim from `imgproxy_wire_conformance_test.exs:491-496` (Step 1).
+> `local:///high_freq.jpg` parses to a `Plan.Source.Path`, so `RootHTTPAdapter` builds
+> `http://origin.test/high_freq.jpg` and `SourceOrigin` sees `conn.request_path` of
+> `/high_freq.jpg` — hence `Path.basename/1`.
 
 - [ ] **Step 3: Run the comparison test (fixtures present from Task 7)**
 
 Run: `mise exec -- mix test test/image_pipe/imgproxy_differential_conformance_test.exs`
 Expected (libvips aligned with fixtures): transform constellations PASS within budget; `:diverges` constellations PASS (divergence ≥ floor); lossy constellations PASS the contract. If a transform budget is too tight, inspect `REPORT.md` and the failing constellation, set a per-constellation `tol`, and re-run. If a `:diverges` floor is not met, the divergence source/opts need strengthening (see spec §`:diverges`).
-Expected (libvips NOT aligned): transform/lossy print `[skip]`; `:diverges` still run; the CI-guard test passes locally (not CI).
+Expected (libvips NOT aligned): transform/lossy show as **skipped** (ExUnit `excluded/skipped` count, with the skew reason); `:diverges` still run; the CI-guard test passes locally (it only asserts under CI).
 
-- [ ] **Step 4: Tune tolerances against real fixtures**
+- [ ] **Step 4: Tune tolerances against real fixtures (no Docker)**
 
 For any transform constellation that exceeds `@default_tol`, add a `tol:` override in
 `constellations.ex` (e.g. `%{threshold: 3, budget: 256}` for the WebP residual-scale
-case) — re-running `authored_sha256` will then differ, so refresh the manifest's
-authored hashes without re-running the container:
+case). Editing `:tol` changes the constellation's `authored_sha256`, which would trip
+the authored-hash guard — so refresh the manifest's authored hashes with the
+Docker-free reauthor task (fixtures are unchanged, so no container run):
 
-Run: `MIX_ENV=test IMGPROXY_DIFF=1 mise exec -- mix imgproxy.gen_fixtures`
-(Re-running regenerates identical fixtures and refreshes authored hashes.)
+Run: `MIX_ENV=test mise exec -- mix imgproxy.reauthor`
 
 Re-run the test until green:
 Run: `mise exec -- mix test test/image_pipe/imgproxy_differential_conformance_test.exs`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit the test and any tolerance overrides**
 
 ```bash
 git add test/image_pipe/imgproxy_differential_conformance_test.exs \
@@ -1345,6 +1401,9 @@ them on the default `mix test` lane — no Docker in the hot path.
 3. Commit the changed `fixtures/`, `manifest.exs`, and `REPORT.md`. Review the
    `REPORT.md` diff (not the binary PNGs) for what moved.
 
+For a `tol` tweak or a `:diverges`→`:equal` verdict flip (no pixels change), refresh the
+manifest's authored hashes without Docker: `MIX_ENV=test mise exec -- mix imgproxy.reauthor`.
+
 Rebuild the source images only deliberately (a libvips bump must not silently change
 inputs): `MIX_ENV=test mise exec -- mix imgproxy.gen_sources`.
 
@@ -1376,12 +1435,18 @@ git commit -m "docs(imgproxy): document differential conformance lane + regenera
 - **Run order matters:** Tasks 2–5 are pure TDD and independent. Task 6 must run its
   task (Step 5) to produce sources before Task 7 can generate fixtures. Task 8 needs
   Task 7's committed manifest/fixtures to go green.
-- **Docker is only needed for Task 6 Step 5 (no Docker) and Task 7 Step 6 (Docker).**
-  Everything else runs without Docker.
-- **The bootstrap run (Task 7 Step 6) is where container-surface unknowns resolve**
-  (imgproxy libvips reporting, `/health` contract, `mapped_port` shape). Adjust the
-  flagged helpers there, not in the pure modules.
+- **Docker is only needed for Task 7 Step 4 (bootstrap generation).** Task 6 Step 5
+  (source build), the reauthor task, and everything else run without Docker.
+- **The bootstrap run (Task 7 Step 4) is where container-surface unknowns resolve**
+  (`vips --version` exec for the libvips version, `/health` contract,
+  `started.container_id`/`mapped_port` shapes). Adjust the flagged helpers there, not
+  in the pure modules. Note: if the manifest's `imgproxy_libvips` ends up wrong, the
+  skew gate silently skips everything locally and the CI guard fails — so confirm it.
 - **`async: true`** is safe for the comparison test (read-only fixtures, no shared
   state). Keep it.
-- **Do not** add ExUnit `@tag`/exclude for this suite — it is a default-lane test by
-  design (skew gate + CI guard handle honesty), unlike the `:image_vision` lane.
+- **The skew skip is a real ExUnit skip** (a `{:skip, reason}` return from `setup`),
+  not a passing assertion-free test — so a skipped suite shows in the skipped count,
+  never as green coverage.
+- **Do not** add ExUnit `@tag`/exclude to *exclude* this suite by default — it is a
+  default-lane test by design (the per-test `:differential`/`verdict` tags only drive
+  the skew skip; skew gate + CI guard handle honesty), unlike the `:image_vision` lane.

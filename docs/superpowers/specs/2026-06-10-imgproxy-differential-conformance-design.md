@@ -56,22 +56,25 @@ missing third-party ground truth.
 
 **Dependency gating (blocker — must be exact).** The testcontainers dep is gated by an
 env var at `deps/0` time, following the `:image_vision` pattern in `mix.exs:140-150`:
-e.g. `System.get_env("IMGPROXY_DIFF") in ["1","true"]` adds
-`{:testcontainers, "~> …", only: :test, runtime: false}`. **But that precedent is a
-*dependency* gate, not a *task* gate** — a Mix task lives under `lib/mix/tasks/` and
-therefore compiles in *every* env, including the plain `dev` compile precommit runs
-(`mise.toml` → `mix compile --warnings-as-errors`). A top-level reference to
-`Testcontainers.*` from that always-compiled module breaks precommit when the dep is
-absent.
+`System.get_env("IMGPROXY_DIFF") in ["1","true"]` adds
+`{:testcontainers, "~> 1.14", only: :test, runtime: false}`. Two layers keep the
+compile clean:
 
-→ The task module **must compile-gate its body** so no compile-time reference to the
-conditional dep exists when it's absent — mirroring the OTel optional-dep pattern
-(`mix.exs:110-114`): wrap the testcontainers-touching code in
-`if Code.ensure_loaded?(Testcontainers) do … end` / dispatch via `apply/3`. The task
-runs under `MIX_ENV=test` with `IMGPROXY_DIFF=1` so the dep is present at run time.
+- **Tasks live under `test/support/mix/tasks/`**, so they compile **only in `:test`**
+  (`elixirc_paths(:test)` includes `test/support`) and never enter the `:dev`/`:prod`
+  compile, the precommit `mix compile`, or the hex package. This removes any
+  dev-compile exposure entirely.
+- **The `:test` compile without `IMGPROXY_DIFF` still lacks the dep**, so the
+  generator module is wrapped in a **file-level `if Code.ensure_loaded?(Testcontainers) do … end`**
+  guard (mirroring the OTel optional-dep pattern, `mix.exs:110-114`): when the dep is
+  absent the module is simply not defined, so the `:test` compile has no dangling
+  `Testcontainers.*` reference and emits no warning. The Docker-free `reauthor` task
+  needs no container and is always defined. Generation runs under `MIX_ENV=test` with
+  `IMGPROXY_DIFF=1` so the dep is present at run time.
 
-**Acceptance criterion:** bare `mix compile --warnings-as-errors` (no special env)
-compiles both Mix task modules cleanly, with the testcontainers dep absent.
+**Acceptance criterion:** both `mix compile --warnings-as-errors` (dev; tasks absent)
+and `MIX_ENV=test mix compile --warnings-as-errors` (test; generator guarded out)
+compile cleanly with the testcontainers dep absent.
 
 ### Source builder (separate one-shot)
 
@@ -224,11 +227,12 @@ entirely on the PNG group; encoder *selection* is a format/header contract here.
 ## Coverage (non-pro)
 
 resize fit/fill/fill-down/auto, non-smart gravity (+ offsets), enlarge, extend,
-extend-aspect-ratio, padding, dpr, **min-width/min-height** (notably *disables*
-shrink-on-load — a distinct stage-3 branch, `decode_planner.ex:169-171`), **zoom**,
+extend-aspect-ratio, padding, dpr, **min-width/min-height** (which *clamp the shrink
+factor* — a distinct stage-3 interaction, `decode_planner.ex:169-171`), **zoom**,
 quality, format, background, blur, sharpen, rotate, trim, strip. Excludes smart/object
-gravity and Pro filters. Each constellation maps to a ✅ stage (→ `:equal`/lossy
-contract) or a ⚠️ stage (→ `:diverges`).
+gravity and Pro filters (e.g. saturation `sa`, brightness, contrast — non-pro
+constellations must avoid these or imgproxy returns 404). Each constellation maps to a
+✅ stage (→ `:equal`/lossy contract) or a ⚠️ stage (→ `:diverges`).
 
 ## Process & documentation discipline (per CLAUDE.md)
 
@@ -253,10 +257,11 @@ test/support/image_pipe/test/imgproxy_differential/
   constellations.ex                                   # ImagePipe.Test.ImgproxyDifferential.Constellations (Boundary, deps: [])
   sources/                                            # committed fixed sources (jpeg/webp/png + .icc)
   fixtures/                                           # committed reference PNGs
-  manifest.<term|json>                                # generated provenance (shape-validated on load)
+  manifest.exs                                        # generated provenance (Elixir term, shape-validated on load)
   REPORT.md                                           # generated, human-readable bump record
-lib/mix/tasks/imgproxy.gen_sources.ex                 # one-shot source builder (compile-clean w/o dep)
-lib/mix/tasks/imgproxy.gen_fixtures.ex                # generator (compile-gated testcontainers body)
+test/support/mix/tasks/imgproxy.gen_sources.ex        # one-shot source builder (:test-only)
+test/support/mix/tasks/imgproxy.gen_fixtures.ex       # generator (:test-only; module guarded behind testcontainers)
+test/support/mix/tasks/imgproxy.reauthor.ex           # Docker-free authored-hash refresh (:test-only)
 test/image_pipe/imgproxy_differential_conformance_test.exs  # default-lane comparison test + CI skew-guard
 ```
 
