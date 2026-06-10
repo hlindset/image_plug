@@ -130,6 +130,26 @@ save. ImagePipe realizes these at request and output boundaries:
   be resolved when #124 lands). Everything else either matches or is an explicitly
   missing/out-of-scope surface documented in the tables below.
 
+## Differential conformance
+
+`test/image_pipe/imgproxy_differential_conformance_test.exs` compares ImagePipe's
+decoded pixel output against committed fixtures generated from a pinned real imgproxy
+(`mix imgproxy.gen_fixtures`). It is the **behavioral/pixel** enforcement of this
+matrix: each constellation carries a verdict that maps to a stage row.
+
+- **`:equal`** (transform group, ✅ stages): tight count-based pixel agreement on PNG
+  output, skew-gated to the fixtures' libvips. Stages exercised: trim (sRGB),
+  scaleOnLoad (JPEG/WebP), crop, scale (fit/fill/fill-down/auto), rotate, extend,
+  extendAspectRatio, padding, flatten, applyFilters (blur/sharpen), stripMetadata.
+- **`:diverges`** (⚠️ rows): asserts a *structured* divergence still holds (region
+  mean-delta ≥ floor), so an accidental convergence fails and forces a verdict flip
+  here + a matrix update. Covers colorspace #124 (`scp:0`) and trim-detection space.
+- **lossy group**: dimension + content-type contract only (independent encoders), no
+  pixel claim.
+
+Regeneration and the libvips skew model are documented in
+`test/support/image_pipe/test/imgproxy_differential/README.md`.
+
 ## Status legend
 
 The pipeline section above uses ✅ matches / ⚠️ diverges / ⭕ missing. The
