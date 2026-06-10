@@ -1,5 +1,0 @@
-packageExtensions:
-  "geist@*":
-    peerDependenciesMeta:
-      next:
-        optional: true
