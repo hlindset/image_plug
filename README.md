@@ -165,3 +165,19 @@ Open http://localhost:4000. The imgproxy-compatible processing endpoint is
 mounted at `/img`.
 
 ![Demo fiddle desktop screenshot](docs/assets/demo-fiddle-desktop.png)
+
+### Tracing (OpenTelemetry → Jaeger)
+
+The fiddle can export its `image_pipe.*` spans to a local Jaeger, demonstrating
+the library's OpenTelemetry exporter end to end (see
+[the cookbook](docs/cookbook/opentelemetry-jaeger.md)):
+
+```sh
+mise run jaeger              # start Jaeger (OTLP + UI) via fiddle/docker-compose.yml
+FIDDLE_OTEL=1 mise run server
+```
+
+Issue an `/img` request, then open the Jaeger UI at http://localhost:16686 and
+look for the `image_pipe.request` trace under the `image_pipe_fiddle` service.
+Tracing is off unless `FIDDLE_OTEL=1` is set, so the default `mise run server`
+needs no Jaeger.

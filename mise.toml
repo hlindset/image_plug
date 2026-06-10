@@ -37,3 +37,7 @@ run = [
 description = "Run the ImagePipe Fiddle dev server (Phoenix + Vite)"
 dir = "fiddle"
 run = "mix phx.server"
+
+[tasks.jaeger]
+description = "Run a local Jaeger (OTLP + UI) for the fiddle's OpenTelemetry traces"
+run = "docker compose -f fiddle/docker-compose.yml up"

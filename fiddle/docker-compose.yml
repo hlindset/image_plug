@@ -1,0 +1,17 @@
+# Local Jaeger (all-in-one v2) for the fiddle's OpenTelemetry traces.
+#
+#   docker compose -f fiddle/docker-compose.yml up   # or: mise run jaeger
+#   FIDDLE_OTEL=1 mise run server                     # emit traces
+#
+# Then open the Jaeger UI at http://localhost:16686 and look for the
+# `image_pipe.request` trace after issuing an /img request.
+services:
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.19.0
+    container_name: jaeger
+    ports:
+      - "16686:16686" # Jaeger UI
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP (the fiddle exports here)
+      - "5778:5778" # sampling/config
+      - "9411:9411" # Zipkin

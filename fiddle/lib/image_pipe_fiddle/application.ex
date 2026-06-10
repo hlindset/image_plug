@@ -9,6 +9,7 @@ defmodule ImagePipeFiddle.Application do
   def start(_type, _args) do
     :persistent_term.put({__MODULE__, :imgproxy_opts}, build_imgproxy_opts())
     ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug, debug: true)
+    maybe_attach_tracer()
 
     children =
       [
@@ -30,6 +31,18 @@ defmodule ImagePipeFiddle.Application do
   def config_change(changed, _new, removed) do
     ImagePipeFiddleWeb.Endpoint.config_change(changed, removed)
     :ok
+  end
+
+  # Opt-in OpenTelemetry tracing: with FIDDLE_OTEL=1 (and Jaeger running — see
+  # docker-compose.yml), replay ImagePipe's spans into the OTel SDK, which exports
+  # them over OTLP to Jaeger. Off by default so `mise run server` needs no Jaeger.
+  defp maybe_attach_tracer do
+    if System.get_env("FIDDLE_OTEL") in ~w(1 true) do
+      ImagePipe.Telemetry.attach_tracer(
+        exporter: ImagePipe.Telemetry.Trace.OpenTelemetryExporter,
+        extract_inbound: true
+      )
+    end
   end
 
   defp build_imgproxy_opts do

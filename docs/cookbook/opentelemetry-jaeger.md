@@ -4,6 +4,11 @@ ImagePipe emits `:telemetry` spans and ships an opt-in exporter that replays the
 your OpenTelemetry SDK (preserving ImagePipe's trace_id). This sends traces to a local
 Jaeger all-in-one.
 
+> The `fiddle/` demo app in this repo wires exactly this up (gated behind `FIDDLE_OTEL=1`)
+> — see `fiddle/docker-compose.yml`, the `:opentelemetry`/`:opentelemetry_exporter` config
+> in `fiddle/config/config.exs`, and the `attach_tracer/1` call in
+> `fiddle/lib/image_pipe_fiddle/application.ex` for a runnable example.
+
 ## 1. Run Jaeger
 
 ```yaml
