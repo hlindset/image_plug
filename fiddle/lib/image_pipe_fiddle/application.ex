@@ -8,19 +8,17 @@ defmodule ImagePipeFiddle.Application do
   @impl true
   def start(_type, _args) do
     :persistent_term.put({__MODULE__, :imgproxy_opts}, build_imgproxy_opts())
+    ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug, debug: true)
 
-    children = [
-      ImagePipeFiddleWeb.Telemetry,
-      {DNSCluster, query: Application.get_env(:image_pipe_fiddle, :dns_cluster_query) || :ignore},
-      {Phoenix.PubSub, name: ImagePipeFiddle.PubSub},
-      # Start a worker by calling: ImagePipeFiddle.Worker.start_link(arg)
-      # {ImagePipeFiddle.Worker, arg},
-      # Start to serve requests, typically the last entry
-      ImagePipeFiddleWeb.Endpoint
-    ]
+    children =
+      [
+        ImagePipeFiddleWeb.Telemetry,
+        {DNSCluster, query: Application.get_env(:image_pipe_fiddle, :dns_cluster_query) || :ignore},
+        {Phoenix.PubSub, name: ImagePipeFiddle.PubSub},
+        ImagePipeFiddleWeb.Endpoint,
+        {ImagePipe.Transform.Detector.Warmup, detector: :default, classes: ["face"]}
+      ] ++ cache_children(Application.get_env(:image_pipe_fiddle, :cache))
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: ImagePipeFiddle.Supervisor]
     Supervisor.start_link(children, opts)
   end
@@ -43,7 +41,9 @@ defmodule ImagePipeFiddle.Application do
         path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
       ],
       imgproxy: imgproxy,
-      detector_required: true
+      # Graceful fallback: detection failures degrade to attention crop (200) rather
+      # than erroring; the default Logger surfaces any detection fallback.
+      detector_required: false
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
     |> ImagePipe.Plug.init()
@@ -51,4 +51,13 @@ defmodule ImagePipeFiddle.Application do
 
   defp maybe_put_cache(opts, nil), do: opts
   defp maybe_put_cache(opts, cache), do: Keyword.put(opts, :cache, cache)
+
+  defp cache_children(nil), do: []
+
+  defp cache_children({module, opts}) do
+    case module.child_spec(opts) do
+      :ignore -> []
+      spec -> [spec]
+    end
+  end
 end

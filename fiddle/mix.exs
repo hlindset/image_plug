@@ -41,6 +41,12 @@ defmodule ImagePipeFiddle.MixProject do
   defp deps do
     [
       {:image_pipe, path: ".."},
+      {:image_vision, "~> 0.4"},
+      {:ortex, "~> 0.1"},
+      {:vix,
+       git: "https://github.com/hlindset/vix.git",
+       ref: "1b9d9f9619a4fcc45bce0c4958bfa1168a7ac1c2",
+       override: true},
       {:phoenix, "~> 1.8.7"},
       {:phoenix_vite, "~> 0.4.0"},
       {:phoenix_html, "~> 4.1"},
