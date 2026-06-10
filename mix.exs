@@ -121,7 +121,6 @@ defmodule ImagePipe.MixProject do
        override: true},
       {:color, "~> 0.13"},
       {:req, "~> 0.5"},
-      {:bandit, "~> 1.0", only: [:test, :dev]},
       {:stream_data, "~> 1.0", only: [:test, :dev]},
       {:boundary, "~> 0.10", runtime: false},
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
@@ -135,31 +134,24 @@ defmodule ImagePipe.MixProject do
     # compiled only when Ortex is configured (`if ImageVision.ortex_configured?()`),
     # and the YuNet model (~340 KB) downloads on first use.
     #
-    # This closure (Rust toolchain + model) is enabled in `:dev` so the demo
-    # server (`mix image_pipe.server`) can exercise `g:obj:face` and face-assist
-    # for real. It must NOT burden the default test/CI lane, so it reaches `:test`
-    # only via the opt-in `IMAGE_VISION=1` flag, which the real-dependency detector
-    # test relies on (`IMAGE_VISION=1 mix test --only image_vision`).
-    ml_envs = if System.get_env("IMAGE_VISION") in ["1", "true"], do: [:dev, :test], else: [:dev]
+    # The fiddle app owns real detection in its own deps. Here, the library pulls
+    # these only into the opt-in `:test` lane (`IMAGE_VISION=1`) for its own
+    # detector test (`IMAGE_VISION=1 mix test --only image_vision`).
+    ml_test_deps =
+      if System.get_env("IMAGE_VISION") in ["1", "true"] do
+        [
+          {:image_vision, "~> 0.4", only: :test},
+          {:ortex, "~> 0.1", only: :test}
+        ]
+      else
+        []
+      end
 
-    base ++
-      [
-        {:image_vision, "~> 0.4", only: ml_envs},
-        {:ortex, "~> 0.1", only: ml_envs}
-      ]
+    base ++ ml_test_deps
   end
 
   defp aliases do
     [
-      "demo.build": ["cmd pnpm run demo:build"],
-      "demo.check": ["cmd pnpm run demo:check"],
-      "demo.dev": ["cmd pnpm run demo:dev"],
-      "demo.format": ["cmd pnpm run demo:format"],
-      "demo.format.check": ["cmd pnpm run demo:format:check"],
-      "demo.lint": ["cmd pnpm run demo:lint"],
-      "demo.setup": ["cmd pnpm install --frozen-lockfile"],
-      "demo.test": ["cmd pnpm run demo:test"],
-      "demo.verify": ["demo.test", "demo.check", "demo.format.check", "demo.lint", "demo.build"],
       setup: ["deps.get"],
       test: ["test"]
     ]
