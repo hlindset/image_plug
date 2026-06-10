@@ -1,7 +1,7 @@
 # Cookbook: OpenTelemetry traces to Jaeger (local)
 
 ImagePipe emits `:telemetry` spans and ships an opt-in exporter that replays them into
-your OpenTelemetry SDK (preserving ImagePipe's trace_id). This sends traces to a local
+your OpenTelemetry SDK, carrying ImagePipe's trace_id. This sends traces to a local
 Jaeger.
 
 > The `fiddle/` demo app in this repo wires exactly this up (gated behind `FIDDLE_OTEL=1`)
@@ -70,9 +70,9 @@ ImagePipe.Telemetry.attach_tracer(
 
 If `:opentelemetry_api` isn't present this raises at startup. Issue a request, wait a
 few seconds for the batch processor to flush, then find the `image_pipe.request` trace
-in Jaeger — child spans (`image_pipe.{send,encode,output.negotiate,transform.execute,
-transform.operation,…}`) are nested under it. The root span itself may show a
-"missing parent" note in Jaeger when ImagePipe originates the trace: its synthetic
+in Jaeger — child spans such as `image_pipe.send`, `image_pipe.encode`,
+`image_pipe.transform.execute`, and `image_pipe.transform.operation` are nested under
+it. The root span itself may show a "missing parent" note in Jaeger when ImagePipe originates the trace: its synthetic
 remote parent is what forces ImagePipe's `trace_id` onto the OTel trace (use
 `extract_inbound: true` behind a traced caller to make it a real child instead).
 
