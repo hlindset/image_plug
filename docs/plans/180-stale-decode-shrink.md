@@ -18,6 +18,8 @@ This touches **imgproxy parity** (shrink-on-load = `scale_on_load.go`), so: comp
 - `Resize.execute` clears **only** `source_dimensions` (`resize.ex:75`). ← the bug.
 - imgproxy has **no multi-pipeline concept** — `/-/` chaining is an ImagePipe extension; imgproxy runs one `mainPipeline` per frame and the preshrink factor (`wpreshrink`/`hpreshrink`) is a `Context`-local mutation (`scale_on_load.go`) discarded after that single pipeline. So the factor is intrinsically pipeline-local; it must not survive into ImagePipe's *next* pipeline.
 
+> **Correction (post-implementation).** This bullet (and the matching lines under "Change 1" and "Conformance doc" below) is **wrong**: `/-/` chained pipelines are an **imgproxy Pro** feature (`IMGPROXY_MAX_CHAINED_PIPELINES`), not an ImagePipe extension. The compat reviewer only had the OSS imgproxy checkout, which omits Pro's chained-pipeline implementation. The correct framing: each chained pipeline is a full processing pass over the previous pipeline's in-memory output, so `scaleOnLoad`'s preshrink factor exists only for the initial decode and never carries forward — clearing `decode_shrink` at the residual resize is imgproxy Pro **parity**, not an extension's boundary. The fix is unchanged; only the rationale was corrected (see the shipped `scaleOnLoad` matrix row and `Resize.execute` comment).
+
 ## Review cycle
 
 Reviewed by three disjoint subagents (imgproxy-compat against a local `~/src/imgproxy` checkout, correctness/reachability, test-coverage). Accepted corrections are folded in below: the upstream framing (display-frame rescale, single-pipeline), the `c:200:200` → `CropGuided` correction, the CropRegion scoping decision, and the #185 test shape.

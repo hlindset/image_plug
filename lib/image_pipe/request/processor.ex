@@ -93,8 +93,10 @@ defmodule ImagePipe.Request.Processor do
   # decode was actually shrunk. With no shrink the transform layer reads the live
   # image dims instead (which also keeps a crop-before-resize correct), so we leave
   # it `nil`. These are the stored (pre-orientation) dims, which stay in the storage
-  # frame (orientation is deferred and flushed after the resize); shrink is declined
-  # when a crop/quarter-turn rotate precedes the resize, so they cannot go stale.
+  # frame (orientation is deferred and flushed after the resize). They are scoped to
+  # the pipeline whose decode produced them: a preceding crop and the residual resize
+  # each clear them (alongside `decode_shrink`), so they never leak into a later
+  # pipeline.
   defp shrink_source_dimensions(decode_options, original_dims) do
     if Keyword.has_key?(decode_options, :shrink) or Keyword.has_key?(decode_options, :scale) do
       original_dims

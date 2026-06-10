@@ -379,4 +379,44 @@ defmodule ImagePipe.ShrinkOnLoadTest do
     assert {Image.width(img), Image.height(img)} == {375, 500}
     assert Image.height(img) > Image.width(img), "auto-oriented output must be portrait"
   end
+
+  # Regression (#180): the realized shrink-on-load factor must not survive the
+  # residual resize into a *later* pipeline. imgproxy has a single pipeline and
+  # discards its Context preshrink factor each frame; ImagePipe's `/-/` chaining is
+  # an extension, so the residual resize must clear `decode_shrink` or pipeline 2's
+  # absolute crop gets divided by the stale factor.
+  #
+  # Pipeline 1: beach.jpg 4000×2667, fit:500:500 → shrink ~8, output 500×333,
+  # `decode_shrink ≈ {w: 8, h: 8}`. Pipeline 2: a center crop of 200×200 (absolute
+  # pixels) on the 500×333 live image. With the leak the crop is rescaled to
+  # ~25×25; cleared, it is the requested 200×200.
+  test "shrink-on-load factor does not leak past the residual resize into a later pipeline" do
+    conn =
+      call_pipe(
+        "/_/rs:fit:500:500/-/c:200:200/f:jpeg/plain/images/beach.jpg",
+        file_source_opts()
+      )
+
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    assert {Image.width(img), Image.height(img)} == {200, 200}
+  end
+
+  # Complement to the leak regression: when pipeline 1 does NOT trigger shrink-on-
+  # load (fit:3000:3000 against 4000×2667 → factor ~1.33, no power-of-2 shrink), the
+  # same pipeline-2 absolute crop is still exactly 200×200. Brackets the behavior so
+  # the crop result is independent of whether the decode shrank.
+  test "later-pipeline absolute crop is exact when pipeline 1 did not shrink" do
+    conn =
+      call_pipe(
+        "/_/rs:fit:3000:3000/-/c:200:200/f:jpeg/plain/images/beach.jpg",
+        file_source_opts()
+      )
+
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    assert {Image.width(img), Image.height(img)} == {200, 200}
+  end
 end

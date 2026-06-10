@@ -232,7 +232,12 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp clear_source_frame(%State{} = state),
     do: %State{state | source_dimensions: nil, decode_shrink: nil}
 
-  # Region crop runs literally on oriented pixels: flush pending first.
+  # Region crop runs literally on oriented pixels: flush pending first. The flush
+  # rotates the still-shrunk image into the display frame, so the region coords —
+  # authored in the display frame — rescale against swapped per-axis decode_shrink
+  # factors under a quarter turn (the display width axis came from the storage height
+  # axis, and vice versa). orient_decode_shrink applies that swap before the post-
+  # flush crop reads decode_shrink; a half turn / flip leaves the factors put.
   defp do_execute_crop(
          %CropRegion{} = operation,
          %State{pending_orientation: po} = state,
@@ -241,7 +246,14 @@ defmodule ImagePipe.Transform.PlanExecutor do
        )
        when not is_nil(po) do
     with {:ok, %State{} = state} <- flush_if_pending(state) do
-      do_execute_crop(operation, %State{state | pending_orientation: nil}, ctx, opts)
+      oriented_shrink = orient_decode_shrink(state.decode_shrink, po)
+
+      do_execute_crop(
+        operation,
+        %State{state | pending_orientation: nil, decode_shrink: oriented_shrink},
+        ctx,
+        opts
+      )
     end
   end
 
@@ -265,10 +277,16 @@ defmodule ImagePipe.Transform.PlanExecutor do
         run_executable(operation, state, ctx, opts)
 
       true ->
-        # Inlined so compensation sits between translate and execute.
+        # Inlined so compensation sits between translate and execute. decode_shrink
+        # is storage-frame; the crop dims are display-frame and `compensate_crop`
+        # swaps their axes for the quarter turn AFTER the rescale, so pre-swap the
+        # per-axis factors (orient_decode_shrink) — otherwise a display axis is
+        # divided by the wrong storage factor (#185).
+        oriented_shrink = orient_decode_shrink(state.decode_shrink, po)
+
         executable =
           operation
-          |> executable_operations(state, ctx)
+          |> executable_operations(%State{state | decode_shrink: oriented_shrink}, ctx)
           |> Enum.map(&compensate_crop(&1, po))
 
         Chain.execute(state, executable, opts)
@@ -278,6 +296,16 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # No pending orientation: crop runs literally in the live frame.
   defp do_execute_crop(operation, %State{} = state, ctx, opts) do
     run_executable(operation, state, ctx, opts)
+  end
+
+  # Pre-swap decode_shrink's per-axis factors for a quarter turn so the later
+  # `compensate_crop` axis swap lands each display axis on the factor of the storage
+  # axis it becomes (rationale at the call site). A half turn (`quarter_turn?` false)
+  # does not swap dims, so its factors stay put.
+  defp orient_decode_shrink(nil, _po), do: nil
+
+  defp orient_decode_shrink(%{w: w, h: h} = shrink, %PendingOrientation{} = po) do
+    if PendingOrientation.quarter_turn?(po), do: %{shrink | w: h, h: w}, else: shrink
   end
 
   defp materializing_gravity?(:smart), do: true
