@@ -18,6 +18,8 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
   alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest, OptsSummary, PixelCompare}
+  alias Vix.Vips.Image, as: VixImage
+  alias Vix.Vips.Operation
 
   @base "test/support/image_pipe/test/imgproxy_differential"
   @sources_dir "#{@base}/sources"
@@ -25,6 +27,7 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   @manifest_path "#{@base}/manifest.exs"
   @default_out "#{@base}/report.html"
   @default_tol %{threshold: 2, budget: 64}
+  @raw_amp 8
 
   @impl Mix.Task
   def run(args) do
@@ -46,7 +49,12 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   defp stub_html(cards) do
     body =
       Enum.map_join(cards, "\n", fn c ->
-        ~s(<div id="#{c.id}">#{c.id} — #{c.status} — #{c.metric_text}</div>)
+        imgs =
+          [c.imgproxy_img, c.pipe_img, c.heat_banded, c.heat_raw]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map_join("", fn uri -> ~s(<img src="#{uri}">) end)
+
+        ~s(<div id="#{c.id}">#{c.id} — #{c.status} — #{c.metric_text}#{imgs}</div>)
       end)
 
     "<!doctype html><meta charset=\"utf-8\"><body>#{body}</body>"
@@ -57,19 +65,22 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
     {body, content_type} = render(c, plug_opts)
     pipe = Image.open!(body, access: :random, fail_on: :error)
 
-    %{
-      id: c.id,
-      group: display_group(c),
-      verdict: c.verdict,
-      url: Constellations.imgproxy_path(c),
-      summary: OptsSummary.describe(c.opts),
-      triage: c.triage,
-      tol: c.tol,
-      hash_drift?: Manifest.authored_sha256(c) != entry.authored_sha256,
-      pipe_dims: dims(pipe)
-    }
-    |> Map.merge(group_fields(c, entry, pipe, content_type))
-    |> finalize_attention()
+    card =
+      %{
+        id: c.id,
+        group: display_group(c),
+        verdict: c.verdict,
+        url: Constellations.imgproxy_path(c),
+        summary: OptsSummary.describe(c.opts),
+        triage: c.triage,
+        tol: c.tol,
+        hash_drift?: Manifest.authored_sha256(c) != entry.authored_sha256,
+        pipe_dims: dims(pipe)
+      }
+      |> Map.merge(group_fields(c, entry, pipe, content_type))
+      |> finalize_attention()
+
+    attach_images(card, body, content_type, pipe, entry)
   end
 
   # The `:diverges` constellation is stored as `group: :transform, verdict:
@@ -134,6 +145,102 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
 
     Map.put(card, :attention?, attention?)
   end
+
+  # Attach base64 data URIs. Images are displayed from ORIGINAL bytes (no
+  # re-encode): the imgproxy fixture from its on-disk PNG, the pipe render from
+  # the response body. Decoded images feed the diff/heatmaps only.
+  defp attach_images(%{group: :lossy} = card, body, content_type, _pipe, _entry) do
+    Map.merge(card, %{
+      imgproxy_img: nil,
+      pipe_img: data_uri(content_type, body),
+      heat_banded: nil,
+      heat_raw: nil
+    })
+  end
+
+  defp attach_images(%{status: :dims_mismatch} = card, body, content_type, _pipe, entry) do
+    Map.merge(card, %{
+      imgproxy_img:
+        data_uri("image/png", File.read!(Path.join(@fixtures_dir, entry.fixture_filename))),
+      pipe_img: data_uri(content_type, body),
+      heat_banded: nil,
+      heat_raw: nil
+    })
+  end
+
+  defp attach_images(card, body, content_type, pipe, entry) do
+    fixture = fixture_image(entry)
+    a = to_rgb(fixture)
+    b = to_rgb(pipe)
+    threshold = (card.tol || @default_tol).threshold
+
+    Map.merge(card, %{
+      imgproxy_img:
+        data_uri("image/png", File.read!(Path.join(@fixtures_dir, entry.fixture_filename))),
+      pipe_img: data_uri(content_type, body),
+      heat_banded: data_uri("image/png", png(banded_heatmap(a, b, threshold))),
+      heat_raw: data_uri("image/png", png(raw_heatmap(a, b)))
+    })
+  end
+
+  defp data_uri(content_type, bytes), do: "data:#{content_type};base64,#{Base.encode64(bytes)}"
+
+  defp png(image), do: Image.write!(image, :memory, suffix: ".png")
+
+  # Align to a common 3-band RGB frame so the diff never raises on band-count
+  # mismatch (RGB vs RGBA, e.g. alpha_resize / background_alpha). Visualizes RGB
+  # deltas; the verdict metric (PixelCompare) still counts all bands incl. alpha.
+  defp to_rgb(image) do
+    case Image.bands(image) do
+      3 -> image
+      n when n > 3 -> ok!(Operation.extract_band(image, 0, n: 3))
+      _ -> image
+    end
+  end
+
+  # Banded: per-pixel max |Δ| across RGB → 256-entry LUT that dims pixels at/under
+  # the case's own threshold and ramps over-threshold pixels hot.
+  defp banded_heatmap(a, b, threshold) do
+    delta = abs_diff(a, b)
+    maxd = band_max(delta)
+    idx = ok!(Operation.cast(maxd, :VIPS_FORMAT_UCHAR))
+    ok!(Operation.maplut(idx, heat_lut(threshold)))
+  end
+
+  # Raw: |Δ| amplified for visibility, clamped to uchar (no threshold).
+  defp raw_heatmap(a, b) do
+    delta = abs_diff(a, b)
+    amped = ok!(Operation.linear(delta, [@raw_amp * 1.0], [0.0]))
+    ok!(Operation.cast(amped, :VIPS_FORMAT_UCHAR))
+  end
+
+  # subtract promotes uchar→signed short (no wrap); abs makes it non-negative.
+  defp abs_diff(a, b), do: ok!(Operation.abs(ok!(Operation.subtract(a, b))))
+
+  defp band_max(delta) do
+    b0 = ok!(Operation.extract_band(delta, 0))
+    b1 = ok!(Operation.extract_band(delta, 1))
+    b2 = ok!(Operation.extract_band(delta, 2))
+    ok!(Operation.maxpair(ok!(Operation.maxpair(b0, b1)), b2))
+  end
+
+  # 256×1 3-band uchar LUT: indices ≤ threshold → dim; above → cool→hot ramp.
+  defp heat_lut(threshold) do
+    bin =
+      for i <- 0..255, into: <<>> do
+        if i <= threshold do
+          <<24, 24, 28>>
+        else
+          t = (i - threshold) / max(255 - threshold, 1)
+          <<round(60 + t * 195), round(20 + t * 60), round(40 - t * 40)>>
+        end
+      end
+
+    ok!(VixImage.new_from_binary(bin, 256, 1, 3, :VIPS_FORMAT_UCHAR))
+  end
+
+  defp ok!({:ok, value}), do: value
+  defp ok!({:error, reason}), do: raise("vips operation failed: #{inspect(reason)}")
 
   defp fixture_image(entry) do
     Image.open!(File.read!(Path.join(@fixtures_dir, entry.fixture_filename)),
