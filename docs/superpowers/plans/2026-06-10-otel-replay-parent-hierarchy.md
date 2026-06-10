@@ -1214,7 +1214,13 @@ emitting process died) are flushed flat after ~10 s, each span keeping its
 recorded parent id; spans finishing shortly after the root (cross-process
 stages) still parent correctly within the same window, except a late span
 whose own parent is also late and not yet replayed, which falls back to a
-dangling parent. If `:opentelemetry_api` is absent, `attach_tracer/1` raises;
+dangling parent. One cosmetic side effect of forcing the `trace_id`: every
+replayed span is marked as having a *remote* parent (`parent_span_is_remote`),
+because the OTel SDK propagates the root's synthetic remote-parent flag down
+the tree. Hierarchy and trace identity are unaffected, but a `parent_based`
+sampler that treats remote and local parents differently will take its
+remote-parent branch for all ImagePipe spans — keep both branches on the same
+policy. If `:opentelemetry_api` is absent, `attach_tracer/1` raises;
 if present but the SDK isn't started, spans are silently dropped by the noop
 tracer (start the SDK). See `docs/cookbook/opentelemetry-jaeger.md`.
 ```
