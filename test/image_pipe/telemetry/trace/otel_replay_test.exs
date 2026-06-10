@@ -13,6 +13,7 @@ defmodule ImagePipe.Telemetry.Trace.OtelReplayTest do
 
   setup do
     :otel_simple_processor.set_exporter(:otel_exporter_pid, self())
+    OtelReplay.reset()
 
     server =
       start_supervised!({OtelReplay, name: :"otel_replay_#{System.unique_integer([:positive])}"})

@@ -17,7 +17,8 @@ defmodule ImagePipe.Telemetry do
       Trace.Span,
       Trace.Exporter,
       Trace.ReqStep,
-      Trace.OpenTelemetryExporter
+      Trace.OpenTelemetryExporter,
+      Trace.OtelReplay
     ]
 
   alias ImagePipe.Telemetry.Logger, as: DefaultLogger
