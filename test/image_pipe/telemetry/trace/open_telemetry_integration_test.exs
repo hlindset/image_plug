@@ -206,7 +206,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     assert "image_pipe.source.fetch_decode" in names
   end
 
-  # ── test 4: hierarchy — the Jaeger "missing parent spans" regression ──────────
+  # ── test 3: hierarchy — the Jaeger "missing parent spans" regression ──────────
   #
   # Pre-fix, every exported span referenced an internal (never-exported) parent id,
   # so Jaeger flagged all spans as missing their parent and rendered the trace flat.
@@ -246,7 +246,7 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryIntegrationTest do
     assert dangling == [req]
   end
 
-  # ── test 3: URL safety — signed source URL must not leak into OTel attrs ───────
+  # ── test 4: URL safety — signed source URL must not leak into OTel attrs ───────
   #
   # SignedRootHTTPAdapter appends ?X-Amz-Signature=fake123abcdef to the resolved
   # fetch URL so the full request lifecycle exercises a signed-URL code path. The
