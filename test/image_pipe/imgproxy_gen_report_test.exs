@@ -1,6 +1,7 @@
 defmodule ImagePipe.ImgproxyGenReportTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Test.ImgproxyDifferential.Constellations
   alias ImagePipe.Test.ImgproxyDifferential.OptsSummary
 
   describe "OptsSummary.describe/1" do
@@ -63,6 +64,22 @@ defmodule ImagePipe.ImgproxyGenReportTest do
 
     test "unknown segments echo verbatim" do
       assert OptsSummary.describe("rs:fit:64:64/wat:9") == "resize fit 64×64; wat:9"
+    end
+  end
+
+  test "gen_report renders every constellation to a self-contained file" do
+    out =
+      Path.join(System.tmp_dir!(), "imgproxy_report_#{System.unique_integer([:positive])}.html")
+
+    on_exit(fn -> File.rm_rf(out) end)
+
+    Mix.Tasks.Imgproxy.GenReport.run(["--out", out])
+
+    assert File.exists?(out)
+    html = File.read!(out)
+
+    for c <- Constellations.all() do
+      assert html =~ ~s(id="#{c.id}"), "report missing card anchor for #{c.id}"
     end
   end
 end
