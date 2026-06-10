@@ -173,11 +173,11 @@ the library's OpenTelemetry exporter end to end (see
 [the cookbook](docs/cookbook/opentelemetry-jaeger.md)):
 
 ```sh
-mise run jaeger              # start Jaeger (OTLP + UI) via fiddle/docker-compose.yml
-FIDDLE_OTEL=1 mise run server
+mise run jaeger        # start Jaeger (OTLP + UI) via fiddle/docker-compose.yml
+mise run server:otel   # boots the dev server with tracing on (FIDDLE_OTEL=1)
 ```
 
 Issue an `/img` request, then open the Jaeger UI at http://localhost:16686 and
 look for the `image_pipe.request` trace under the `image_pipe_fiddle` service.
-Tracing is off unless `FIDDLE_OTEL=1` is set, so the default `mise run server`
-needs no Jaeger.
+Plain `mise run server` leaves tracing off (no `FIDDLE_OTEL`), so it needs no
+Jaeger.
