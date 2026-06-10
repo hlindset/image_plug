@@ -21,7 +21,19 @@ defmodule ImagePipe.Telemetry.Trace.OpenTelemetryExporter do
   # Elixir `OpenTelemetry.Tracer` module so that Elixir 1.20's stricter
   # `require`-on-unloaded-module check never fires. All calls go through the
   # Erlang `:otel_tracer`/`:otel_span` modules directly, which is what the
-  # `OpenTelemetry.Tracer` macros expand to anyway.
+  # `OpenTelemetry.Tracer` macros expand to anyway. They are guarded at runtime
+  # by `@otel_api_loaded`; when the optional `:opentelemetry_api` is absent they
+  # never run, so suppress the undefined-module warnings for that build.
+  @compile {:no_warn_undefined,
+            [
+              :opentelemetry,
+              :otel_tracer,
+              :otel_span,
+              :otel_ctx,
+              :otel_propagator_text_map,
+              :otel_propagator_trace_context
+            ]}
+
   @otel_api_loaded Code.ensure_loaded?(:otel_tracer)
 
   @doc "Whether the OpenTelemetry API is compiled in."
