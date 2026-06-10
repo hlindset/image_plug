@@ -61,6 +61,20 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ManifestTest do
     assert Manifest.authored_sha256(a) == Manifest.authored_sha256(b)
   end
 
+  test "authored_sha256 is stable for a nested :divergence map regardless of key order" do
+    a = %{
+      source: :icc_p3,
+      opts: "rs:fit:200:200/scp:0",
+      verdict: :diverges,
+      group: :transform,
+      tol: nil,
+      divergence: %{metric: :fraction_over, threshold: 2, floor: 0.01, issue: "#124"}
+    }
+
+    b = %{a | divergence: %{issue: "#124", floor: 0.01, threshold: 2, metric: :fraction_over}}
+    assert Manifest.authored_sha256(a) == Manifest.authored_sha256(b)
+  end
+
   test "authored_sha256 changes when an authored field changes" do
     a = %{
       source: :high_freq,

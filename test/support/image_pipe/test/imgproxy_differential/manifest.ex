@@ -67,11 +67,19 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Manifest do
     raise "invalid manifest: entry #{inspect(id)} is malformed: #{inspect(entry)}"
   end
 
-  @doc "Stable, field-order-independent hash of a constellation's authored fields."
+  @doc """
+  Stable, field-order-independent hash of a constellation's authored fields.
+
+  Uses `term_to_binary(_, [:deterministic])`: without it a nested map value (a
+  `:diverges` constellation's `:divergence` map) serializes in non-canonical key
+  order that varies across VM invocations, making the hash unstable.
+  """
   @spec authored_sha256(map()) :: String.t()
   def authored_sha256(constellation) do
     canonical = Enum.map(@authored_keys, fn k -> {k, Map.get(constellation, k)} end)
-    :crypto.hash(:sha256, :erlang.term_to_binary(canonical)) |> Base.encode16(case: :lower)
+
+    :crypto.hash(:sha256, :erlang.term_to_binary(canonical, [:deterministic]))
+    |> Base.encode16(case: :lower)
   end
 
   @doc "SHA-256 (lowercase hex) of a file's bytes."
