@@ -70,9 +70,9 @@ ImagePipe.Telemetry.attach_tracer(
 
 If `:opentelemetry_api` isn't present this raises at startup. Issue a request, wait a
 few seconds for the batch processor to flush, then find the `image_pipe.request` trace
-in Jaeger — child spans such as `image_pipe.send`, `image_pipe.encode`,
-`image_pipe.transform.execute`, and `image_pipe.transform.operation` are nested under
-it. The root span itself may show a "missing parent" note in Jaeger when ImagePipe originates the trace: its synthetic
+in Jaeger — descendant spans such as `image_pipe.send` (with `image_pipe.deliver`
+nested under it), `image_pipe.encode`, `image_pipe.transform.execute`, and
+`image_pipe.transform.operation` appear in the trace beneath the request root. The root span itself may show a "missing parent" note in Jaeger when ImagePipe originates the trace: its synthetic
 remote parent is what forces ImagePipe's `trace_id` onto the OTel trace (use
 `extract_inbound: true` behind a traced caller to make it a real child instead).
 

@@ -10,7 +10,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # group => span event suffixes (each gets :stop + :exception)
   @group_span_events %{
-    request: [[:request], [:send]],
+    request: [[:request], [:send], [:encode], [:deliver]],
     parse: [[:parse]],
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
     transform: [
@@ -115,10 +115,19 @@ defmodule ImagePipe.Telemetry.Logger do
       List.last(suffix) == :exception -> :warning
       metadata[:result] == :cache_error -> :warning
       metadata[:result] == :materialize_error -> :warning
+      encode_failure?(suffix, metadata) -> :warning
       detect_fallback_warning?(suffix, metadata) -> :warning
       true -> base
     end
   end
+
+  # A genuine server-side encode-compute failure (forced evaluation raised/errored
+  # before the first chunk → 500), analogous to a materialize failure. Scoped to
+  # the `[:encode]` span only: `[:deliver]`, `[:send]`, and `[:request]` also carry
+  # `:processing_error` for streaming/connection outcomes (including the normal
+  # `:client_closed`), which stay at the base level.
+  defp encode_failure?([:encode | _], meta), do: meta[:result] == :processing_error
+  defp encode_failure?(_suffix, _meta), do: false
 
   # A face-aware crop that could not be fulfilled and degraded to attention
   # saliency: a configured detector that produced no usable detection
@@ -176,6 +185,11 @@ defmodule ImagePipe.Telemetry.Logger do
 
     "image_pipe output clamp: #{sw}x#{sh} -> #{w}x#{h} for #{meta[:format]} " <>
       "(caps w:#{cap(mw)} h:#{cap(mh)} px:#{cap(mp)})"
+  end
+
+  defp message([:encode | _], _m, meta) do
+    format = if meta[:output_format], do: " (#{meta[:output_format]})", else: ""
+    "image_pipe encode: #{outcome(meta)}#{format}"
   end
 
   defp message(suffix, _m, meta) do

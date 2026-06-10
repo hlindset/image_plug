@@ -220,7 +220,8 @@ defmodule ImagePipe.TelemetryTest do
           [:source, :fetch],
           [:transform, :execute],
           [:encode],
-          [:send]
+          [:send],
+          [:deliver]
         ] do
       assert_event(events, [:image_pipe | stage] ++ [:start], fn measurements, _metadata ->
         assert is_integer(measurements.system_time)
@@ -318,7 +319,7 @@ defmodule ImagePipe.TelemetryTest do
     refute_event(events, [:image_pipe, :parse, :stop])
   end
 
-  test "encode stop metadata reports processing error after chunked stream failure" do
+  test "deliver stop metadata reports processing error after chunked stream failure" do
     {conn, log} =
       with_log(fn ->
         :get
@@ -333,7 +334,15 @@ defmodule ImagePipe.TelemetryTest do
 
     events = telemetry_events()
 
+    # The first chunk was produced successfully, so the producer's forced-encode span
+    # succeeds; the failure surfaces later, while the sender streams the remaining
+    # chunks over the connection (the [:deliver] span).
     assert_event(events, [:image_pipe, :encode, :stop], fn _measurements, metadata ->
+      assert metadata.result == :ok
+      assert metadata.output_format == :jpeg
+    end)
+
+    assert_event(events, [:image_pipe, :deliver, :stop], fn _measurements, metadata ->
       assert metadata.result == :processing_error
       assert metadata.status == 200
       assert metadata.output_format == :jpeg
@@ -363,6 +372,17 @@ defmodule ImagePipe.TelemetryTest do
     assert log =~ "boom before first chunk"
 
     events = telemetry_events()
+
+    # The encoder fails forcing the first chunk in the producer, so the [:encode]
+    # span carries the processing error.
+    assert_event(events, [:image_pipe, :encode, :stop], fn _measurements, metadata ->
+      assert metadata.result == :processing_error
+      assert metadata.output_format == :jpeg
+    end)
+
+    # No prepared stream is ever sent (the request goes through the processing-error
+    # path, not send_prepared_stream/5), so the [:deliver] span never fires.
+    refute_event(events, [:image_pipe, :deliver, :stop])
 
     assert_event(events, [:image_pipe, :send, :stop], fn _measurements, metadata ->
       assert metadata.result == :processing_error
@@ -810,7 +830,8 @@ defmodule ImagePipe.TelemetryTest do
       [:transform, :execute],
       [:encode],
       [:cache, :write],
-      [:send]
+      [:send],
+      [:deliver]
     ]
   end
 

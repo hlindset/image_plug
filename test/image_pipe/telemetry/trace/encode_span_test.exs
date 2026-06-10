@@ -7,9 +7,17 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
   alias ImagePipe.Telemetry
   alias ImagePipe.Telemetry.Trace.{Span, TestExporter}
 
-  # [:encode] is emitted by ImagePipe.Response.Sender.send_prepared_stream/5 around
-  # the prepared-stream materialize+send. It is a real Telemetry.span stage and must
-  # be captured by the tracer, nested under the request trace.
+  # Two distinct spans:
+  #
+  #   * [:encode] is the forced output encode (Encoder.stream_output + first_chunk),
+  #     emitted from the PRODUCER process in
+  #     ImagePipe.Request.SourceSession.Producer.encode_first_chunk/3. It is the
+  #     heaviest stage of most requests and parents to the request root — a sibling
+  #     of the delivery-backstop [:transform, :materialize], in the same process.
+  #
+  #   * [:deliver] is connection streaming of the already-produced chunks, emitted
+  #     from the REQUEST process in ImagePipe.Response.Sender.send_prepared_stream/5,
+  #     nested under [:send].
 
   setup do
     TestExporter.set_receiver(self())
@@ -51,7 +59,7 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
     ]
   end
 
-  test "the encode span is captured and nested under the request trace" do
+  test "the encode span measures forced encode in the producer, parented to the request root" do
     conn = call("/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg", beach_opts())
     assert conn.status == 200
 
@@ -60,19 +68,50 @@ defmodule ImagePipe.Telemetry.Trace.EncodeSpanTest do
     assert root, "expected a request root span"
 
     assert [encode] = Enum.filter(spans, &(&1.name == "image_pipe.encode"))
-
     assert encode.trace_id == root.trace_id
-    refute encode.parent_span_id == nil, "encode span must not be an orphan"
+    assert is_integer(encode.duration_native) and encode.duration_native >= 0
 
-    # Sender.send_prepared_stream/5 emits [:encode] synchronously in the Plug request
-    # process, inside Sender.send_result, which runs inside the [:send] span
-    # (Plug.send_response/4). So encode nests under [:send], which nests under [:request].
-    parent = parent_of(spans, encode)
-    assert parent, "encode span must have a captured parent"
+    # The resize-only request streams through the chain without materializing, so the
+    # only flush is the delivery backstop — which also parents to the request root.
+    # encode runs right after it in the producer process, on the same trace stack, so
+    # the two are siblings: same parent (the adopted request root), same pid.
+    assert [materialize] =
+             Enum.filter(spans, &(&1.name == "image_pipe.transform.materialize"))
+
+    assert encode.parent_span_id == root.span_id, "encode must parent to the request root"
+    assert encode.parent_span_id == materialize.parent_span_id
+    assert encode.pid == materialize.pid, "encode runs in the producer process"
+  end
+
+  test "the deliver span measures connection streaming, nested under [:send]" do
+    conn = call("/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg", beach_opts())
+    assert conn.status == 200
+
+    spans = collect_spans()
+    root = Enum.find(spans, &(&1.name == "image_pipe.request"))
+    assert root
+
+    assert [deliver] = Enum.filter(spans, &(&1.name == "image_pipe.deliver"))
+    assert deliver.trace_id == root.trace_id
+
+    parent = parent_of(spans, deliver)
+    assert parent, "deliver span must have a captured parent"
     assert parent.name == "image_pipe.send"
-    assert parent.pid == encode.pid, "encode and its [:send] parent run in the same process"
+    assert parent.pid == deliver.pid, "deliver and its [:send] parent run in the same process"
 
     grandparent = parent_of(spans, parent)
     assert grandparent && grandparent.name == "image_pipe.request"
+  end
+
+  test "encode runs in a different process than deliver" do
+    conn = call("/_/rs:fit:120:90/f:jpeg/plain/images/beach.jpg", beach_opts())
+    assert conn.status == 200
+
+    spans = collect_spans()
+    assert [encode] = Enum.filter(spans, &(&1.name == "image_pipe.encode"))
+    assert [deliver] = Enum.filter(spans, &(&1.name == "image_pipe.deliver"))
+
+    refute encode.pid == deliver.pid,
+           "encode (producer) and deliver (request process) run in different processes"
   end
 end

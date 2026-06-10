@@ -137,9 +137,8 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                %State{final_state | image: clamped},
                request.opts
              ),
-           {:ok, stream, content_type} <-
-             Encoder.stream_output(image, resolved_output, request.opts),
-           {:ok, chunk, stream_state} <- first_chunk(stream) do
+           {:ok, chunk, content_type, stream_state} <-
+             encode_first_chunk(image, resolved_output, request.opts) do
         {:ok, chunk,
          %{
            state
@@ -153,6 +152,38 @@ defmodule ImagePipe.Request.SourceSession.Producer do
       end
     end)
   end
+
+  # Honest forced-encode span. `Encoder.stream_output/3` builds the lazy encoder
+  # pipeline; `first_chunk/1` pulls the first chunk, forcing libvips to actually
+  # encode — the heaviest stage of most requests. Both run here, in the producer
+  # process, so the span measures real compute (unlike per-op transform spans,
+  # which time construction). Parents to the request root (sibling of the
+  # delivery-backstop materialize) via the adopted remote-parent frame.
+  defp encode_first_chunk(image, %Resolved{} = resolved_output, opts) do
+    Telemetry.span(
+      Telemetry.telemetry_opts(opts),
+      [:encode],
+      %{output_format: resolved_output.format},
+      fn ->
+        result =
+          with {:ok, stream, content_type} <- Encoder.stream_output(image, resolved_output, opts),
+               {:ok, chunk, stream_state} <- first_chunk(stream) do
+            {:ok, chunk, content_type, stream_state}
+          end
+
+        {result, encode_stop_metadata(result, resolved_output.format)}
+      end
+    )
+  end
+
+  defp encode_stop_metadata({:ok, _chunk, _content_type, _stream_state}, format),
+    do: %{result: :ok, output_format: format}
+
+  defp encode_stop_metadata(:empty, format),
+    do: %{result: :processing_error, output_format: format, error: :empty_stream}
+
+  defp encode_stop_metadata({:error, reason}, format),
+    do: %{result: :processing_error, output_format: format, error: Error.tag(reason)}
 
   defp prepare_fallback(:exit, reason), do: {:error, {:producer, {:exit, reason}}}
   defp prepare_fallback(kind, reason), do: {:error, {:producer, {kind, reason}}}

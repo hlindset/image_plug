@@ -48,7 +48,8 @@ The top-level request span is:
 
 ImagePipe also emits stage spans for meaningful request phases. The exact set
 depends on the routing path. For example, cache hits skip source fetch,
-transform execution, output negotiation, encoding, and send streaming spans.
+transform execution, output negotiation, the encode span, and the send/deliver
+streaming spans.
 
 ```text
 [:image_pipe, :parse, ...]
@@ -63,6 +64,7 @@ transform execution, output negotiation, encoding, and send streaming spans.
 [:image_pipe, :encode, ...]
 [:image_pipe, :cache, :write, ...]
 [:image_pipe, :send, ...]
+[:image_pipe, :deliver, ...]
 ```
 
 For example, the cache lookup stop event with the default prefix is:
@@ -179,6 +181,43 @@ delivery backstop. Requests served from cache (cache hits, conditional `304`s) s
 decode and transform entirely, so they emit no `[:transform, :materialize]` span
 (nor any other transform span).
 
+### Output encode span (`[:encode]`)
+
+The `[:image_pipe, :encode]` span wraps the **forced output encode** — building
+the encoder pipeline (`ImagePipe.Output.Encoder.stream_output/3`) and pulling the
+first encoded chunk, which forces libvips to actually encode. This is the heaviest
+stage of most requests, and unlike the per-operation transform spans (which time
+*construction*), this span measures real pixel/encode compute: libvips is lazy, so
+the work happens here when the first chunk is pulled.
+
+It is emitted from the **producer** process and parents to the request root
+(sibling of the delivery-backstop `[:transform, :materialize]`), not to `[:send]`.
+
+Start metadata: `:output_format` — the negotiated output format atom.
+
+Stop metadata:
+
+- `:result` — `:ok`, or `:processing_error` when the encode fails before the first
+  chunk (the failure maps to a `500`). The default Logger escalates an encode
+  `:processing_error` to `:warning`.
+- `:output_format` — the negotiated output format atom.
+- `:error` — a stable error category when the encode failed (e.g. `:empty_stream`).
+
+### Delivery streaming span (`[:deliver]`)
+
+The `[:image_pipe, :deliver]` span wraps streaming the already-produced encoded
+chunks back over the connection. It measures connection delivery, **not**
+encoding. It is emitted from the request process (`ImagePipe.Response.Sender`),
+nested under `[:send]`.
+
+Stop metadata:
+
+- `:result` — `:ok`; `:processing_error` for a mid-stream failure; or
+  `:client_closed` when the client disconnects mid-stream (a normal outcome, not
+  escalated).
+- `:status`, `:output_format`, and, on failure, `:stream_phase` (the streaming
+  phase the error occurred in, e.g. `:encode`) and `:error`.
+
 ## Measurements
 
 ImagePipe uses the measurements provided by `:telemetry.span/3`:
@@ -255,6 +294,8 @@ Representative stage → result mappings:
 - `[:transform, :execute]` → `:ok` or `:processing_error`.
 - `[:transform, :materialize]` → `:ok` or `:materialize_error`.
 - `[:output, :negotiate]` → `:ok` or a negotiation failure category.
+- `[:encode]` → `:ok` or `:processing_error`.
+- `[:deliver]` → `:ok`, `:processing_error`, or `:client_closed`.
 
 The `:error` field is a stable category atom (`ImagePipe.Error.tag/1`), never a
 raw message or source-derived path.
@@ -445,7 +486,8 @@ defmodule MyApp.ImagePipeTelemetry do
     [:encode],
     [:cache, :stage],
     [:cache, :write],
-    [:send]
+    [:send],
+    [:deliver]
   ]
 
   def attach do
@@ -482,8 +524,10 @@ span tracer** that consumes those events, reconstructs correctly-nested
 distributed-trace-shaped spans (one `trace_id` per request, parent/child
 relationships preserved across the `[:transform, :execute]` /
 `[:transform, :operation]` / `[:transform, :materialize]` nesting and across the
-request → `SourceSession` → `Producer` process seams), and hands each finished
-span to a pluggable exporter as an `ImagePipe.Telemetry.Trace.Span`.
+request → `SourceSession` → `Producer` process seams — the producer-emitted
+`[:encode]` span parents to the request root, and `[:deliver]` nests under
+`[:send]` in the request process), and hands each finished span to a pluggable
+exporter as an `ImagePipe.Telemetry.Trace.Span`.
 
 The tracer is **not** attached automatically. A host opts in with
 `ImagePipe.Telemetry.attach_tracer/1` and removes it with
