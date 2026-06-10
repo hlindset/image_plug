@@ -34,6 +34,9 @@ if Code.ensure_loaded?(Testcontainers) do
       end
 
       File.mkdir_p!(@fixtures_dir)
+      # Clear stale fixtures so a removed/renamed constellation can't leave an
+      # orphan PNG behind (the run rewrites every current transform-group fixture).
+      @fixtures_dir |> Path.join("*.png") |> Path.wildcard() |> Enum.each(&File.rm!/1)
 
       container =
         Testcontainers.Container.new(@image)

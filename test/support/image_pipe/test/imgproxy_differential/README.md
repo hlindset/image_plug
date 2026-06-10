@@ -44,7 +44,7 @@ constellations where ImagePipe and imgproxy genuinely differ. They are **quarant
 — tagged `:imgproxy_triage` (excluded by default in `test/test_helper.exs`), so a plain
 `mix test` is green and they show as skipped, not failed. Run them to reproduce:
 
-```
+```shell
 MIX_ENV=test mise exec -- mix test test/image_pipe/imgproxy_differential_conformance_test.exs --include imgproxy_triage
 ```
 

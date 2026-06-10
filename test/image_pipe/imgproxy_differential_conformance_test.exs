@@ -33,13 +33,18 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
   end
 
   setup_all do
-    manifest = if File.exists?(@manifest_path), do: Manifest.load!(@manifest_path), else: nil
+    unless File.exists?(@manifest_path) do
+      raise "No fixtures: missing #{@manifest_path}. " <>
+              "Bootstrap: MIX_ENV=test IMGPROXY_DIFF=1 mix imgproxy.gen_fixtures"
+    end
+
+    manifest = Manifest.load!(@manifest_path)
 
     # Warn-and-attempt: ImagePipe tracks bleeding-edge libvips while imgproxy lags,
     # so the versions rarely match. Empirically the ✅ stages still agree to
     # tolerance across minor libvips gaps, so we compare anyway and warn once — a
     # failure may reflect a libvips version difference rather than a regression.
-    if manifest && not Skew.aligned?(manifest) do
+    if not Skew.aligned?(manifest) do
       IO.puts(
         :stderr,
         "[imgproxy-differential] libvips skew: fixtures baked on #{manifest.imgproxy_libvips}, " <>
@@ -58,12 +63,6 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
     if constellation[:triage], do: @tag(:imgproxy_triage)
 
     test "#{@c.id} (#{@c.verdict}/#{@c.group})", %{manifest: manifest} do
-      if is_nil(manifest) do
-        flunk(
-          "No manifest at #{@manifest_path}. Bootstrap: MIX_ENV=test IMGPROXY_DIFF=1 mix imgproxy.gen_fixtures"
-        )
-      end
-
       entry = fetch_entry!(manifest, @c.id)
 
       assert entry.authored_sha256 == Manifest.authored_sha256(@c),
