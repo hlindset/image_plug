@@ -17,7 +17,16 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   import Plug.Test, only: [conn: 2]
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest, OptsSummary, PixelCompare}
+
+  alias ImagePipe.Test.ImgproxyDifferential.{
+    Constellations,
+    Manifest,
+    OptsSummary,
+    PixelCompare,
+    ReportHtml,
+    Skew
+  }
+
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.Operation
 
@@ -41,23 +50,21 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
 
     cards = Enum.map(Constellations.all(), fn c -> build_card(c, manifest, plug_opts) end)
 
-    File.write!(out, stub_html(cards))
+    doc = %{provenance: provenance(manifest), cards: cards}
+    File.write!(out, ReportHtml.render(doc))
     Mix.shell().info("Wrote visual-diff report (#{length(cards)} cards) to #{Path.expand(out)}")
   end
 
-  # Throwaway placeholder body — replaced by the real HTML renderer in a later task.
-  defp stub_html(cards) do
-    body =
-      Enum.map_join(cards, "\n", fn c ->
-        imgs =
-          [c.imgproxy_img, c.pipe_img, c.heat_banded, c.heat_raw]
-          |> Enum.reject(&is_nil/1)
-          |> Enum.map_join("", fn uri -> ~s(<img src="#{uri}">) end)
+  defp provenance(manifest) do
+    runtime = Skew.runtime_libvips()
 
-        ~s(<div id="#{c.id}">#{c.id} — #{c.status} — #{c.metric_text}#{imgs}</div>)
-      end)
-
-    "<!doctype html><meta charset=\"utf-8\"><body>#{body}</body>"
+    %{
+      imgproxy_digest: manifest.imgproxy_digest,
+      imgproxy_libvips: manifest.imgproxy_libvips,
+      pipe_libvips_at_gen: manifest.pipe_libvips_at_gen,
+      runtime_libvips: runtime,
+      skew?: not Skew.aligned?(manifest)
+    }
   end
 
   defp build_card(c, manifest, plug_opts) do
