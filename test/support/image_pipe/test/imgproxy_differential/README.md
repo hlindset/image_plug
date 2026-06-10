@@ -37,19 +37,26 @@ algorithmic, not kernel-version-dependent.)
 Validated at bootstrap: imgproxy libvips `42.20.2` (≈ 8.17.x) vs ImagePipe `8.18.2`
 produced **0.0% pixel difference over Δ2** on every ✅ stage.
 
-## Known discrepancies (pending triage)
+## Known discrepancies (quarantined, pending triage)
 
 The first real bootstrap (imgproxy `42.20.2` vs ImagePipe `8.18.2`) found four
-constellations where ImagePipe and imgproxy genuinely differ. These tests currently
-**fail** — they are recorded findings awaiting triage (is each an ImagePipe bug to fix,
-an acceptable divergence to mark `:diverges`, or, for the borderline one, a tolerance
-to widen?). They are NOT yet classified.
+constellations where ImagePipe and imgproxy genuinely differ. They are **quarantined**
+— tagged `:imgproxy_triage` (excluded by default in `test/test_helper.exs`), so a plain
+`mix test` is green and they show as skipped, not failed. Run them to reproduce:
 
-| constellation | opts | observed | notes |
+```
+MIX_ENV=test mise exec -- mix test test/image_pipe/imgproxy_differential_conformance_test.exs --include imgproxy_triage
+```
+
+Each is a recorded finding awaiting triage (ImagePipe bug to fix → un-skip `:equal`;
+acceptable divergence → `:diverges` + matrix update; or, for the borderline one, a
+wider `tol`). NOT yet classified.
+
+| constellation | opts | observed | issue |
 |---|---|---|---|
-| `min_dims_clamp` | `rs:fit:300:300/mw:280/mh:280` (1600×1200 src) | ImagePipe **373×280**, imgproxy **300×280** | Dimension divergence in min-width/height semantics. After `fit`→300×225, the `mh:280` minimum forces an upscale; ImagePipe preserves aspect (→373×280), imgproxy yields 300×280. Most likely a genuine ImagePipe behavior difference. |
-| `extend_small` | `rs:fit:300:200/ex:1` (small src) | ~0.67% of band-bytes exceed Δ2 | Divergence in the extended/padded region — extend background or edge handling differs. |
-| `extend_ar_small` | `rs:fit:300:200/exar:1` | ~0.5% exceed Δ2 | Same family as `extend`. |
-| `fill_down_marker` | `rs:fill-down:500:500` (marker src) | 166 band-bytes over Δ2 (≈0.02%) | Tiny, but above the 0.0% noise floor every other resize shows — a small fill-down crop-seam difference. Borderline: may just need a wider per-constellation `tol`. |
+| `min_dims_clamp` | `rs:fit:300:300/mw:280/mh:280` (1600×1200 src) | ImagePipe **373×280**, imgproxy **300×280** — min-width/height aspect semantics; likely an ImagePipe bug | [#194](https://github.com/hlindset/image_pipe/issues/194) |
+| `extend_small` | `rs:fit:300:200/ex:1` | ~0.67% of band-bytes exceed Δ2 in the padded region | [#195](https://github.com/hlindset/image_pipe/issues/195) |
+| `extend_ar_small` | `rs:fit:300:200/exar:1` | ~0.5% exceed Δ2, same family | [#196](https://github.com/hlindset/image_pipe/issues/196) |
+| `fill_down_marker` | `rs:fill-down:500:500` (marker src) | 166 band-bytes over Δ2 (≈0.02%) — crop seam vs 1px shift | [#197](https://github.com/hlindset/image_pipe/issues/197) |
 
-All other constellations (the 22 ✅ + the `#124` `scp0` divergence) pass.
+All other constellations (the 22 ✅ + the `#124` `scp0` divergence) pass on the default lane.

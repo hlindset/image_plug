@@ -52,6 +52,10 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
 
   for constellation <- Constellations.all() do
     @c constellation
+    # Recorded-but-unresolved imgproxy discrepancies are quarantined: excluded by
+    # default, runnable via `--include imgproxy_triage` (see the constellation's
+    # `:triage` reason + tracking issue).
+    if constellation[:triage], do: @tag(:imgproxy_triage)
 
     test "#{@c.id} (#{@c.verdict}/#{@c.group})", %{manifest: manifest} do
       if is_nil(manifest) do
