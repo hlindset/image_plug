@@ -147,7 +147,14 @@ defmodule ImagePipe.MixProject do
         []
       end
 
-    base ++ ml_test_deps
+    imgproxy_diff_deps =
+      if System.get_env("IMGPROXY_DIFF") in ["1", "true"] do
+        [{:testcontainers, "~> 1.14", only: :test}]
+      else
+        []
+      end
+
+    base ++ ml_test_deps ++ imgproxy_diff_deps
   end
 
   defp aliases do

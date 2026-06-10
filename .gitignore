@@ -50,3 +50,4 @@ mise.local.toml
 
 # Generated benchmark output
 bench/results/
+tmp/
