@@ -3,7 +3,7 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest, PixelCompare, Skew}
+  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest, PixelCompare}
 
   @base "test/support/image_pipe/test/imgproxy_differential"
   @fixtures_dir "#{@base}/fixtures"
@@ -40,17 +40,18 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
 
     manifest = Manifest.load!(@manifest_path)
 
-    # Warn-and-attempt: ImagePipe tracks bleeding-edge libvips while imgproxy lags,
-    # so the versions rarely match. Empirically the ✅ stages still agree to
-    # tolerance across minor libvips gaps, so we compare anyway and warn once — a
-    # failure may reflect a libvips version difference rather than a regression.
-    if not Skew.aligned?(manifest) do
-      IO.puts(
-        :stderr,
-        "[imgproxy-differential] libvips skew: fixtures baked on #{manifest.imgproxy_libvips}, " <>
-          "running #{Skew.runtime_libvips()}. Comparing anyway."
-      )
-    end
+    # Provenance note: the fixtures were baked by imgproxy's libvips; ImagePipe runs its
+    # own. The two report different version *schemes* — imgproxy exposes only the
+    # `.so` ABI soname (no release string, no `vips` CLI in the darthsim image), Vix only
+    # the release — so they can't be compared directly. A pixel diff may reflect libvips
+    # drift rather than a regression; we record both and always compare.
+    IO.puts(
+      :stderr,
+      "[imgproxy-differential] fixtures baked by imgproxy libvips " <>
+        "#{manifest.imgproxy_libvips} (.so ABI soname); ImagePipe running " <>
+        "#{Vix.Vips.version()} (release). Different version schemes — not directly " <>
+        "comparable; pixel diffs may reflect libvips drift."
+    )
 
     {:ok, manifest: manifest}
   end
