@@ -46,11 +46,13 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ManifestTest do
   end
 
   # The order the keys of `entry_id`'s inner map appear in the rendered manifest.
+  # Parse the emitted source as AST (map pairs keep their source order) rather than
+  # scraping text, so nested maps and value contents can't perturb the reading.
   defp key_order(rendered, entry_id) do
-    [_, block] = Regex.run(~r/#{entry_id}" => %\{(.*?)\}/s, rendered)
-
-    Regex.scan(~r/(\w+):/, block)
-    |> Enum.map(fn [_, key] -> String.to_existing_atom(key) end)
+    {:%{}, _, top} = Code.string_to_quoted!(rendered)
+    {:%{}, _, entries} = Keyword.fetch!(top, :entries)
+    {^entry_id, {:%{}, _, inner}} = Enum.find(entries, fn {id, _} -> id == entry_id end)
+    Keyword.keys(inner)
   end
 
   test "load! rejects a malformed manifest with a clear error", %{tmp_dir: tmp} do
