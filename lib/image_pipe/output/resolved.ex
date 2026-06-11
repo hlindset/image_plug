@@ -7,7 +7,7 @@ defmodule ImagePipe.Output.Resolved do
     :response_headers,
     :strip_metadata,
     :keep_copyright,
-    :strip_color_profile
+    :color_profile
   ]
   defstruct @enforce_keys
 
@@ -19,6 +19,6 @@ defmodule ImagePipe.Output.Resolved do
           response_headers: [{String.t(), String.t()}],
           strip_metadata: boolean(),
           keep_copyright: boolean(),
-          strip_color_profile: boolean()
+          color_profile: ImagePipe.Plan.Output.color_profile()
         }
 end

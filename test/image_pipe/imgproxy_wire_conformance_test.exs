@@ -1911,7 +1911,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
 
     test "default request (no scp in URL) drops the ICC profile" do
-      # Same as scp:1 but exercises the default plan: strip_color_profile is true
+      # Same as scp:1 but exercises the default plan: color_profile is :strip
       # by default in Plan.Output, so no explicit scp option is needed.
       default_conn =
         call_imgproxy(

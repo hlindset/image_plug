@@ -45,7 +45,7 @@ defmodule ImagePipe.Output.Encoder do
   # copy_memory (linked MutableImage GenServer) would cause. Subsequent mutates
   # run on the in-memory image and cannot fail that way. Stay lazy when there is
   # nothing to strip.
-  defp finalize(image, %Resolved{strip_metadata: false, strip_color_profile: false}),
+  defp finalize(image, %Resolved{strip_metadata: false, color_profile: :preserve_source}),
     do: {:ok, image}
 
   defp finalize(image, %Resolved{} = resolved) do
@@ -55,9 +55,8 @@ defmodule ImagePipe.Output.Encoder do
     end
   end
 
-  # scp only (strip_metadata is false here, so we reached finalize via scp): drop
-  # just the ICC profile, keep exif/xmp/iptc.
-  defp strip(image, %Resolved{strip_metadata: false}),
+  # color_profile: :strip with strip_metadata false: drop just the ICC profile, keep exif/xmp/iptc.
+  defp strip(image, %Resolved{strip_metadata: false, color_profile: :strip}),
     do: remove_fields(image, ["icc-profile-data"])
 
   # strip_metadata true: remove EXIF/XMP/IPTC, keeping copyright/artist iff kcr.
@@ -65,11 +64,12 @@ defmodule ImagePipe.Output.Encoder do
   # the individual `exif-ifd0-*`/`exif-gps-*` entries, which survive removing just the
   # serialized "exif-data" blob and would otherwise be re-serialized into EXIF on
   # encode (leaking GPS/copyright). It also removes the ICC profile, so restore the
-  # profile when scp is off. If minimize_metadata fails (malformed/absent EXIF), fall
-  # back to blob removal — there is no valid copyright to preserve in that case.
+  # profile when color_profile is :preserve_source. If minimize_metadata fails
+  # (malformed/absent EXIF), fall back to blob removal — there is no valid copyright
+  # to preserve in that case.
   defp strip(image, %Resolved{} = resolved) do
     keep = if resolved.keep_copyright, do: [:copyright, :artist], else: []
-    icc = if resolved.strip_color_profile, do: nil, else: header_value(image, "icc-profile-data")
+    icc = if resolved.color_profile == :strip, do: nil, else: header_value(image, "icc-profile-data")
 
     minimized =
       case Image.minimize_metadata(image, keep: keep) do
@@ -83,7 +83,7 @@ defmodule ImagePipe.Output.Encoder do
     restore_icc(minimized, icc)
   end
 
-  defp icc_fields(%Resolved{strip_color_profile: true}), do: ["icc-profile-data"]
+  defp icc_fields(%Resolved{color_profile: :strip}), do: ["icc-profile-data"]
   defp icc_fields(%Resolved{}), do: []
 
   # Explicit string field names via Vix mutate. We deliberately avoid:

@@ -36,7 +36,7 @@ defmodule ImagePipe.Output.PolicyTest do
                  format_qualities: %{},
                  strip_metadata: true,
                  keep_copyright: true,
-                 strip_color_profile: true
+                 color_profile: :strip
                }
     end
 
@@ -55,7 +55,7 @@ defmodule ImagePipe.Output.PolicyTest do
                  format_qualities: %{},
                  strip_metadata: true,
                  keep_copyright: true,
-                 strip_color_profile: true
+                 color_profile: :strip
                }
     end
 
@@ -91,7 +91,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.resolve(policy, nil) ==
@@ -102,7 +102,7 @@ defmodule ImagePipe.Output.PolicyTest do
                   response_headers: [],
                   strip_metadata: true,
                   keep_copyright: true,
-                  strip_color_profile: true
+                  color_profile: :strip
                 }}
     end
 
@@ -115,7 +115,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.resolve(policy, nil) ==
@@ -126,7 +126,7 @@ defmodule ImagePipe.Output.PolicyTest do
                   response_headers: [{"vary", "Accept"}],
                   strip_metadata: true,
                   keep_copyright: true,
-                  strip_color_profile: true
+                  color_profile: :strip
                 }}
     end
 
@@ -139,7 +139,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.resolve(policy, nil) == {:error, :source_format_required}
@@ -154,7 +154,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.resolve(policy, :png) ==
@@ -165,7 +165,7 @@ defmodule ImagePipe.Output.PolicyTest do
                   response_headers: [{"vary", "Accept"}],
                   strip_metadata: true,
                   keep_copyright: true,
-                  strip_color_profile: true
+                  color_profile: :strip
                 }}
 
       assert Policy.resolve(policy, :jpeg) ==
@@ -176,7 +176,7 @@ defmodule ImagePipe.Output.PolicyTest do
                   response_headers: [{"vary", "Accept"}],
                   strip_metadata: true,
                   keep_copyright: true,
-                  strip_color_profile: true
+                  color_profile: :strip
                 }}
     end
 
@@ -189,7 +189,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.resolve(policy, :webp) == {:needs_final_image_alpha, :source}
@@ -205,7 +205,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.resolve(policy, :heif) == {:needs_final_image_alpha, :source}
@@ -228,7 +228,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.resolve_final_image_alpha(policy, true) ==
@@ -238,7 +238,7 @@ defmodule ImagePipe.Output.PolicyTest do
                  response_headers: [{"vary", "Accept"}],
                  strip_metadata: true,
                  keep_copyright: true,
-                 strip_color_profile: true
+                 color_profile: :strip
                }
     end
 
@@ -251,7 +251,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.resolve_final_image_alpha(policy, false) ==
@@ -261,7 +261,7 @@ defmodule ImagePipe.Output.PolicyTest do
                  response_headers: [{"vary", "Accept"}],
                  strip_metadata: true,
                  keep_copyright: true,
-                 strip_color_profile: true
+                 color_profile: :strip
                }
     end
 
@@ -274,7 +274,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{jpeg: {:quality, 82}, png: {:quality, 70}},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.resolve_final_image_alpha(policy, false) ==
@@ -284,7 +284,7 @@ defmodule ImagePipe.Output.PolicyTest do
                  response_headers: [{"vary", "Accept"}],
                  strip_metadata: true,
                  keep_copyright: true,
-                 strip_color_profile: true
+                 color_profile: :strip
                }
 
       assert Policy.resolve_final_image_alpha(policy, true) ==
@@ -294,7 +294,7 @@ defmodule ImagePipe.Output.PolicyTest do
                  response_headers: [{"vary", "Accept"}],
                  strip_metadata: true,
                  keep_copyright: true,
-                 strip_color_profile: true
+                 color_profile: :strip
                }
     end
   end
@@ -317,7 +317,7 @@ defmodule ImagePipe.Output.PolicyTest do
                   response_headers: [],
                   strip_metadata: true,
                   keep_copyright: true,
-                  strip_color_profile: true
+                  color_profile: :strip
                 }}
     end
 
@@ -338,7 +338,7 @@ defmodule ImagePipe.Output.PolicyTest do
                   response_headers: [],
                   strip_metadata: true,
                   keep_copyright: true,
-                  strip_color_profile: true
+                  color_profile: :strip
                 }}
     end
   end
@@ -353,7 +353,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) ==
@@ -369,7 +369,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.ensure_capable(policy, output_capabilities: %{avif: true}) == :ok
@@ -384,7 +384,7 @@ defmodule ImagePipe.Output.PolicyTest do
         format_qualities: %{},
         strip_metadata: true,
         keep_copyright: true,
-        strip_color_profile: true
+        color_profile: :strip
       }
 
       assert Policy.ensure_capable(policy, output_capabilities: %{avif: false}) == :ok

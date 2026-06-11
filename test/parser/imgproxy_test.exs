@@ -160,7 +160,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
               output: %Output{
                 strip_metadata: true,
                 keep_copyright: true,
-                strip_color_profile: true
+                color_profile: :strip
               }
             }} = Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
 
@@ -173,7 +173,7 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              Imgproxy.parse(conn(:get, "/_/kcr:0/plain/images/cat.jpg"), [])
 
     # scp threads onto Plan.Output
-    assert {:ok, %Plan{output: %Output{strip_color_profile: false}}} =
+    assert {:ok, %Plan{output: %Output{color_profile: :preserve_source}}} =
              Imgproxy.parse(conn(:get, "/_/scp:0/plain/images/cat.jpg"), [])
 
     # config default off, URL re-enables

@@ -96,7 +96,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
        format_qualities: request.format_qualities,
        strip_metadata: request.strip_metadata,
        keep_copyright: request.keep_copyright,
-       strip_color_profile: request.strip_color_profile
+       color_profile: color_profile_policy(request.strip_color_profile)
      }}
   end
 
@@ -113,13 +113,16 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
            format_qualities: request.format_qualities,
            strip_metadata: request.strip_metadata,
            keep_copyright: request.keep_copyright,
-           strip_color_profile: request.strip_color_profile
+           color_profile: color_profile_policy(request.strip_color_profile)
          }}
 
       false ->
         {:error, {:unsupported_output_format, format}}
     end
   end
+
+  defp color_profile_policy(true), do: :strip
+  defp color_profile_policy(false), do: :preserve_source
 
   defp expires_plan(%{expires: 0}, _opts), do: {:ok, 0}
 
