@@ -7,6 +7,7 @@ defmodule ImagePipe.Output.ColorResultTest do
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.MutableImage
+  alias Vix.Vips.Operation
 
   @sources "test/support/image_pipe/test/imgproxy_differential/sources"
   @p3_fixture "#{@sources}/icc_p3.png"
@@ -105,7 +106,7 @@ defmodule ImagePipe.Output.ColorResultTest do
 
   describe "color_profile {:convert, target}" do
     test "converts to the target and embeds its profile (untagged sRGB source, N1)" do
-      {:ok, image} = Vix.Vips.Operation.black(16, 16, bands: 3)
+      {:ok, image} = Operation.black(16, 16, bands: 3)
 
       {:ok, stream, _} = Encoder.stream_output(image, resolved(:png, {:convert, :display_p3}), [])
 
@@ -113,8 +114,8 @@ defmodule ImagePipe.Output.ColorResultTest do
     end
 
     test "greyscale source converts to a 3-band RGB target (N2)" do
-      {:ok, grey} = Vix.Vips.Operation.black(16, 16, bands: 1)
-      {:ok, grey} = Vix.Vips.Operation.colourspace(grey, :VIPS_INTERPRETATION_B_W)
+      {:ok, grey} = Operation.black(16, 16, bands: 1)
+      {:ok, grey} = Operation.colourspace(grey, :VIPS_INTERPRETATION_B_W)
 
       {:ok, stream, _} = Encoder.stream_output(grey, resolved(:png, {:convert, :display_p3}), [])
       out = decode(stream)
@@ -124,7 +125,7 @@ defmodule ImagePipe.Output.ColorResultTest do
     end
 
     test "embedded target survives metadata strip (not dropped by maybe_drop_profile)" do
-      {:ok, image} = Vix.Vips.Operation.black(16, 16, bands: 3)
+      {:ok, image} = Operation.black(16, 16, bands: 3)
       res = resolved(:jpeg, {:convert, :adobe_rgb}, strip_metadata: true)
 
       {:ok, stream, _} = Encoder.stream_output(image, res, [])
