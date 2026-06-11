@@ -214,6 +214,12 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
   end
 
   describe "working_space/2 (supports_hdr?: true)" do
+    test "8-bit color and grey stay as-is (ph:1 is a no-op for 8-bit sources)" do
+      assert ICM.working_space(:VIPS_INTERPRETATION_sRGB, true) == :VIPS_INTERPRETATION_sRGB
+      assert ICM.working_space(:VIPS_INTERPRETATION_RGB, true) == :VIPS_INTERPRETATION_RGB
+      assert ICM.working_space(:VIPS_INTERPRETATION_B_W, true) == :VIPS_INTERPRETATION_B_W
+    end
+
     test "RGB16 stays RGB16" do
       assert ICM.working_space(:VIPS_INTERPRETATION_RGB16, true) == :VIPS_INTERPRETATION_RGB16
     end

@@ -3315,12 +3315,19 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   end
 
   describe "preserve_hdr (ph)" do
-    test "PNG output preserves 16-bit with ph:1 and tone-maps to 8-bit with ph:0" do
-      preserved = call_imgproxy("/_/ph:1/f:png/plain/images/rgb16.png", @hdr_opts)
-      tonemapped = call_imgproxy("/_/ph:0/f:png/plain/images/rgb16.png", @hdr_opts)
+    # The 512×512 source is downscaled, so the 16-bit working space must survive
+    # the resize/scale (and shrink-on-load) stages, not just decode→encode.
+    test "PNG output preserves 16-bit through resize with ph:1 and tone-maps with ph:0" do
+      preserved =
+        call_imgproxy("/_/rs:fill:200:200/g:ce/ph:1/f:png/plain/images/rgb16.png", @hdr_opts)
+
+      tonemapped =
+        call_imgproxy("/_/rs:fill:200:200/g:ce/ph:0/f:png/plain/images/rgb16.png", @hdr_opts)
 
       assert preserved.status == 200
       assert tonemapped.status == 200
+      assert dimensions(preserved) == {200, 200}
+      assert dimensions(tonemapped) == {200, 200}
       assert band_format(preserved) == :VIPS_FORMAT_USHORT
       assert band_format(tonemapped) == :VIPS_FORMAT_UCHAR
     end
