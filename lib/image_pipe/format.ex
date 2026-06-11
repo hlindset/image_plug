@@ -7,6 +7,7 @@ defmodule ImagePipe.Format do
 
   @output_formats [:avif, :webp, :jpeg, :png]
   @color_profile_formats [:avif, :webp, :jpeg, :png]
+  @hdr_formats [:avif, :png]
   @source_only_formats [:heif, :tiff, :jpeg2000, :jpeg_xl]
   @source_formats @output_formats ++ @source_only_formats
   @mime_types %{
@@ -48,6 +49,10 @@ defmodule ImagePipe.Format do
   @doc "Returns whether the format supports an embedded colour profile. Mirrors imgproxy's `SupportsColourProfile()`."
   @spec supports_color_profile?(output_format()) :: boolean()
   def supports_color_profile?(format), do: format in @color_profile_formats
+
+  @doc "Returns whether the output format can carry HDR (16-bit). Mirrors imgproxy's `SupportsHDR()` for the four output formats (AVIF/PNG true; WebP/JPEG false)."
+  @spec supports_hdr?(output_format()) :: boolean()
+  def supports_hdr?(format), do: format in @hdr_formats
 
   @spec suffix(String.t()) :: {:ok, String.t()} | {:error, term()}
   def suffix(mime_type) do
