@@ -61,7 +61,15 @@ defmodule ImagePipe.MixProject do
   end
 
   def cli do
-    [preferred_envs: [coveralls: :test, "coveralls.html": :test]]
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.html": :test,
+        "imgproxy.gen_report": :test,
+        "imgproxy.reauthor": :test,
+        "imgproxy.gen_sources": :test
+      ]
+    ]
   end
 
   # Specifies which paths to compile per environment.

@@ -1,0 +1,328 @@
+defmodule Mix.Tasks.Imgproxy.GenReport do
+  @shortdoc "Generate a self-contained visual-diff HTML report for the imgproxy differential suite"
+  @moduledoc """
+  Renders ImagePipe live for every constellation in `constellations.ex`, compares
+  against the committed imgproxy fixtures, and writes a single self-contained
+  `report.html` (images base64-inlined, slider + fonts from CDN). No Docker — the
+  imgproxy fixtures are already committed and ImagePipe renders are live. A DX /
+  inspection tool only: it touches no fixtures, manifest, or the `mix test` lane.
+
+      mise exec -- mix imgproxy.gen_report [--out PATH]
+
+  Auto-selects `MIX_ENV=test` via `mix.exs` `preferred_envs` (the task lives in
+  `test/support`). `--out` defaults to `report.html` beside the harness (gitignored).
+  """
+  use Mix.Task
+  use Boundary, top_level?: true, check: [out: false]
+
+  import Plug.Test, only: [conn: 2]
+
+  alias ImagePipe.SourceTest.RootHTTPAdapter
+
+  alias ImagePipe.Test.ImgproxyDifferential.{
+    Constellations,
+    Manifest,
+    OptsSummary,
+    PixelCompare,
+    ReportHtml,
+    Skew
+  }
+
+  alias Vix.Vips.Image, as: VixImage
+  alias Vix.Vips.Operation
+
+  @base "test/support/image_pipe/test/imgproxy_differential"
+  @sources_dir "#{@base}/sources"
+  @fixtures_dir "#{@base}/fixtures"
+  @manifest_path "#{@base}/manifest.exs"
+  @default_out "#{@base}/report.html"
+  @default_tol %{threshold: 2, budget: 64}
+  @raw_amp 8
+
+  @impl Mix.Task
+  def run(args) do
+    {opts, _, _} = OptionParser.parse(args, strict: [out: :string])
+    out = Keyword.get(opts, :out, @default_out)
+
+    {:ok, _} = Application.ensure_all_started(:image_pipe)
+
+    manifest = Manifest.load!(@manifest_path)
+    plug_opts = plug_opts()
+
+    cards = Enum.map(Constellations.all(), fn c -> build_card(c, manifest, plug_opts) end)
+
+    doc = %{provenance: provenance(manifest), cards: cards}
+    File.write!(out, ReportHtml.render(doc))
+    Mix.shell().info("Wrote visual-diff report (#{length(cards)} cards) to #{Path.expand(out)}")
+  end
+
+  defp provenance(manifest) do
+    runtime = Skew.runtime_libvips()
+
+    %{
+      imgproxy_digest: manifest.imgproxy_digest,
+      imgproxy_libvips: manifest.imgproxy_libvips,
+      pipe_libvips_at_gen: manifest.pipe_libvips_at_gen,
+      runtime_libvips: runtime,
+      skew?: not Skew.aligned?(manifest)
+    }
+  end
+
+  defp build_card(c, manifest, plug_opts) do
+    entry = Map.fetch!(manifest.entries, c.id)
+    {body, content_type} = render(c, plug_opts)
+    pipe = Image.open!(body, access: :random, fail_on: :error)
+
+    card =
+      %{
+        id: c.id,
+        group: display_group(c),
+        verdict: c.verdict,
+        url: Constellations.imgproxy_path(c),
+        summary: OptsSummary.describe(c.opts),
+        triage: c.triage,
+        tol: c.tol,
+        hash_drift?: Manifest.authored_sha256(c) != entry.authored_sha256,
+        pipe_dims: dims(pipe)
+      }
+      |> Map.merge(group_fields(c, entry, pipe, content_type))
+      |> finalize_flags()
+
+    attach_images(card, body, content_type, pipe, entry)
+  end
+
+  # The `:diverges` constellation is stored as `group: :transform, verdict:
+  # :diverges` (it IS a fixture pixel comparison). For the report's display
+  # category/filter/counts it's its own `:known_divergence` bucket; the metric
+  # dispatch below still uses the constellation's real `group`/`verdict`, so this
+  # is display-only.
+  defp display_group(%{verdict: :diverges}), do: :known_divergence
+  defp display_group(%{group: group}), do: group
+
+  # transform / :diverges: compare against the committed fixture image.
+  defp group_fields(%{group: :transform} = c, entry, pipe, _content_type) do
+    fixture = fixture_image(entry)
+    fixture_dims = dims(fixture)
+
+    if fixture_dims != dims(pipe) do
+      %{
+        fixture_dims: fixture_dims,
+        status: :dims_mismatch,
+        metric_text: "dims #{fmt_dims(dims(pipe))} ≠ imgproxy #{fmt_dims(fixture_dims)}"
+      }
+    else
+      Map.put(metric_fields(c, pipe, fixture), :fixture_dims, fixture_dims)
+    end
+  end
+
+  defp group_fields(%{group: :lossy}, entry, pipe, content_type) do
+    ok? = dims(pipe) == {entry.width, entry.height} and content_type == entry.content_type
+
+    %{
+      fixture_dims: nil,
+      status: if(ok?, do: :contract_ok, else: :contract_mismatch),
+      metric_text:
+        "dims #{fmt_dims(dims(pipe))} (expected #{fmt_dims({entry.width, entry.height})}); " <>
+          "type #{inspect(content_type)} (expected #{inspect(entry.content_type)})"
+    }
+  end
+
+  defp metric_fields(%{verdict: :diverges} = c, pipe, fixture) do
+    %{metric: :fraction_over, threshold: threshold, floor: floor} = c.divergence
+    frac = PixelCompare.fraction_over(pipe, fixture, threshold)
+
+    %{
+      status: if(frac >= floor, do: :diverges_ok, else: :diverges_below_floor),
+      metric_text: "#{Float.round(frac, 4)} fraction over Δ#{threshold} (floor #{floor})"
+    }
+  end
+
+  defp metric_fields(%{verdict: :equal} = c, pipe, fixture) do
+    tol = c.tol || @default_tol
+    outliers = PixelCompare.outliers(pipe, fixture, tol.threshold)
+
+    %{
+      status: if(outliers <= tol.budget, do: :pass, else: :over_budget),
+      metric_text: "#{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})"
+    }
+  end
+
+  defp finalize_flags(card) do
+    failure? =
+      card.hash_drift? or
+        card.status in [:over_budget, :diverges_below_floor, :dims_mismatch, :contract_mismatch]
+
+    # `flagged?` is anything noteworthy (a divergence, quarantined or not). `failing?`
+    # is the stricter "would the default `mix test` lane go red" subset: a quarantined
+    # (`:triage`) case is excluded from the lane, so it is flagged but not failing.
+    card
+    |> Map.put(:flagged?, failure?)
+    |> Map.put(:failing?, failure? and is_nil(card.triage))
+  end
+
+  # Attach base64 data URIs. Images are displayed from ORIGINAL bytes (no
+  # re-encode): the imgproxy fixture from its on-disk PNG, the pipe render from
+  # the response body. Decoded images feed the diff/heatmaps only.
+  defp attach_images(%{group: :lossy} = card, body, content_type, _pipe, _entry) do
+    Map.merge(card, %{
+      imgproxy_img: nil,
+      pipe_img: data_uri(content_type, body),
+      heat_banded: nil,
+      heat_raw: nil,
+      heat_normalized: nil
+    })
+  end
+
+  defp attach_images(%{status: :dims_mismatch} = card, body, content_type, _pipe, entry) do
+    Map.merge(card, %{
+      imgproxy_img:
+        data_uri("image/png", File.read!(Path.join(@fixtures_dir, entry.fixture_filename))),
+      pipe_img: data_uri(content_type, body),
+      heat_banded: nil,
+      heat_raw: nil,
+      heat_normalized: nil
+    })
+  end
+
+  defp attach_images(card, body, content_type, pipe, entry) do
+    fixture = fixture_image(entry)
+    a = to_rgb(fixture)
+    b = to_rgb(pipe)
+    threshold = (card.tol || @default_tol).threshold
+
+    Map.merge(card, %{
+      imgproxy_img:
+        data_uri("image/png", File.read!(Path.join(@fixtures_dir, entry.fixture_filename))),
+      pipe_img: data_uri(content_type, body),
+      heat_banded: data_uri("image/png", png(banded_heatmap(a, b, threshold))),
+      heat_raw: data_uri("image/png", png(raw_heatmap(a, b))),
+      heat_normalized: data_uri("image/png", png(normalized_heatmap(a, b)))
+    })
+  end
+
+  defp data_uri(content_type, bytes), do: "data:#{content_type};base64,#{Base.encode64(bytes)}"
+
+  defp png(image), do: Image.write!(image, :memory, suffix: ".png")
+
+  # Align to a common 3-band RGB frame so the diff never raises on band-count
+  # mismatch (RGB vs RGBA, e.g. alpha_resize / background_alpha). Visualizes RGB
+  # deltas; the verdict metric (PixelCompare) still counts all bands incl. alpha.
+  defp to_rgb(image) do
+    case Image.bands(image) do
+      3 -> image
+      n when n > 3 -> ok!(Operation.extract_band(image, 0, n: 3))
+      _ -> image
+    end
+  end
+
+  # Banded: per-pixel max |Δ| across RGB → 256-entry LUT that dims pixels at/under
+  # the case's own threshold and ramps over-threshold pixels hot.
+  defp banded_heatmap(a, b, threshold) do
+    delta = abs_diff(a, b)
+    maxd = band_max(delta)
+    idx = ok!(Operation.cast(maxd, :VIPS_FORMAT_UCHAR))
+    ok!(Operation.maplut(idx, heat_lut(threshold)))
+  end
+
+  # Raw: |Δ| amplified for visibility, clamped to uchar (no threshold).
+  defp raw_heatmap(a, b) do
+    delta = abs_diff(a, b)
+    amped = ok!(Operation.linear(delta, [@raw_amp * 1.0], [0.0]))
+    ok!(Operation.cast(amped, :VIPS_FORMAT_UCHAR))
+  end
+
+  # Normalized: per-pixel max |Δ| contrast-stretched to THIS frame's own peak
+  # (`Operation.scale` maps min→0, max→255), so a diffuse, low-magnitude divergence
+  # (e.g. the scp0 colorspace case) fills the dynamic range and is visible where the
+  # banded/raw maps render near-black. Magnitudes are NOT comparable across cards —
+  # each is self-scaled. `scale` is safe on an all-equal frame (no divide-by-zero).
+  defp normalized_heatmap(a, b) do
+    delta = abs_diff(a, b)
+    maxd = band_max(delta)
+    idx = ok!(Operation.cast(ok!(Operation.scale(maxd)), :VIPS_FORMAT_UCHAR))
+    ok!(Operation.maplut(idx, heat_lut(0)))
+  end
+
+  # subtract promotes uchar→signed short (no wrap); abs makes it non-negative.
+  defp abs_diff(a, b), do: ok!(Operation.abs(ok!(Operation.subtract(a, b))))
+
+  defp band_max(delta) do
+    b0 = ok!(Operation.extract_band(delta, 0))
+    b1 = ok!(Operation.extract_band(delta, 1))
+    b2 = ok!(Operation.extract_band(delta, 2))
+    ok!(Operation.maxpair(ok!(Operation.maxpair(b0, b1)), b2))
+  end
+
+  # 256×1 3-band uchar LUT: indices ≤ threshold → dim; above → cool→hot ramp.
+  defp heat_lut(threshold) do
+    bin =
+      for i <- 0..255, into: <<>> do
+        if i <= threshold do
+          <<24, 24, 28>>
+        else
+          t = (i - threshold) / max(255 - threshold, 1)
+          <<round(60 + t * 195), round(20 + t * 60), round(40 - t * 40)>>
+        end
+      end
+
+    ok!(VixImage.new_from_binary(bin, 256, 1, 3, :VIPS_FORMAT_UCHAR))
+  end
+
+  defp ok!({:ok, value}), do: value
+  defp ok!({:error, reason}), do: raise("vips operation failed: #{inspect(reason)}")
+
+  defp fixture_image(entry) do
+    Image.open!(File.read!(Path.join(@fixtures_dir, entry.fixture_filename)),
+      access: :random,
+      fail_on: :error
+    )
+  end
+
+  defp dims(image), do: {Image.width(image), Image.height(image)}
+  defp fmt_dims({w, h}), do: "#{w}×#{h}"
+
+  defp render(c, plug_opts) do
+    conn =
+      :get
+      |> conn(Constellations.imgproxy_path(c))
+      |> ImagePipe.Plug.call(plug_opts)
+
+    content_type =
+      conn
+      |> Plug.Conn.get_resp_header("content-type")
+      |> List.first()
+      |> then(fn ct -> ct && ct |> String.split(";") |> List.first() end)
+
+    {conn.resp_body, content_type}
+  end
+
+  defp plug_opts do
+    ImagePipe.Plug.init(
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: &source_plug/1]}
+      ]
+    )
+  end
+
+  # Function plug mirroring the conformance test's inline SourceOrigin: serve the
+  # committed source bytes for the requested basename. RootHTTPAdapter forwards
+  # `req_options` straight into Req.get, so a function plug wires identically to
+  # the test's module plug.
+  defp source_plug(conn) do
+    file = Path.basename(conn.request_path)
+
+    conn
+    |> Plug.Conn.put_resp_content_type(content_type(file))
+    |> Plug.Conn.send_resp(200, File.read!(Path.join(@sources_dir, file)))
+  end
+
+  defp content_type(file) do
+    case Path.extname(file) do
+      ".jpg" -> "image/jpeg"
+      ".webp" -> "image/webp"
+      _ -> "image/png"
+    end
+  end
+end

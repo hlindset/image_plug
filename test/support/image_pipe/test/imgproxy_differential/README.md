@@ -18,10 +18,33 @@ imgproxy's committed output and ImagePipe's live output and compares pixels.
    `REPORT.md` diff (not the binary PNGs) for what moved.
 
 For a `tol` tweak or a `:diverges`→`:equal` verdict flip (no pixels change), refresh the
-manifest's authored hashes without Docker: `MIX_ENV=test mise exec -- mix imgproxy.reauthor`.
+manifest's authored hashes without Docker: `mise exec -- mix imgproxy.reauthor`.
 
 Rebuild the source images only deliberately (a libvips bump must not silently change
-inputs): `MIX_ENV=test mise exec -- mix imgproxy.gen_sources`.
+inputs): `mise exec -- mix imgproxy.gen_sources`.
+
+(`imgproxy.reauthor`, `imgproxy.gen_sources`, and `imgproxy.gen_report` live in
+`test/support`, so they auto-select `MIX_ENV=test` via `mix.exs` `preferred_envs` — no
+prefix needed. `imgproxy.gen_fixtures` is the exception: it also needs `IMGPROXY_DIFF=1`,
+shown explicitly above.)
+
+## Visual-diff report (no Docker)
+
+Generate a self-contained `report.html` for eyeball triage — imgproxy vs ImagePipe
+side by side, a comparison slider, two diff heatmaps (banded over the case threshold,
+and raw amplified), and the live-recomputed metric/verdict/triage per constellation:
+
+```shell
+mise exec -- mix imgproxy.gen_report          # writes report.html here
+mise exec -- mix imgproxy.gen_report --out /tmp/r.html
+```
+
+It renders ImagePipe live and reads the committed fixtures — no Docker, no fixture or
+manifest changes. The default `report.html` is gitignored (it inlines ImagePipe PNGs as
+base64; regenerate on demand). Cases needing attention (over-budget, quarantined,
+dims-mismatch, a `:diverges` case that now matches, or authored-hash drift) sort to the
+top, and a top-of-page counts line summarizes them. The slider and Geist fonts load from
+a CDN; with no network the side-by-side panels remain the source of truth.
 
 ## libvips skew — warn-and-attempt
 
