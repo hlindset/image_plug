@@ -18,7 +18,6 @@ defmodule ImagePipe.Plan.KeyData do
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Monochrome
-  alias ImagePipe.Plan.Operation.NormalizeColorProfile
   alias ImagePipe.Plan.Operation.Padding
   alias ImagePipe.Plan.Operation.Pixelate
   alias ImagePipe.Plan.Operation.Resize
@@ -133,7 +132,6 @@ defmodule ImagePipe.Plan.KeyData do
     ]
   end
 
-  def data(%NormalizeColorProfile{}), do: [op: :normalize_color_profile]
   def data(%Rotate{angle: angle}), do: [op: :rotate, angle: angle]
   def data(%Flip{axis: axis}), do: [op: :flip, axis: axis]
   def data(%Blur{sigma: sigma}), do: [op: :blur, sigma: sigma]

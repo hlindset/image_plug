@@ -213,7 +213,7 @@ defmodule ImagePipe.Cache.KeyTest do
                quality: :default,
                format_qualities: %{},
                strip_metadata: true,
-               strip_color_profile: true,
+               color_profile: :strip,
                keep_copyright: true
              ],
              auto_rotate: false,
@@ -954,7 +954,7 @@ defmodule ImagePipe.Cache.KeyTest do
              quality: :default,
              format_qualities: %{},
              strip_metadata: true,
-             strip_color_profile: true,
+             color_profile: :strip,
              keep_copyright: true
            ]
 
@@ -987,7 +987,7 @@ defmodule ImagePipe.Cache.KeyTest do
                quality: :default,
                format_qualities: %{},
                strip_metadata: true,
-               strip_color_profile: true,
+               color_profile: :strip,
                keep_copyright: true
              ]
 
@@ -1036,7 +1036,7 @@ defmodule ImagePipe.Cache.KeyTest do
              quality: :default,
              format_qualities: %{},
              strip_metadata: true,
-             strip_color_profile: true,
+             color_profile: :strip,
              keep_copyright: true
            ]
   end
@@ -1044,7 +1044,7 @@ defmodule ImagePipe.Cache.KeyTest do
   test "different output metadata flags change cache key" do
     conn = conn(:get, "/_/f:webp/plain/images/cat.jpg")
 
-    for flag <- [:strip_metadata, :keep_copyright, :strip_color_profile] do
+    for flag <- [:strip_metadata, :keep_copyright] do
       on_plan = plan(output: %Output{mode: {:explicit, :webp}} |> Map.put(flag, true))
       off_plan = plan(output: %Output{mode: {:explicit, :webp}} |> Map.put(flag, false))
 
@@ -1054,6 +1054,23 @@ defmodule ImagePipe.Cache.KeyTest do
       refute on_key.hash == off_key.hash,
              "expected differing #{flag} to change the cache key"
     end
+
+    strip_key =
+      build_key!(
+        conn,
+        plan(output: %Output{mode: {:explicit, :webp}, color_profile: :strip}),
+        source_identity()
+      )
+
+    preserve_key =
+      build_key!(
+        conn,
+        plan(output: %Output{mode: {:explicit, :webp}, color_profile: :preserve_source}),
+        source_identity()
+      )
+
+    refute strip_key.hash == preserve_key.hash,
+           "expected differing color_profile to change the cache key"
   end
 
   test "explicit formats do not include Accept key data or automatic marker" do
@@ -1070,7 +1087,7 @@ defmodule ImagePipe.Cache.KeyTest do
              quality: :default,
              format_qualities: %{},
              strip_metadata: true,
-             strip_color_profile: true,
+             color_profile: :strip,
              keep_copyright: true
            ]
 

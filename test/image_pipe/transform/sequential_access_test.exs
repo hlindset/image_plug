@@ -13,7 +13,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Flip
   alias ImagePipe.Transform.Operation.Monochrome
-  alias ImagePipe.Transform.Operation.NormalizeColorProfile
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
@@ -135,10 +134,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
       [%Duotone{intensity: 0.8, shadow: [0, 0, 0], highlight: [255, 255, 255]}],
       File.read!(@beach)
     )
-  end
-
-  test "normalize color profile streams" do
-    assert_sequential_matches_random([%NormalizeColorProfile{}], File.read!(@beach))
   end
 
   defp oriented_jpeg_body(orientation) do

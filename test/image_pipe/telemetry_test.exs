@@ -672,7 +672,7 @@ defmodule ImagePipe.TelemetryTest do
                                                                          metadata ->
       assert is_list(metadata.operations)
       assert :resize in metadata.operations
-      assert metadata.operation_count == 2
+      assert metadata.operation_count == 1
     end)
   end
 
@@ -717,6 +717,46 @@ defmodule ImagePipe.TelemetryTest do
       assert metadata.result == :processing_error
       assert metadata.error == :input_limit
     end)
+  end
+
+  test "input_color_management span fires with working_space and imported? for a standard sRGB image" do
+    test_pid = self()
+    handler_id = {__MODULE__, :input_color_management_test, make_ref()}
+
+    :ok =
+      :telemetry.attach_many(
+        handler_id,
+        [
+          [:image_pipe, :transform, :input_color_management, :start],
+          [:image_pipe, :transform, :input_color_management, :stop]
+        ],
+        &__MODULE__.handle_telemetry_event/4,
+        test_pid
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    conn =
+      :get
+      |> conn("/_/f:jpeg/plain/images/beach.jpg")
+      |> ImagePipe.Plug.call(base_opts())
+
+    assert conn.status == 200
+
+    assert_received {:telemetry_event, [:image_pipe, :transform, :input_color_management, :start],
+                     start_measurements, _start_meta}
+
+    assert is_integer(start_measurements.system_time)
+
+    assert_received {:telemetry_event, [:image_pipe, :transform, :input_color_management, :stop],
+                     stop_measurements, stop_meta}
+
+    assert is_integer(stop_measurements.duration)
+    assert stop_meta.result == :ok
+    assert is_atom(stop_meta.working_space)
+    assert is_boolean(stop_meta.imported?)
+    # beach.jpg has the canonical sRGB IEC61966 profile, which is not re-imported
+    assert stop_meta.imported? == false
   end
 
   test "validates telemetry prefix option at init" do

@@ -232,7 +232,7 @@ defmodule ImagePipe.CacheTest do
       response_headers: [],
       strip_metadata: true,
       keep_copyright: true,
-      strip_color_profile: true
+      color_profile: :strip
     }
   end
 
@@ -388,7 +388,7 @@ defmodule ImagePipe.CacheTest do
              quality: :default,
              format_qualities: %{},
              strip_metadata: true,
-             strip_color_profile: true,
+             color_profile: :strip,
              keep_copyright: true
            ]
 
@@ -467,7 +467,7 @@ defmodule ImagePipe.CacheTest do
       response_headers: [{"Vary", "Accept"}, {"x-private", "drop"}],
       strip_metadata: true,
       keep_copyright: true,
-      strip_color_profile: true
+      color_profile: :strip
     }
 
     sink =

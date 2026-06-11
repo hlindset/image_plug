@@ -371,7 +371,7 @@ defmodule ImagePipe.Request.SourceSessionSupervisorTest do
       format_qualities: %{},
       strip_metadata: true,
       keep_copyright: true,
-      strip_color_profile: true
+      color_profile: :strip
     }
   end
 

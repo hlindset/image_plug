@@ -161,18 +161,11 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # interaction for extend; the existing padding_border case has no dpr.
       c("padding_dpr_border", :border, "rs:fit:120:120/pd:10:20/dpr:2"),
 
-      # --- :diverges (whole-frame fraction metric; runs regardless of libvips-version drift) ---
-      # #124: with scp:0 ImagePipe skips the P3 working-space conversion imgproxy
-      # always performs, so processing diverges. The effect is diffuse (~2.6% of
-      # band-bytes exceed Δ2 on the P3 source), so it is measured as a whole-frame
-      # fraction-over-Δ, not a flat-region mean. (`sa`/tone ops would amplify it but
-      # are imgproxy Pro-only.) Floor set below the measured value with margin.
-      diverge(
-        "scp0_colorspace_124",
-        :icc_p3,
-        "rs:fit:200:200/scp:0",
-        %{metric: :fraction_over, threshold: 2, floor: 0.01, issue: "#124"}
-      ),
+      # #124: with scp:0 ImagePipe now imports the P3 source into the sRGB working
+      # space before processing and re-embeds the source profile at finalize, exactly
+      # like imgproxy. The colorspace divergence is closed, so this is a pixel-equality
+      # conformance case on a Display-P3 source.
+      c("scp0_colorspace_124", :icc_p3, "rs:fit:200:200/scp:0"),
 
       # --- lossy group: contract-only (dims/content-type/decode), no pixel claim ---
       lossy("lossy_webp", :high_freq_webp, "rs:fill:240:180/f:webp"),
@@ -278,18 +271,6 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       group: :transform,
       tol: nil,
       divergence: nil,
-      triage: nil
-    }
-
-  defp diverge(id, source, opts, divergence),
-    do: %{
-      id: id,
-      source: source,
-      opts: opts,
-      verdict: :diverges,
-      group: :transform,
-      tol: nil,
-      divergence: divergence,
       triage: nil
     }
 

@@ -17,7 +17,7 @@ defmodule ImagePipe.Output.Policy do
     :format_qualities,
     :strip_metadata,
     :keep_copyright,
-    :strip_color_profile
+    :color_profile
   ]
   defstruct @enforce_keys
 
@@ -36,7 +36,7 @@ defmodule ImagePipe.Output.Policy do
           format_qualities: %{optional(format()) => quality()},
           strip_metadata: boolean(),
           keep_copyright: boolean(),
-          strip_color_profile: boolean()
+          color_profile: Output.color_profile()
         }
 
   @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
@@ -49,7 +49,7 @@ defmodule ImagePipe.Output.Policy do
       format_qualities: output.format_qualities,
       strip_metadata: output.strip_metadata,
       keep_copyright: output.keep_copyright,
-      strip_color_profile: output.strip_color_profile
+      color_profile: output.color_profile
     }
   end
 
@@ -62,7 +62,7 @@ defmodule ImagePipe.Output.Policy do
       format_qualities: output.format_qualities,
       strip_metadata: output.strip_metadata,
       keep_copyright: output.keep_copyright,
-      strip_color_profile: output.strip_color_profile
+      color_profile: output.color_profile
     }
   end
 
@@ -136,7 +136,7 @@ defmodule ImagePipe.Output.Policy do
       response_headers: policy.headers,
       strip_metadata: policy.strip_metadata,
       keep_copyright: policy.keep_copyright,
-      strip_color_profile: policy.strip_color_profile
+      color_profile: policy.color_profile
     }
   end
 

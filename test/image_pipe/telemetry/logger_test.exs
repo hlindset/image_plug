@@ -246,6 +246,56 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "transform execute: processing_error (2 ops)"
   end
 
+  test "logs input_color_management success at base level with working space" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :input_color_management, :stop],
+          %{duration: 500},
+          %{result: :ok, working_space: :VIPS_INTERPRETATION_sRGB, imported?: false}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "transform input_color_management: ok"
+    assert log =~ "VIPS_INTERPRETATION_sRGB"
+  end
+
+  test "logs input_color_management with imported profile marker" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :input_color_management, :stop],
+          %{duration: 500},
+          %{result: :ok, working_space: :VIPS_INTERPRETATION_sRGB, imported?: true}
+        )
+      end)
+
+    refute log =~ "[warning]"
+    assert log =~ "transform input_color_management: ok imported"
+    assert log =~ "VIPS_INTERPRETATION_sRGB"
+  end
+
+  test "escalates input_color_management processing error to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :input_color_management, :stop],
+          %{duration: 500},
+          %{result: :processing_error, working_space: :VIPS_INTERPRETATION_sRGB, imported?: false}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "transform input_color_management: processing_error"
+  end
+
   test "rejects an invalid log level" do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(level: :nope) end
   end

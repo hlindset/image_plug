@@ -24,20 +24,16 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     assert opts[:access] == :sequential
   end
 
-  test "color-profile normalization is access-neutral (alone: sequential; with rotate: sequential)" do
-    neutral_only =
-      DecodePlanner.open_options([%Operation.NormalizeColorProfile{}], :png, {100, 100})
+  test "a point-effect op is access-neutral (alone: sequential; with rotate: sequential)" do
+    {:ok, blur} = Operation.blur(2.0)
+
+    neutral_only = DecodePlanner.open_options([blur], :png, {100, 100})
 
     assert neutral_only[:access] == :sequential
 
     {:ok, rotate} = Operation.rotate(180)
 
-    with_sequential =
-      DecodePlanner.open_options(
-        [rotate, %Operation.NormalizeColorProfile{}],
-        :png,
-        {100, 100}
-      )
+    with_sequential = DecodePlanner.open_options([rotate, blur], :png, {100, 100})
 
     assert with_sequential[:access] == :sequential
   end

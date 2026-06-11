@@ -92,9 +92,6 @@ Parser/planner code should use these semantic operations:
 - `ImagePipe.Plan.Operation.Background`: place an alpha-capable color behind
   the current image.
 - `ImagePipe.Plan.Operation.AutoOrient`: apply embedded orientation metadata.
-- `ImagePipe.Plan.Operation.NormalizeColorProfile`: convert the embedded ICC
-  profile to sRGB. Positioned after geometry (resize/crop) and before the effect
-  chain.
 - `ImagePipe.Plan.Operation.Rotate`: right-angle rotation intent.
 - `ImagePipe.Plan.Operation.Flip`: horizontal, vertical, or both-axis flip
   intent.
@@ -126,9 +123,6 @@ describe work over `ImagePipe.Transform.State`, not parser request syntax:
 - `ImagePipe.Transform.Operation.Padding`: resolved edge-padding work.
 - `ImagePipe.Transform.Operation.Background`: resolved background composition.
 - `ImagePipe.Transform.Operation.AutoOrient`: executable EXIF autorotation.
-- `ImagePipe.Transform.Operation.NormalizeColorProfile`: ICC-aware sRGB
-  conversion. Runs after geometry, before effects. The embedded profile header
-  is dropped at the output encoder finalize step, not here.
 - `ImagePipe.Transform.Operation.Rotate`: executable right-angle rotation.
 - `ImagePipe.Transform.Operation.Flip`: executable flip.
 - `ImagePipe.Transform.Operation.Blur`: executable Gaussian blur.
@@ -185,26 +179,15 @@ Imgproxy orientation suborder is auto-orient, rotate, then flip. Other dialects
 should preserve their own semantics in the adapter layer and emit the ordered
 Plan operation chain that matches those semantics.
 
-## Color profile operations
+## Input color management
 
-Use `ImagePipe.Plan.Operation.NormalizeColorProfile` when a dialect requests
-ICC profile normalization. The operation converts the embedded ICC profile to
-sRGB using ICC-aware color math. It is a conversion-only operation: the
-embedded profile header is dropped at the output encoder finalize step, not
-by the transform operation itself.
-
-`NormalizeColorProfile` is positioned after geometry (resize and crop) and
-immediately before the effect chain. Effects such as brightness, contrast,
-saturation, monochrome, and duotone therefore operate in sRGB space when
-normalization is active.
-
-This operation does not perform full input/output color management. When
-`NormalizeColorProfile` is absent from the pipeline (for example, because the
-corresponding dialect option is disabled), effects run in the source profile
-space. Wide-gamut sources without normalization may produce visually different
-results from sRGB sources. See issue #124.
-
-Imgproxy `strip_color_profile`/`scp` maps to this operation when enabled.
+Input working-space conditioning (`ImagePipe.Transform.InputColorManagement`) is
+a fixed pipeline preamble, not a Plan operation. Every profiled/wide-gamut/CMYK
+source is unconditionally imported to a working space before trim, crop, resize,
+and effects. The output profile policy (`Plan.Output.color_profile`) is the only
+parser-controlled knob; imgproxy `scp` maps to `:strip` (default) or
+`:preserve_source`. The encoder finalize re-embeds or drops the source profile
+per that policy.
 
 ## Canvas operations
 
@@ -307,7 +290,8 @@ should describe their own URL syntax.
 | `ar/rot:90/fl:true:false/c:100:100` | `AutoOrient`, `Rotate`, `Flip`, `CropGuided` |
 | `extend:true/w:300/h:200` | `Resize` with `mode: :fit`, `Canvas` |
 | `pd:10/bg:f00` | `Padding`, `Background` |
-| `scp` (default on) | `NormalizeColorProfile` |
+| `scp:0` | `Plan.Output.color_profile: :preserve_source` (output policy, not an operation) |
+| `scp:1` (default) | `Plan.Output.color_profile: :strip` (output policy, not an operation) |
 | `bl:2/sh:0.7/pix:8/br:20/co:-10/sa:35` | `Blur`, `Sharpen`, `Pixelate`, `Brightness`, `Contrast`, `Saturation` |
 
 ## Boundary rules

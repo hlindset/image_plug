@@ -513,4 +513,34 @@ defmodule ImagePipe.Request.ProcessorTest do
     assert Image.height(result_image) >= 132
     assert Image.height(result_image) <= 134
   end
+
+  test "materialize_for_delivery stamps source profile and imported marker when import ran" do
+    {:ok, img} = Image.new(10, 10, color: [255, 0, 0])
+    {:ok, realized} = VipsImage.copy_memory(img)
+
+    state = %State{
+      image: realized,
+      source_color_profile: <<1, 2, 3>>,
+      color_imported?: true,
+      materialized?: true
+    }
+
+    assert {:ok, out} = Processor.materialize_for_delivery(state, opts())
+    assert {:ok, <<1, 2, 3>>} = VipsImage.header_value(out.image, "imagepipe-icc-backup")
+    assert {:ok, 1} = VipsImage.header_value(out.image, "imagepipe-icc-imported")
+  end
+
+  test "materialize_for_delivery does not stamp when no import ran" do
+    {:ok, img} = Image.new(10, 10, color: [255, 0, 0])
+    {:ok, realized} = VipsImage.copy_memory(img)
+
+    state = %State{
+      image: realized,
+      color_imported?: false,
+      materialized?: true
+    }
+
+    assert {:ok, out} = Processor.materialize_for_delivery(state, opts())
+    assert {:error, _} = VipsImage.header_value(out.image, "imagepipe-icc-imported")
+  end
 end

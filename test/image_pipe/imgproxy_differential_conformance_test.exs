@@ -86,19 +86,6 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
     end
   end
 
-  defp run_constellation(%{verdict: :diverges} = c, entry) do
-    out = imagepipe_image(c)
-    fixture = fixture_image(c, entry)
-    assert_same_dims!(c, out, fixture)
-
-    %{metric: :fraction_over, threshold: threshold, floor: floor} = c.divergence
-    frac = PixelCompare.fraction_over(out, fixture, threshold)
-
-    assert frac >= floor,
-           "#{c.id}: expected ≥ #{floor} fraction of band-bytes over Δ#{threshold}, got #{Float.round(frac, 4)}. " <>
-             "If ImagePipe now matches imgproxy, flip this constellation to :equal and update the matrix."
-  end
-
   defp run_constellation(%{group: :transform} = c, entry) do
     out = imagepipe_image(c)
     fixture = fixture_image(c, entry)

@@ -15,6 +15,7 @@ defmodule ImagePipe.Telemetry.Logger do
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
     transform: [
       [:transform, :execute],
+      [:transform, :input_color_management],
       [:transform, :operation],
       [:transform, :materialize],
       [:transform, :detect]
@@ -116,6 +117,7 @@ defmodule ImagePipe.Telemetry.Logger do
       metadata[:result] == :cache_error -> :warning
       metadata[:result] == :materialize_error -> :warning
       encode_failure?(suffix, metadata) -> :warning
+      color_management_failure?(suffix, metadata) -> :warning
       detect_fallback_warning?(suffix, metadata) -> :warning
       true -> base
     end
@@ -128,6 +130,13 @@ defmodule ImagePipe.Telemetry.Logger do
   # `:client_closed`), which stay at the base level.
   defp encode_failure?([:encode | _], meta), do: meta[:result] == :processing_error
   defp encode_failure?(_suffix, _meta), do: false
+
+  # A corrupt or unsupported embedded ICC profile that prevents color conditioning —
+  # a decode-class failure (maps to 415). Escalate to :warning.
+  defp color_management_failure?([:transform, :input_color_management | _], meta),
+    do: meta[:result] == :processing_error
+
+  defp color_management_failure?(_suffix, _meta), do: false
 
   # A face-aware crop that could not be fulfilled and degraded to attention
   # saliency: a configured detector that produced no usable detection
@@ -146,6 +155,12 @@ defmodule ImagePipe.Telemetry.Logger do
 
   defp message([:transform, :execute | _], _m, meta) do
     "image_pipe transform execute: #{outcome(meta)} (#{meta[:operation_count] || 0} ops)"
+  end
+
+  defp message([:transform, :input_color_management | _], _m, meta) do
+    imported = if meta[:imported?], do: " imported", else: ""
+
+    "image_pipe transform input_color_management: #{outcome(meta)}#{imported} (#{meta[:working_space]})"
   end
 
   defp message([:transform, :detect, :skipped | _], _m, _meta),

@@ -27,7 +27,7 @@ defmodule ImagePipe.Output.EncoderTest do
       response_headers: [],
       strip_metadata: false,
       keep_copyright: true,
-      strip_color_profile: false
+      color_profile: :preserve_source
     }
 
     assert {:ok, stream, "image/webp"} =
@@ -49,7 +49,7 @@ defmodule ImagePipe.Output.EncoderTest do
                  response_headers: [],
                  strip_metadata: false,
                  keep_copyright: true,
-                 strip_color_profile: false
+                 color_profile: :preserve_source
                },
                image_module: RaisingStreamImage
              )
