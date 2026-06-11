@@ -36,6 +36,11 @@ defmodule ImagePipe.Transform.State do
     It is a storage-frame factor, so a gravity crop carrying a pending quarter-turn
     swaps the per-axis factors before rescaling (the display-frame crop dims are
     swapped into the storage frame after — `ImagePipe.Transform.PlanExecutor`).
+  - `source_color_profile` and `color_imported?`: carry the input-color-management
+    result from the preamble (`ImagePipe.Transform.InputColorManagement`) to the
+    delivery-boundary stamp. `source_color_profile` is the raw source ICC bytes
+    (or `nil`), and `color_imported?` indicates whether an actual `icc_import` ran.
+    Transform-domain data; must never be emitted in telemetry metadata.
   """
 
   defstruct image: nil,
@@ -46,7 +51,9 @@ defmodule ImagePipe.Transform.State do
             source_dimensions: nil,
             decode_shrink: nil,
             pending_orientation: nil,
-            materialized?: false
+            materialized?: false,
+            source_color_profile: nil,
+            color_imported?: false
 
   @type t :: %__MODULE__{
           image: Vix.Vips.Image.t() | nil,
@@ -57,7 +64,9 @@ defmodule ImagePipe.Transform.State do
           source_dimensions: {pos_integer(), pos_integer()} | nil,
           decode_shrink: %{w: float(), h: float()} | nil,
           pending_orientation: ImagePipe.Transform.PendingOrientation.t() | nil,
-          materialized?: boolean()
+          materialized?: boolean(),
+          source_color_profile: binary() | nil,
+          color_imported?: boolean()
         }
 
   def set_image(%__MODULE__{} = state, %Vix.Vips.Image{} = image) do
