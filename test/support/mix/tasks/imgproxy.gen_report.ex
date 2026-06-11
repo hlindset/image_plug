@@ -24,8 +24,7 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
     Manifest,
     OptsSummary,
     PixelCompare,
-    ReportHtml,
-    Skew
+    ReportHtml
   }
 
   alias Vix.Vips.Image, as: VixImage
@@ -57,14 +56,11 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   end
 
   defp provenance(manifest) do
-    runtime = Skew.runtime_libvips()
-
     %{
       imgproxy_digest: manifest.imgproxy_digest,
       imgproxy_libvips: manifest.imgproxy_libvips,
       pipe_libvips_at_gen: manifest.pipe_libvips_at_gen,
-      runtime_libvips: runtime,
-      skew?: not Skew.aligned?(manifest)
+      runtime_libvips: Vix.Vips.version()
     }
   end
 
