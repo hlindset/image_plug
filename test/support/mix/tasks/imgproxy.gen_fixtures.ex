@@ -53,12 +53,10 @@ if Code.ensure_loaded?(Testcontainers) do
       imgproxy_libvips = container_libvips(started)
       pipe_libvips = Vix.Vips.version()
 
-      if imgproxy_libvips != pipe_libvips do
-        Mix.shell().info(
-          "WARNING: imgproxy libvips #{imgproxy_libvips} != ImagePipe libvips #{pipe_libvips}; " <>
-            "generation-time validation is not truly same-kernel."
-        )
-      end
+      Mix.shell().info(
+        "imgproxy libvips #{imgproxy_libvips} (.so ABI soname); " <>
+          "ImagePipe libvips #{pipe_libvips} (release) — different schemes, recorded for provenance."
+      )
 
       source_hashes =
         Constellations.source_files()
@@ -131,7 +129,7 @@ if Code.ensure_loaded?(Testcontainers) do
 
     # imgproxy exposes no libvips version over HTTP, and the darthsim image has no
     # `vips` CLI — read the bundled .so realname (e.g. "libvips.so.42.20.2") and
-    # record its ABI version ("42.20.2") as the skew identifier.
+    # record its ABI soname ("42.20.2") as the provenance identifier.
     defp container_libvips(started) do
       {out, 0} =
         System.cmd("docker", [
@@ -155,8 +153,8 @@ if Code.ensure_loaded?(Testcontainers) do
       # imgproxy differential conformance — generation report
 
       - imgproxy digest: `#{manifest.imgproxy_digest}`
-      - imgproxy libvips: `#{manifest.imgproxy_libvips}`
-      - ImagePipe libvips at generation: `#{manifest.pipe_libvips_at_gen}`
+      - imgproxy libvips (.so ABI soname): `#{manifest.imgproxy_libvips}`
+      - ImagePipe libvips at generation (release): `#{manifest.pipe_libvips_at_gen}`
 
       ## Constellations
 
