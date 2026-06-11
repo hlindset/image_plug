@@ -107,14 +107,30 @@ In `test/support/mix/tasks/imgproxy.gen_fixtures.ex`:
   carries both scheme labels (covers the "clearly-labeled provenance" contract).
   No banner assertion exists today, so nothing else breaks.
 
+### 7. Documentation sync
+
+The deleted warn-and-attempt "skew model" is described in prose that must be
+updated in the same change (conformance-doc-sync rule, **stage/order** axis):
+
+- `test/support/image_pipe/test/imgproxy_differential/README.md` — rewrite the
+  "## libvips skew — warn-and-attempt" section to describe the always-on,
+  scheme-labeled provenance note (record both versions, no version-match claim).
+- `docs/imgproxy_support_matrix.md` — drop "skew-gated to the fixtures' libvips"
+  from the `:equal` row (the comparison always runs; tolerances absorb
+  libvips-version resampling differences), and change the closing pointer's
+  "libvips skew model" to "libvips provenance model".
+- `gen_fixtures` `container_libvips/1` comment — "the skew identifier" → "the
+  provenance identifier" (folded into change 5).
+
+The descriptive "libvips-version resampling skew" in the matrix's `min_dims_clamp`
+row stays — there "skew" means resampling *error*, not the removed detection model.
+
 ## Out of scope / unchanged
 
 - Manifest shape (`manifest.exs`) and `manifest_test.exs` — unchanged.
 - No conformance pixel-behavior change; no parser/output/encode/stage change.
-- `docs/imgproxy_support_matrix.md` is not a skew-detection record; verify it does
-  not reference the skew warning (expected: no change needed). Compatibility
-  reviewer is optional for this harness-only change, per the project's review-cycle
-  rule.
+- Compatibility reviewer is optional for this harness-only change, per the
+  project's review-cycle rule.
 
 ## Verification
 
