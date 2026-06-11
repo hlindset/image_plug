@@ -7,32 +7,32 @@ imgproxy's committed output and ImagePipe's live output and compares pixels.
 
 ## Regenerate (requires Docker)
 
-First time in a worktree, run `mise run diff:setup` once — it fetches the
-`IMGPROXY_DIFF`-gated dep (testcontainers) and compiles, so the bake commands below
-work without per-command env juggling.
+After adding or editing a constellation in `constellations.ex`, run:
 
-1. Add or edit a constellation in `constellations.ex`. (`gen_fixtures` parses every
-   constellation's path first and aborts — listing the offenders — before starting the
-   container, so a typo'd or unsupported option fails fast rather than after a bake.)
-2. `MIX_ENV=test IMGPROXY_DIFF=1 mise exec -- mix compile --force`
-   (the `--force` is required: toggling `IMGPROXY_DIFF` does not by itself trigger a
-   recompile, so the env-gated `gen_fixtures` task module won't otherwise be defined.)
-3. `MIX_ENV=test IMGPROXY_DIFF=1 mise exec -- mix imgproxy.gen_fixtures`
-4. `MIX_ENV=test mise exec -- mix compile --force` (rebuild without the dep so a plain
-   `mix test` doesn't see the now-stale generator module).
-5. Commit the changed `fixtures/`, `manifest.exs`, and `REPORT.md`. Review the
-   `REPORT.md` diff (not the binary PNGs) for what moved.
+```shell
+mise run diff:bake
+```
 
-For a `tol` tweak or a `:diverges`→`:equal` verdict flip (no pixels change), refresh the
-manifest's authored hashes without Docker: `mise exec -- mix imgproxy.reauthor`.
+It bakes every fixture + `manifest.exs` + `REPORT.md` against the pinned container and
+restores the default-lane build — no manual `IMGPROXY_DIFF` / Ryuk / recompile juggling.
+A parse gate validates every constellation's path first and aborts (listing the
+offenders) before the container starts, so a typo or unsupported option fails fast rather
+than after a bake. (A `:triage`-quarantined constellation is skipped by the gate — see
+*Quarantine mechanism* — so a known parser gap can sit in the suite without blocking the
+bake.)
 
-Rebuild the source images only deliberately (a libvips bump must not silently change
-inputs): `mise exec -- mix imgproxy.gen_sources`.
+Then review the `REPORT.md` diff (not the binary PNGs) for what moved, run
+`mix imgproxy.diagnose` on any failures (see below), and commit the changed `fixtures/`,
+`manifest.exs`, and `REPORT.md`.
 
-(`imgproxy.reauthor`, `imgproxy.gen_sources`, and `imgproxy.gen_report` live in
-`test/support`, so they auto-select `MIX_ENV=test` via `mix.exs` `preferred_envs` — no
-prefix needed. `imgproxy.gen_fixtures` is the exception: it also needs `IMGPROXY_DIFF=1`,
-shown explicitly above.)
+For a `tol` tweak or a `:diverges`→`:equal` flip (no pixels change), skip the bake and
+refresh the manifest's authored hashes: `mix imgproxy.reauthor`. Rebuild the source
+images only deliberately (a libvips bump must not silently change inputs):
+`mix imgproxy.gen_sources`.
+
+(`imgproxy.reauthor`, `imgproxy.gen_sources`, `imgproxy.gen_report`, and
+`imgproxy.diagnose` auto-select `MIX_ENV=test` via `mix.exs` `preferred_envs` — no prefix
+needed; the Docker bake goes through `mise run diff:bake`.)
 
 ## Visual-diff report (no Docker)
 
@@ -88,18 +88,29 @@ mise exec -- mix imgproxy.diagnose                                           # w
 After changing only a `tol`, refresh the authored hashes with `mix imgproxy.reauthor`
 (no Docker) rather than re-baking.
 
-## The per-PR loop
+## The per-PR loop (driving rules)
+
+The bake is the oracle: `gen_fixtures` runs the pinned container, so imgproxy's output
+can't be authored wrong — only a constellation's `verdict` and `tol` are. Treat any
+DIVERGE/PASS prediction (e.g. in a backlog issue) as a **triage prior**, not arithmetic to
+re-derive by hand. A fixture-only change (adding or retuning constellations, no `lib/`
+change) needs no written plan or review cycle.
+
+**Batch size is not capped.** One regen bakes every changed fixture at once and no human
+gates the `REPORT.md` diff, so a PR may add as many fixtures as is coherent to land
+together. The only cost that doesn't amortize across a single bake is per-divergence
+triage, which concentrates in genuine bug-hunts — the PASS-confirmation bulk is nearly
+free.
 
 1. Translate each backlog item into a `constellations.ex` entry (real parser forms;
    `verdict: :equal` by default, `:diverges` only for a known algorithmic divergence).
-2. Bake once (above) — one regen covers every changed fixture. The bake is the oracle:
-   imgproxy's output can't be authored wrong, only the `verdict`/`tol`.
+2. `mise run diff:bake` — one regen covers every changed fixture.
 3. `mix imgproxy.diagnose` the failures and sort each: PASS at default → keep; skew over
-   budget → set `tol` + a one-line rationale, `reauthor`; genuine divergence → quarantine
-   (`:triage` + tracking issue) or fix.
+   budget → set `tol` + a one-line rationale, `mix imgproxy.reauthor`; genuine divergence
+   → quarantine (`:triage` + a tracking issue) or fix. Never widen a tol to hide a
+   structural shift (`maxΔ` ≪ ~255 is the skew signal — see *Triage a bake*).
 4. Green the default lane (`mix test`) + the precommit gate.
-5. Sync docs (`docs/imgproxy_support_matrix.md` if a coverage/divergence claim moved; the
-   quarantine table here).
+5. Sync docs (`docs/imgproxy_support_matrix.md` if a coverage/divergence claim moved).
 
 ## libvips provenance — record both, compare anyway
 
@@ -118,9 +129,6 @@ may still reflect a libvips-version difference rather than an ImagePipe regressi
 the note's two versions when triaging. (`:diverges` constellations pin an algorithmic
 divergence, not a kernel-version one, so they are unaffected.)
 
-Recorded at bootstrap: imgproxy libvips `42.20.2` (.so ABI soname, ≈ release 8.17.x) and
-ImagePipe `8.18.2` (release) produced **0.0% pixel difference over Δ2** on every ✅ stage.
-
 ## Quarantine mechanism
 
 A constellation can be quarantined while a discrepancy it surfaced is triaged: set a
@@ -134,25 +142,12 @@ MIX_ENV=test mise exec -- mix test test/image_pipe/imgproxy_differential_conform
 ```
 
 `:triage` is not an authored field, so quarantining or un-quarantining alone does not
-require a manifest reauthor. No constellations are currently quarantined. The cases
-quarantined during earlier triage have all been resolved and now run in the default lane:
+require a manifest reauthor. The current set of quarantined cases (and the tracking issue
+each points to) lives in `constellations.ex`, not here — read the `:triage` keys there.
 
-| constellation | surfaced | resolved |
-|---|---|---|
-| `extend_ar_dpr_marker` | [#199](https://github.com/hlindset/image_pipe/issues/199) — stage-6 fit+dpr rounding fold (two rounds vs imgproxy's single `imath.Scale`) | [#218](https://github.com/hlindset/image_pipe/pull/218) — fold fit/zoom/dpr into one `imath.Scale` per axis |
-| `extend_offset_east_marker` | [#200](https://github.com/hlindset/image_pipe/issues/200) — stage-10 extend east/south offset sign + clamp | [#218](https://github.com/hlindset/image_pipe/pull/218) — subtract + clamp the offset for right/bottom anchors |
-| `exif_5_cover_rot90` / `exif_7_cover_rot90` | [#211](https://github.com/hlindset/image_pipe/issues/211) — stage-7 transpose/transverse ∘ user `rot:90` 1px edge seam | [#219](https://github.com/hlindset/image_pipe/pull/219) — exact `vips_rot` instead of the affine `vips_rotate` |
+Quarantine also covers a **parser gap**: a combination that *should* parse (imgproxy
+accepts it) but ImagePipe's parser does not yet. Mark it `:triage` (reason + tracking
+issue) and the pre-bake parse gate skips it, so it stays in the suite as a tracked gap —
+imgproxy still bakes its fixture — without aborting the bake. Drop the `:triage` to light
+it up once the parser supports the option.
 
-## Resolved bootstrap findings (#194–#197)
-
-The first bootstrap (imgproxy `42.20.2` vs ImagePipe `8.18.2`) surfaced four
-discrepancies, all since resolved:
-
-| constellation | opts | finding | resolution |
-|---|---|---|---|
-| `min_dims_clamp` | `rs:fit:300:300/mw:280/mh:280` | ImagePipe 373×280 vs imgproxy 300×280 | **Bug fixed** ([#194](https://github.com/hlindset/image_pipe/issues/194)): the fit path lacked imgproxy's `cropToResult`, so the `mw`/`mh` upscale was never cropped back to the requested box. Now `:equal` with a Δ32 tol absorbing libvips-version resampling skew on the zone-plate source (max Δ27, no structural flips). |
-| `extend_small` | `rs:fit:300:200/ex:1` | ~0.67% over Δ2 in the padded region | **Bug fixed** ([#195](https://github.com/hlindset/image_pipe/issues/195)): `ExtendCanvas` centered with a floor of `(canvas−image)/2` instead of imgproxy's `ShrinkToEven(canvas−image+1, 2)`, slipping content 1px. Now `:equal` at 0 over Δ2. |
-| `extend_ar_small` | `rs:fit:300:200/exar:1` | ~0.5% over Δ2 | **Bug fixed** ([#196](https://github.com/hlindset/image_pipe/issues/196)): same center-placement root cause as #195. Now `:equal` at 0 over Δ2. |
-| `fill_down_marker` | `rs:fill-down:500:500` | 166 band-bytes over Δ2 (≈0.02%) | **Sub-pixel seam** ([#197](https://github.com/hlindset/image_pipe/issues/197)): localized at one sharp red→dark marker edge (max Δ14, edge not shifted), libvips-version anti-aliasing — not a placement shift. `:equal` with budget widened to 256 (a real crop shift blows far past it). |
-
-All constellations pass on the default lane, with none currently quarantined.

@@ -90,10 +90,16 @@ if Code.ensure_loaded?(Testcontainers) do
 
     # Parse every constellation's path through the real parser before baking, so a
     # typo'd or unsupported option aborts the run (with the offending ids) instead of
-    # spinning the container and producing a wrong/absent fixture.
+    # spinning the container and producing a wrong/absent fixture. Quarantined
+    # (`:triage`) cases are skipped: a known parser gap (a combo imgproxy accepts but
+    # ImagePipe's parser does not yet) can sit in the suite, tracked, without blocking
+    # the bake — its fixture still bakes from imgproxy, and the conformance lane excludes
+    # it until the `:triage` is dropped.
     defp validate_parses! do
       failures =
-        Enum.flat_map(Constellations.all(), fn c ->
+        Constellations.all()
+        |> Enum.reject(& &1[:triage])
+        |> Enum.flat_map(fn c ->
           case Imgproxy.parse(conn(:get, Constellations.imgproxy_path(c))) do
             {:ok, _plan} -> []
             other -> [{c.id, other}]
