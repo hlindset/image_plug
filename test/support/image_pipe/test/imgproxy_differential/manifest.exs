@@ -337,6 +337,12 @@
       fixture_sha256: "6f88a30a85bafce0da26d6f78481e833d2f3fab467ca69029b3b7dd84cd424e9",
       kind: :transform
     },
+    "extend_inert_marker" => %{
+      authored_sha256: "26a4abb8b2992a757d8e8dee1d10bdfe05eba3ed3b7f217ad58058a7df1035a6",
+      fixture_filename: "extend_inert_marker.png",
+      fixture_sha256: "bba860e367017abb1dcfc0797f5f581329399223baf36bd5ddb2ac59e79a8558",
+      kind: :transform
+    },
     "extend_offset_dpr_marker" => %{
       authored_sha256: "15f91d1d8a10b39d94a9cd4d5dc95e018036fefe4d4173294041fdf91ded0eb9",
       fixture_filename: "extend_offset_dpr_marker.png",

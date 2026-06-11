@@ -219,6 +219,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # leaving the offset inert) — a stronger pin than the single-axis
       # extend_offset_east_marker. PASS-confirmation since #200 landed (#218).
       c("extend_corner_offset_small", :small, "rs:fit:400:300/ex:1:soea:20:20"),
+      # #220: the INERT-extend sibling of T1.7. marker (1600×1200, 4:3) fits the
+      # 4:3 box exactly (scale 0.25 → 400×300 == the ex:1 target), so the soea
+      # offset clamps to 0 and no border is added. imgproxy's extendImage() returns
+      # early (`width <= imgWidth && height <= imgHeight`) leaving the untouched
+      # 3-band RGB; ExtendCanvas previously still ran Image.embed and emitted 4-band
+      # RGBA (a band-layout FINDING, not pixel-comparable). The no-op short-circuit
+      # closes it — both sides are now the 3-band fit result, so this pins band parity.
+      c("extend_inert_marker", :marker, "rs:fit:400:300/ex:1:soea:20:20"),
       # T1.8: EXIF-6 ∘ user rot:90 compose (#146 deferred PendingOrientation). After
       # #211/#219 the rotation-primitive seam is gone and the harder transpose/transverse
       # ∘ rot:90 already passes, so this quarter-turn ∘ quarter-turn is a PASS-confirmation.

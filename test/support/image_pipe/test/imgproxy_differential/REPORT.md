@@ -59,6 +59,7 @@
 - `extend_dpr_fractional_marker` — transform
 - `extend_gravity_north_small` — transform
 - `extend_gravity_small` — transform
+- `extend_inert_marker` — transform
 - `extend_offset_dpr_marker` — transform
 - `extend_offset_east_marker` — transform
 - `extend_padding_stack_small` — transform

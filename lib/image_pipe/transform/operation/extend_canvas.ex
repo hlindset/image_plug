@@ -105,11 +105,22 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
   @impl ImagePipe.Transform
   def execute(%__MODULE__{} = operation, %State{} = state) do
     with {:ok, {width, height}} <- canvas_dimensions(state, operation.rule),
+         false <- inert_extend?(state, width, height),
          {:ok, image} <- embed_image(state, operation, width, height) do
       {:ok, set_image(state, image)}
     else
+      true -> {:ok, state}
       {:error, reason} -> {:error, {__MODULE__, reason}}
     end
+  end
+
+  # imgproxy extendImage() returns early when the canvas doesn't grow on either
+  # axis (`width <= imgWidth && height <= imgHeight`), leaving the image
+  # untouched. canvas_dimensions/2 already clamps to max(image, requested), so an
+  # inert extend yields canvas dims == image dims; skip the embed so no alpha
+  # channel is introduced.
+  defp inert_extend?(%State{} = state, width, height) do
+    width == image_width(state) and height == image_height(state)
   end
 
   defp canvas_dimensions(%State{} = state, {:dimensions, width, height}) do
