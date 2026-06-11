@@ -24,7 +24,9 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Manifest do
   # `entries` map serializes in an unstable order and every regeneration churns the
   # whole file. Emit `sources` and `entries` as explicitly key-sorted map literals
   # (the formatter then lays them out canonically) so the committed manifest stays
-  # deterministically git-diffable at any size.
+  # deterministically git-diffable at any size. The sort recurses into inner maps
+  # (each `entries` value, and any map nested within) so their key order is fixed by
+  # this code, not by `inspect`'s incidental small-map sorting.
   defp render(%{} = manifest) do
     "%{" <>
       "imgproxy_digest: #{inspect(manifest.imgproxy_digest)}," <>
@@ -38,12 +40,18 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Manifest do
     body =
       map
       |> Enum.sort_by(fn {key, _value} -> key end)
-      |> Enum.map_join(",", fn {key, value} ->
-        "#{inspect(key)} => #{inspect(value, limit: :infinity, printable_limit: :infinity)}"
-      end)
+      |> Enum.map_join(",", fn {key, value} -> pair_literal(key, value) end)
 
     "%{#{body}}"
   end
+
+  # Atom keys render in keyword shorthand (`kind: …`) to match `inspect`'s style;
+  # string keys (e.g. `sources`/`entries` ids) keep the `=>` form.
+  defp pair_literal(key, value) when is_atom(key), do: "#{key}: #{value_literal(value)}"
+  defp pair_literal(key, value), do: "#{inspect(key)} => #{value_literal(value)}"
+
+  defp value_literal(map) when is_map(map), do: sorted_map_literal(map)
+  defp value_literal(value), do: inspect(value, limit: :infinity, printable_limit: :infinity)
 
   @doc "Load and validate a manifest term from `path`."
   @spec load!(Path.t()) :: map()
