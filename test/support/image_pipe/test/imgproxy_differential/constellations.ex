@@ -155,7 +155,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # interaction for extend; the existing padding_border case has no dpr.
       c("padding_dpr_border", :border, "rs:fit:120:120/pd:10:20/dpr:2"),
 
-      # --- :diverges (whole-frame fraction metric; runs regardless of libvips skew) ---
+      # --- :diverges (whole-frame fraction metric; runs regardless of libvips-version drift) ---
       # #124: with scp:0 ImagePipe skips the P3 working-space conversion imgproxy
       # always performs, so processing diverges. The effect is diffuse (~2.6% of
       # band-bytes exceed Δ2 on the P3 source), so it is measured as a whole-frame
