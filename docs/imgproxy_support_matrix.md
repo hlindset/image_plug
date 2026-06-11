@@ -754,8 +754,8 @@ transforms or output encoding.
 | `zoom` | `z` | Supported | Single value or separate x/y factors. |
 | `dpr` | | Supported | Affects resize sizing and cache key data. |
 | `enlarge` | `el` | Supported | boolean. |
-| `extend` | `ex` | Supported | Canvas extension with anchor gravity and offsets, with effective DPR scaling of the target box and absolute offsets (see stage 10 for the east/south sign divergence #200). |
-| `extend_aspect_ratio` | `extend_ar`, `exar` | Supported | boolean extend plus gravity. Extends the canvas to the requested resize aspect ratio. `fp` extend-gravity isn't supported (matches `extend`). No-op when a resize dimension is auto or zero. |
+| `extend` | `ex` | Supported | Canvas extension with anchor gravity and offsets, with effective DPR scaling of the target box and absolute offsets (see stage 10 for the east/south sign divergence #200). **Diverges (surface):** extend gravity admits only the nine cardinal/corner anchors; imgproxy's `ExtendGravityTypes` also accepts focal-point (`fp`), so `ex:1:fp:x:y` parses upstream but is rejected here (#203 T3.2). |
+| `extend_aspect_ratio` | `extend_ar`, `exar` | Supported | boolean extend plus gravity. Extends the canvas to the requested resize aspect ratio. `fp` extend-gravity isn't supported (matches `extend` — see its divergence note). No-op when a resize dimension is auto or zero. |
 | `gravity` anchors | `g` | Supported | `ce`, `no`, `so`, `ea`, `we`, `noea`, `nowe`, `soea`, `sowe`. |
 | `gravity:fp` | `g:fp` | Supported | Focal point coordinates from `0.0` to `1.0`. |
 | `gravity:sm` | `g:sm` | Supported | Smart gravity via libvips attention smart crop (`VIPS_INTERESTING_ATTENTION`). |

@@ -671,6 +671,62 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilderTest do
     assert resize.dpr == ratio(2, 1)
   end
 
+  # #203 Tier 3 — zero/auto-dim and DPR dimension rules settled at the planner layer
+  # against imgproxy's `prepare.go` geometry. T3.6 in particular can't be a pixel
+  # fixture: its dpr-scaled output dims diverge from any committable baseline and
+  # `pixel_compare` raises on a dims mismatch.
+
+  test "exar gates off on a single zero/auto dimension while min-dims stay live (T3.3)" do
+    # imgproxy applies extend-aspect-ratio only when both target dims are > 0
+    # (`prepare.go`: `c.TargetWidth > 0 && c.TargetHeight > 0`); ImagePipe's
+    # `resize_target_ratio` carries the same `w > 0 and h > 0` guard, so a single
+    # zero/auto dim emits no canvas. `rs:fit:300:0/exar:1` → resize only.
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
+             plan_pipeline(
+               width: {:pixels, 300},
+               height: {:pixels, 0},
+               extend_aspect_ratio: true
+             )
+
+    assert [%Operation.Resize{mode: :fit} = resize] = ops
+    assert resize.width == pixels(300)
+    assert resize.height == auto()
+    refute Enum.any?(ops, &match?(%Operation.Canvas{}, &1))
+
+    # Min-dims are NOT gated by a zero dim — imgproxy applies minWidth/minHeight
+    # unconditionally in `calcScale` (`prepare.go`). `rs:fit:0:200/mw:280` keeps mw.
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.Resize{} = min_resize]}]}} =
+             plan_pipeline(
+               width: {:pixels, 0},
+               height: {:pixels, 200},
+               min_width: {:pixels, 280}
+             )
+
+    assert min_resize.width == auto()
+    assert min_resize.height == pixels(200)
+    assert min_resize.min_width == pixels(280)
+  end
+
+  test "raw fit + dpr folds into the resize with no canvas wrapper (T3.6)" do
+    # `rs:fit:300:200/dpr:2` carries the DPR on the resize itself (final 600x400);
+    # no extend/padding wrapper means the output dims diverge from a 300x200 baseline,
+    # so it can only be settled here, not as a pixel fixture.
+    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
+             plan_pipeline(
+               resizing_type: :fit,
+               width: {:pixels, 300},
+               height: {:pixels, 200},
+               dpr: 2.0
+             )
+
+    assert [%Operation.Resize{mode: :fit} = resize] = ops
+    assert resize.width == pixels(300)
+    assert resize.height == pixels(200)
+    assert resize.dpr == ratio(2, 1)
+    refute Enum.any?(ops, &match?(%Operation.Canvas{}, &1))
+    refute Enum.any?(ops, &match?(%Operation.Padding{}, &1))
+  end
+
   test "plans parsed crop and orientation semantics before no-op operations" do
     assert {:ok, %Plan{pipelines: [%Pipeline{operations: [%Operation.CropGuided{}]}]}} =
              plan_pipeline(crop: struct(ImagePipe.Parser.Imgproxy.CropRequest))
