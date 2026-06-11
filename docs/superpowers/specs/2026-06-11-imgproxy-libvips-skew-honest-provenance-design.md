@@ -122,8 +122,9 @@ updated in the same change (conformance-doc-sync rule, **stage/order** axis):
 - `gen_fixtures` `container_libvips/1` comment — "the skew identifier" → "the
   provenance identifier" (folded into change 5).
 
-The descriptive "libvips-version resampling skew" in the matrix's `min_dims_clamp`
-row stays — there "skew" means resampling *error*, not the removed detection model.
+The descriptive "libvips-version resampling skew" in the harness README's
+`min_dims_clamp` findings row (and a `constellations.ex` comment) stays — there
+"skew" means resampling *error*, not the removed detection model.
 
 ## Out of scope / unchanged
 

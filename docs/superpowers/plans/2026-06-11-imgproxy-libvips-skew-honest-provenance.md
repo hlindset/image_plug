@@ -480,12 +480,13 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Confirm the only remaining matrix "skew" is the descriptive one**
+- [ ] **Step 1: Confirm the removed "skew model" language is gone from the docs**
 
 Run: `grep -n "skew\|aligned?" docs/imgproxy_support_matrix.md`
-Expected: a single match — the descriptive "libvips-version resampling skew" in the
-`min_dims_clamp` row (a term for resampling *error*, not the removed detection model).
-No "skew-gated", "skew model", or "aligned?".
+Expected: no matches (its only two — "skew-gated" and "skew model" — were replaced in
+Task 6). The descriptive "libvips-version resampling skew" (resampling *error*, not the
+removed detection model) lives in the harness README's `min_dims_clamp` findings row and
+is correct to keep; it does not appear in the matrix.
 
 - [ ] **Step 2: Run the Elixir gate**
 
