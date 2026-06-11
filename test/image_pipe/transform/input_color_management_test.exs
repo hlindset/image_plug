@@ -1,6 +1,9 @@
 defmodule ImagePipe.Transform.InputColorManagementTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Transform.InputColorManagement, as: ICM
+  alias ImagePipe.Transform.State
+  alias Vix.Vips.Image, as: VixImage
+  alias Vix.Vips.Operation
 
   # Minimal 128-byte profile with the given 4-byte tag at offset 20 (PCS field).
   defp profile_with_pcs(tag) do
@@ -22,7 +25,10 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
       # offset 0–7: profile size + preferred CMM (ignored)
       0::size(8 * 8),
       # offset 8–11: version 2.1 = <<2, 16, 0, 0>>
-      2, 16, 0, 0,
+      2,
+      16,
+      0,
+      0,
       # offset 12–15: profile/device class (ignored)
       0::size(4 * 8),
       # offset 16–19: colorspace "RGB "
@@ -46,7 +52,11 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
     >>
   end
 
-  @p3_fixture "test/support/image_pipe/test/imgproxy_differential/sources/icc_p3.png"
+  @sources "test/support/image_pipe/test/imgproxy_differential/sources"
+  @p3_fixture "#{@sources}/icc_p3.png"
+  @plain_srgb_fixture "#{@sources}/small.png"
+  @cmyk_fixture "#{@sources}/cmyk.jpg"
+  @rgba16_fixture "#{@sources}/rgba16.png"
 
   describe "pcs/1" do
     test "returns :VIPS_PCS_XYZ when bytes 20–23 are 'XYZ '" do
@@ -108,6 +118,82 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
     end
   end
 
+  describe "condition/2" do
+    setup do
+      %{open: fn path -> Image.open!(path, access: :sequential) end}
+    end
+
+    test "idempotent when color already imported", %{open: open} do
+      img = open.(@p3_fixture)
+      state = %State{image: img, color_imported?: true, source_color_profile: <<1, 2, 3>>}
+      assert {:ok, ^state} = ICM.condition(state, supports_hdr?: false)
+    end
+
+    test "wide-gamut (Display-P3) imports: records profile, sets imported, lands sRGB", %{
+      open: open
+    } do
+      img = open.(@p3_fixture)
+      {:ok, out} = ICM.condition(%State{image: img}, supports_hdr?: false)
+      assert out.color_imported? == true
+      assert is_binary(out.source_color_profile)
+      assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
+    end
+
+    test "untagged sRGB is a no-op: no import, no backup, still sRGB", %{open: open} do
+      img = open.(@plain_srgb_fixture)
+      {:ok, out} = ICM.condition(%State{image: img}, supports_hdr?: false)
+      assert out.color_imported? == false
+      assert out.source_color_profile == nil
+      assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
+    end
+
+    test "CMYK with embedded profile imports and lands sRGB", %{open: open} do
+      img = open.(@cmyk_fixture)
+      {:ok, out} = ICM.condition(%State{image: img}, supports_hdr?: false)
+      assert out.color_imported? == true
+      assert is_binary(out.source_color_profile)
+      assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
+    end
+
+    test "16-bit RGB with alpha imports via band split/rejoin and keeps the alpha band", %{
+      open: open
+    } do
+      img = open.(@rgba16_fixture)
+      assert VixImage.bands(img) == 4
+      {:ok, out} = ICM.condition(%State{image: img}, supports_hdr?: false)
+      assert out.color_imported? == true
+      assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
+      assert VixImage.bands(out.image) == 4
+    end
+
+    test "linear (scRGB) drops profile, does not record backup, still converts", %{open: open} do
+      # Start from a profiled source so the profile-drop is genuinely exercised.
+      img = open.(@p3_fixture)
+      {:ok, profile} = VixImage.header_value(img, "icc-profile-data")
+      assert is_binary(profile)
+      {:ok, linear} = Operation.colourspace(img, :VIPS_INTERPRETATION_scRGB)
+
+      {:ok, linear} =
+        VixImage.mutate(linear, fn m ->
+          :ok = Vix.Vips.MutableImage.set(m, "icc-profile-data", :VipsBlob, profile)
+        end)
+
+      assert {:ok, _} = VixImage.header_value(linear, "icc-profile-data")
+      {:ok, out} = ICM.condition(%State{image: linear}, supports_hdr?: false)
+      assert out.color_imported? == false
+      assert out.source_color_profile == nil
+      assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
+      assert VixImage.header_value(out.image, "icc-profile-data") == {:error, "No such field"}
+    end
+
+    test "dimensions are preserved by conditioning", %{open: open} do
+      img = open.(@p3_fixture)
+      {w, h} = {VixImage.width(img), VixImage.height(img)}
+      {:ok, out} = ICM.condition(%State{image: img}, supports_hdr?: false)
+      assert {VixImage.width(out.image), VixImage.height(out.image)} == {w, h}
+    end
+  end
+
   describe "working_space/2 (supports_hdr?: false)" do
     test "8-bit color and grey stay as-is" do
       assert ICM.working_space(:VIPS_INTERPRETATION_sRGB, false) == :VIPS_INTERPRETATION_sRGB
@@ -123,6 +209,21 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
     test "CMYK and unknown go to sRGB" do
       assert ICM.working_space(:VIPS_INTERPRETATION_CMYK, false) == :VIPS_INTERPRETATION_sRGB
       assert ICM.working_space(:VIPS_INTERPRETATION_scRGB, false) == :VIPS_INTERPRETATION_sRGB
+    end
+  end
+
+  describe "working_space/2 (supports_hdr?: true)" do
+    test "RGB16 stays RGB16" do
+      assert ICM.working_space(:VIPS_INTERPRETATION_RGB16, true) == :VIPS_INTERPRETATION_RGB16
+    end
+
+    test "GREY16 stays GREY16" do
+      assert ICM.working_space(:VIPS_INTERPRETATION_GREY16, true) == :VIPS_INTERPRETATION_GREY16
+    end
+
+    test "other interpretations (e.g. scRGB, LAB) map to RGB16" do
+      assert ICM.working_space(:VIPS_INTERPRETATION_scRGB, true) == :VIPS_INTERPRETATION_RGB16
+      assert ICM.working_space(:VIPS_INTERPRETATION_LAB, true) == :VIPS_INTERPRETATION_RGB16
     end
   end
 end
