@@ -10,6 +10,14 @@ run = [
   "pnpm -C fiddle install --frozen-lockfile",
 ]
 
+[tasks."diff:setup"]
+description = "Prepare the imgproxy differential bake env: fetch the IMGPROXY_DIFF-gated dep (testcontainers) and compile, so `mix imgproxy.gen_fixtures` works without per-command env juggling"
+env = { MIX_ENV = "test", IMGPROXY_DIFF = "1" }
+run = [
+  "mix deps.get",
+  "mix compile --force",
+]
+
 [tasks.precommit]
 description = "Elixir library checks: format, compile (warnings as errors), credo, test"
 run = [

@@ -7,7 +7,13 @@ imgproxy's committed output and ImagePipe's live output and compares pixels.
 
 ## Regenerate (requires Docker)
 
-1. Add or edit a constellation in `constellations.ex`.
+First time in a worktree, run `mise run diff:setup` once — it fetches the
+`IMGPROXY_DIFF`-gated dep (testcontainers) and compiles, so the bake commands below
+work without per-command env juggling.
+
+1. Add or edit a constellation in `constellations.ex`. (`gen_fixtures` parses every
+   constellation's path first and aborts — listing the offenders — before starting the
+   container, so a typo'd or unsupported option fails fast rather than after a bake.)
 2. `MIX_ENV=test IMGPROXY_DIFF=1 mise exec -- mix compile --force`
    (the `--force` is required: toggling `IMGPROXY_DIFF` does not by itself trigger a
    recompile, so the env-gated `gen_fixtures` task module won't otherwise be defined.)
@@ -45,6 +51,55 @@ base64; regenerate on demand). Cases needing attention (over-budget, quarantined
 dims-mismatch, a `:diverges` case that now matches, or authored-hash drift) sort to the
 top, and a top-of-page counts line summarizes them. The slider and Geist fonts load from
 a CDN; with no network the side-by-side panels remain the source of truth.
+
+## Triage a bake (no Docker)
+
+When a freshly baked case fails the conformance lane, `mix imgproxy.diagnose` prints a
+one-line summary per constellation — output dims, band layout, the maximum band-byte
+delta, a `>Δ2`/`>Δ16`/`>Δ32` histogram, and PASS/over-budget against the authored tol —
+by rendering ImagePipe live against the committed fixture (the same `Harness` the
+conformance test uses):
+
+```shell
+mise exec -- mix imgproxy.diagnose exif_extend_south trim_resize_high_freq   # specific cases
+mise exec -- mix imgproxy.diagnose                                           # whole suite
+```
+
+**Reading it — skew vs structural.** `maxΔ` is the deciding signal:
+
+- **Diffuse resampling skew** (a libvips-version difference, not a bug) keeps `maxΔ` low —
+  tens of levels — even when many band-bytes exceed Δ2. Absorb it with a tolerance.
+- **A placement/crop/scale shift** misaligns high-contrast edges, pushing `maxΔ` toward
+  ~255. That is a real divergence — never widen a tol to hide it; quarantine (`:triage` +
+  a tracking issue) or fix.
+- **A band/dim mismatch** prints `FINDING` (not pixel-comparable) — itself a divergence
+  (e.g. an extend that adds a spurious alpha channel, #220).
+
+**Tolerance conventions** (`tol: %{threshold, budget}` on the constellation; default
+`Δ2 / budget 64`):
+
+- Sharp-edge sources (`marker`/`border`) with a small AA seam at one edge: keep the
+  **strict Δ2** threshold and widen only the **budget** just above the measured seam —
+  more sensitive than raising the threshold, since a structural shift blows the budget.
+- Zone-plate / heavy-downscale sources (`high_freq`, rotated EXIF blocks): the skew is
+  diffuse and higher-amplitude, so set the **threshold just above the measured `maxΔ`**
+  with a tight budget (Δ32 is typical; the worst cells need more).
+
+After changing only a `tol`, refresh the authored hashes with `mix imgproxy.reauthor`
+(no Docker) rather than re-baking.
+
+## The per-PR loop
+
+1. Translate each backlog item into a `constellations.ex` entry (real parser forms;
+   `verdict: :equal` by default, `:diverges` only for a known algorithmic divergence).
+2. Bake once (above) — one regen covers every changed fixture. The bake is the oracle:
+   imgproxy's output can't be authored wrong, only the `verdict`/`tol`.
+3. `mix imgproxy.diagnose` the failures and sort each: PASS at default → keep; skew over
+   budget → set `tol` + a one-line rationale, `reauthor`; genuine divergence → quarantine
+   (`:triage` + tracking issue) or fix.
+4. Green the default lane (`mix test`) + the precommit gate.
+5. Sync docs (`docs/imgproxy_support_matrix.md` if a coverage/divergence claim moved; the
+   quarantine table here).
 
 ## libvips provenance — record both, compare anyway
 

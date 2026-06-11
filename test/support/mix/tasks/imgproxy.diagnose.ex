@@ -79,7 +79,7 @@ defmodule Mix.Tasks.Imgproxy.Diagnose do
     {{w, h}, _} = d.dims
     {ba, _} = d.bands
     over = d.over
-    hist = @thresholds |> Enum.map(fn t -> ">Δ#{t}=#{Map.fetch!(over, t)}" end) |> Enum.join(" ")
+    hist = Enum.map_join(@thresholds, " ", fn t -> ">Δ#{t}=#{Map.fetch!(over, t)}" end)
     pass? = Map.fetch!(over, tol.threshold) <= tol.budget
 
     "dims #{w}×#{h}  bands #{ba}  maxΔ=#{d.max_delta}  #{hist}  " <>

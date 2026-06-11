@@ -13,6 +13,7 @@ if Code.ensure_loaded?(Testcontainers) do
 
     import Plug.Test, only: [conn: 2]
 
+    alias ImagePipe.Parser.Imgproxy
     alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest}
 
     @image "darthsim/imgproxy@sha256:9ed8f87b34d55c7844951ff65bcf6605de54ba6670f64951c7215f9b125a482e"
@@ -93,7 +94,7 @@ if Code.ensure_loaded?(Testcontainers) do
     defp validate_parses! do
       failures =
         Enum.flat_map(Constellations.all(), fn c ->
-          case ImagePipe.Parser.Imgproxy.parse(conn(:get, Constellations.imgproxy_path(c))) do
+          case Imgproxy.parse(conn(:get, Constellations.imgproxy_path(c))) do
             {:ok, _plan} -> []
             other -> [{c.id, other}]
           end
