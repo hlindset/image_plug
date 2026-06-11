@@ -87,17 +87,18 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp seed_color_management(%State{telemetry_opts: telemetry_opts} = state, opts) do
     if Keyword.get(opts, :seed_orientation, false) do
       Telemetry.span(telemetry_opts, [:transform, :input_color_management], %{}, fn ->
-        run_color_management(state)
+        run_color_management(state, opts)
       end)
     else
       {:ok, state}
     end
   end
 
-  defp run_color_management(%State{image: image} = state) do
-    working_space = InputColorManagement.working_space(VipsImage.interpretation(image), false)
+  defp run_color_management(%State{image: image} = state, opts) do
+    hdr? = Keyword.get(opts, :supports_hdr?, false)
+    working_space = InputColorManagement.working_space(VipsImage.interpretation(image), hdr?)
 
-    case InputColorManagement.condition(state, supports_hdr?: false) do
+    case InputColorManagement.condition(state, supports_hdr?: hdr?) do
       {:ok, %State{} = new_state} ->
         {{:ok, new_state},
          %{result: :ok, working_space: working_space, imported?: new_state.color_imported?}}
