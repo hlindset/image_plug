@@ -5,6 +5,7 @@
   sources: %{
     "alpha.png" => "7ef18f9ce1e08b6752fa8e55caf0819882d3779b997b65ec7a6c0c45e3a75fee",
     "border.png" => "350a6d992b4204dc619ccc492475ced70509b9f350fb7aed6f6156cb5efe1952",
+    "cmyk.jpg" => "f9a2284e1cc325984e203a4c9ad929d8a7729fe5629ba4fb9d5c21d5dcfa0f0d",
     "exif_2.jpg" => "8756ad8af4a475b0f3a3a6899d9f4e4133fb6ba9db48de3de0351c0a89c41a47",
     "exif_3.jpg" => "1d1f1f82266ae21079b7da91a715f540e260f38a4aca56e99b6c2d40b1367ea4",
     "exif_4.jpg" => "b56080f10510693331c1cfb35028b401c7d8958505710ec3bdc098c2e4df7042",
@@ -16,6 +17,8 @@
     "high_freq.webp" => "32d8e080d7e440b6329a441d2913222906d320bdeb060e956eb68a297c51df18",
     "icc_p3.png" => "80ce9bc055c01a12a9d8bf3db1693a1b46995f66bfdb796503636122de264869",
     "marker.png" => "cbb47b49a36fc7a8b37233c862e1d4b88174ec6bf81876223779b4ce3c52120d",
+    "rgb16.png" => "cd300986b996e5fcf399b51e901065eb8a18e168f807af561471ca6a3884fd7f",
+    "rgba16.png" => "1deb18213337dc46b613913fa2e8d483867accb34f5a651517a095997bd0689e",
     "small.png" => "517719b9e7ad77f867266b8c4e135d383cdc94c3bf14f7bc26c2060a98ae870a"
   },
   entries: %{
@@ -47,6 +50,12 @@
       authored_sha256: "f74b9ff49a4d8a450b85cbb88d267a3fbf7a8ad6e3f775ecccdbbf9e56a1df85",
       fixture_filename: "blur_zone.png",
       fixture_sha256: "02e9f874b5b4bf5cf007a844040bc7e3806abdd55216d67e024b737a71c8ecd3",
+      kind: :transform
+    },
+    "cmyk_import" => %{
+      authored_sha256: "d176f8ab6e8197ebba123ac6f171b5aa8b4db67e7175a5e30c40b2926459f198",
+      fixture_filename: "cmyk_import.png",
+      fixture_sha256: "07ea4512ae7553c728079da15bacda4f693790f1d6b993e4816218193f986326",
       kind: :transform
     },
     "cover_corner_gravity_marker" => %{
@@ -131,6 +140,12 @@
       authored_sha256: "00cb87a055c6a296f88bfe865e9d0a5b4aec84d6574881a67a73c8c82d5e32b7",
       fixture_filename: "dpr_marker.png",
       fixture_sha256: "e5fb54254c615ec898969e041fcb1e9e53fa3961045bd28ce846d899a520c0e1",
+      kind: :transform
+    },
+    "effects_chain_order_high_freq" => %{
+      authored_sha256: "d650edfbc3f4c5dffe83824b13d09c8b28d28fbededcdb2f1b12d56cd157ca77",
+      fixture_filename: "effects_chain_order_high_freq.png",
+      fixture_sha256: "6dabd60fea767033d02075a8815bdabf88f716dbbe1cb3630a108c654e14a203",
       kind: :transform
     },
     "enlarge_small" => %{
@@ -458,6 +473,36 @@
       authored_sha256: "d5b7f5cb45fa28d7707f418705c24481fc357ca313e29329d8867c7a6376e048",
       fixture_filename: "padding_dpr_border.png",
       fixture_sha256: "423ee3f25796212d24fab9eef6ad27de8f67fb62d69eeae973b2f893b37c2b15",
+      kind: :transform
+    },
+    "pixelate_marker" => %{
+      authored_sha256: "a34bf218e3c0a326473370292f0a6cc8dec9ce26b9ece5d01631c1a76ea012b5",
+      fixture_filename: "pixelate_marker.png",
+      fixture_sha256: "522a35bf4f754db93a6d6816cf413c067a62cd11e2bee2fa4c0cb6c6de32f9e6",
+      kind: :transform
+    },
+    "rgb16_preserve_hdr" => %{
+      authored_sha256: "2bd5249388be6701a6a4f7a3b15715036e07a4c33714a883d438186026a1bce3",
+      fixture_filename: "rgb16_preserve_hdr.png",
+      fixture_sha256: "9197d58bd78f6ee3bf14759b82253ef4cb35c5fb0d264286a5b849badab1e493",
+      kind: :transform
+    },
+    "rgb16_tonemap_8bit" => %{
+      authored_sha256: "585f75e98edf9c7d60ec093d8254cb1649abef8ddc02085b0ac70510b8dc8c2b",
+      fixture_filename: "rgb16_tonemap_8bit.png",
+      fixture_sha256: "e17fe2735750649c155bf8a00ea45a5402a007fef8bb9988cdc148d4131d8382",
+      kind: :transform
+    },
+    "rgba16_preserve_hdr" => %{
+      authored_sha256: "3e74791885feb327fd58bd3607bff74bf1fc66959118cdc0286cac3171cbfb0d",
+      fixture_filename: "rgba16_preserve_hdr.png",
+      fixture_sha256: "54f367cf074c71f0b4c99742470596f6bcabdd294ea600ad732d265dd1e97a48",
+      kind: :transform
+    },
+    "rgba16_tonemap_8bit" => %{
+      authored_sha256: "85fa4d52f675528ed6ab6aa9e6779c75ee4e25ac49611458fdc63b7b4487e1b4",
+      fixture_filename: "rgba16_tonemap_8bit.png",
+      fixture_sha256: "bf15c3e1d2bbbf57b6616ee57d1cdc20afdb49f399021d94538523a08b4e23ad",
       kind: :transform
     },
     "rot90_crop_north_marker" => %{

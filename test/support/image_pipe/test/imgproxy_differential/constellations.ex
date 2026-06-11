@@ -22,7 +22,10 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
     exif_7: "exif_7.jpg",
     exif_8: "exif_8.jpg",
     icc_p3: "icc_p3.png",
-    small: "small.png"
+    small: "small.png",
+    cmyk: "cmyk.jpg",
+    rgb16: "rgb16.png",
+    rgba16: "rgba16.png"
   }
 
   @doc "Map of `source` atom -> committed source filename."
@@ -349,6 +352,86 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # structural divergence to quarantine (`:triage` + a tracking issue), never a tol to
       # widen.
       c("crop_smart_marker", :marker, "c:300:300:sm"),
+
+      # --- #224 Part 1: the OSS-bakeable effect (pixelate) ---
+      #
+      # Before #224 the suite exercised only `blur` and `sharpen` of the stage-9
+      # `applyFilters` family. `pixelate` (`pix`) is the one remaining OSS-supported
+      # effect — imgproxy's `apply_filters.go` applies exactly {blur, sharpen,
+      # pixelate}; brightness/contrast/saturation/monochrome/duotone are imgproxy-Pro
+      # (absent from the OSS `darthsim/imgproxy` container's option keys), so they are
+      # not differential gaps and stay out of this suite, like `cp`/`icc`. `pix:8` on
+      # the sharp-edged marker is a plain libvips block-average both sides also call.
+      # The block boundaries align (maxΔ=14, ≪ the ~210 a 1px-misaligned block would
+      # show as it straddles a sharp marker edge); the residual is diffuse
+      # block-average rounding/libvips-version skew, every delta in (Δ2, Δ16] over
+      # ~23k band-bytes, 0 over Δ16. Threshold set just above the 14 skew ceiling with
+      # a tight budget — the heavy-downscale convention — so a real block-offset (which
+      # pushes bytes past Δ16 at the edges) blows it.
+      %{
+        c("pixelate_marker", :marker, "pix:8")
+        | tol: %{threshold: 16, budget: 64}
+      },
+      # The OSS-valid effects-chain ORDER pin. The issue's pix→br→co→sa form is Pro
+      # (br/co/sa), but the three OSS filters stack in a fixed stage-9 order both
+      # sides share — imgproxy `apply_filters.go`/`vips.c` runs blur → sharpen →
+      # pixelate, and ImagePipe's `effect_operations` emits the same blur → sharpen →
+      # pixelate (URL option order is inert; the plan fixes it). Stacking all three on
+      # the zone-plate source pins that ordering end-to-end: a reordered chain (e.g.
+      # pixelate before blur/sharpen) would composite a grossly different image (maxΔ
+      # into the 100s across the frame), where the measured residual is diffuse
+      # zone-plate block/resample skew (maxΔ=36, ≪255). Threshold set just above that
+      # skew ceiling with a tight budget — the zone-plate convention — so the order is
+      # held while libvips-version skew is absorbed.
+      %{
+        c("effects_chain_order_high_freq", :high_freq, "rs:fit:240:240/bl:2/sh:2/pix:8")
+        | tol: %{threshold: 40, budget: 64}
+      },
+
+      # --- #224 Part 2: the three zero-fixture committed sources ---
+      #
+      # cmyk.jpg is a 120×90 CMYK JPEG. `rs:fit:200:200` is a no-op resize (fit
+      # without enlarge leaves the smaller source unscaled), so the pixel claim is the
+      # PURE stage-4 colorspaceToProcessing CMYK→sRGB working-space import — no
+      # resampling confound. The import is unconditional (support-matrix stage 4), and
+      # distinct from `cp:cmyk` CMYK *output* targeting (#214).
+      c("cmyk_import", :cmyk, "rs:fit:200:200"),
+      # rgb16/rgba16 are 512×512 16-bit PNGs. `ph:1` preserves the high bit-depth
+      # through to the PNG output (the #121 preserve-HDR path), `ph:0` tone-maps to
+      # 8-bit — the two halves of the HDR pipeline, neither covered before. The
+      # 512→200 fit genuinely downscales, so each is import + 16-bit (or tone-mapped)
+      # resample + PNG round-trip. The alpha source additionally exercises the 16-bit
+      # RGBA path.
+      c("rgb16_preserve_hdr", :rgb16, "ph:1/rs:fit:200:200"),
+      c("rgb16_tonemap_8bit", :rgb16, "ph:0/rs:fit:200:200"),
+      # rgba16_preserve_hdr DIVERGES (quarantined → #229). The source alpha is
+      # uniformly fully opaque (min=max=65535); ImagePipe preserves it pristine
+      # (live alpha a constant 65535), while imgproxy's ph:1 16-bit RGBA path
+      # perturbs it (fixture alpha avg 65435, down to ~65311 — maxΔ 224/65535 ≈
+      # 0.34%). The RGB bands match to Δ1, so the visible image agrees; only the
+      # alpha band differs, and ImagePipe is the more-correct side. The conformance
+      # tol model can't fairly judge it either: it decomposes the 16-bit USHORT band
+      # into hi/lo bytes, so a 0.34% real alpha delta surfaces as Δ224 in the LOW
+      # byte across the whole band — an 8-bit Δ-threshold/budget can't express a
+      # 16-bit tolerance (a harness limitation independent of the alpha quirk).
+      # Tracked under #229; imgproxy still bakes the fixture so the gap stays
+      # measured — distinct from #222 (a metadata/band-LAYOUT contract layer, blind
+      # to pixel values) and #220 (a spurious alpha CHANNEL). The rgb16 (no
+      # alpha) preserve case above is a clean PASS, covering the core 16-bit PNG
+      # round-trip; the rgba16 TONEMAP case below also PASSES (8-bit, alpha 255 both
+      # sides).
+      %{
+        c("rgba16_preserve_hdr", :rgba16, "ph:1/rs:fit:200:200")
+        | verdict: :diverges,
+          divergence: %{metric: :fraction_over, threshold: 32, floor: 0.05},
+          triage: %{
+            reason:
+              "imgproxy perturbs a fully-opaque 16-bit alpha (maxΔ 224/65535); ImagePipe " <>
+                "preserves it. 8-bit band-byte tol can't express a 16-bit-channel tolerance.",
+            issue: "#229"
+          }
+      },
+      c("rgba16_tonemap_8bit", :rgba16, "ph:0/rs:fit:200:200"),
 
       # --- lossy group: contract-only (dims/content-type/decode), no pixel claim ---
       lossy("lossy_webp", :high_freq_webp, "rs:fill:240:180/f:webp"),

@@ -3,22 +3,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ConstellationsTest do
 
   alias ImagePipe.Test.ImgproxyDifferential.Constellations
 
-  @valid_sources [
-    :high_freq,
-    :high_freq_webp,
-    :marker,
-    :border,
-    :alpha,
-    :exif_2,
-    :exif_3,
-    :exif_4,
-    :exif_5,
-    :exif_6,
-    :exif_7,
-    :exif_8,
-    :icc_p3,
-    :small
-  ]
+  @valid_sources Map.keys(Constellations.source_files())
 
   test "every constellation is well-formed" do
     for c <- Constellations.all() do
