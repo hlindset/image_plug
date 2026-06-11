@@ -165,6 +165,17 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
     assert {:error, _} = OptionGrammar.parse("ex:1:obj")
   end
 
+  test "extend gravity rejects focal-point gravity (diverges from imgproxy)" do
+    # imgproxy's `ExtendGravityTypes` (processing/gravity_type.go) includes
+    # `GravityFocusPoint`, so `ex:1:fp:x:y` is accepted upstream. ImagePipe's extend
+    # gravity admits only the nine cardinal/corner anchors — `fp`/`sm`/`obj` are
+    # crop/cover-only — so it rejects fp on extend. This pins the documented divergence
+    # (`docs/imgproxy_support_matrix.md` stage 10/11; #203 T3.2). `fp` is still accepted
+    # for `g:`/`c:`, asserted elsewhere.
+    assert {:error, _} = OptionGrammar.parse("ex:1:fp:0.3:0.7")
+    assert {:error, _} = OptionGrammar.parse("extend:1:fp:0.5:0.5")
+  end
+
   test "malformed padding and background options keep current error shapes" do
     assert OptionGrammar.parse("padding:1:2:3:4:5") ==
              {:error, {:invalid_option_segment, "padding:1:2:3:4:5"}}
@@ -217,10 +228,15 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammarTest do
   end
 
   test "dpr parses positive floats and rejects non-positive values" do
+    # imgproxy `parsePositiveNonZeroFloat` (options/parser/parse.go): any float > 0
+    # is accepted — including fractional sub-1 DPRs — and <= 0 is rejected. ImagePipe's
+    # `:positive_float` matches: 0.5 parses, 0/-1/non-numeric reject (#203 T3.1).
     assert OptionGrammar.parse("dpr:1.5") == {:ok, {:pipeline, [dpr: 1.5]}}
     assert OptionGrammar.parse("dpr:2") == {:ok, {:pipeline, [dpr: 2.0]}}
+    assert OptionGrammar.parse("dpr:0.5") == {:ok, {:pipeline, [dpr: 0.5]}}
     assert OptionGrammar.parse("dpr:0") == {:error, {:invalid_positive_float, "0"}}
     assert OptionGrammar.parse("dpr:-1") == {:error, {:invalid_positive_float, "-1"}}
+    assert OptionGrammar.parse("dpr:abc") == {:error, {:invalid_positive_float, "abc"}}
   end
 
   test "blur, sharpen, and pixelate reject invalid values with type-specific tags" do
