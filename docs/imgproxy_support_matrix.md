@@ -44,14 +44,14 @@ flowchart TD
     subgraph main["mainPipeline · applied per frame"]
         direction TB
         A1["1 vectorGuardScale ⭕"] --> A2["2 trim ✅"] --> A3["3 scaleOnLoad ✅"]
-        A3 --> A4["4 colorspaceToProcessing ⚠️"] --> A5["5 crop ✅"] --> A6["6 scale ✅"]
+        A3 --> A4["4 colorspaceToProcessing ✅"] --> A5["5 crop ✅"] --> A6["6 scale ✅"]
         A6 --> A7["7 rotateAndFlip ✅"] --> A8["8 cropToResult ✅"] --> A9["9 applyFilters ✅"]
         A9 --> A10["10 extend ✅"] --> A11["11 extendAspectRatio ✅"] --> A12["12 padding ✅"]
         A12 --> A13["13 fixSize ✅"] --> A14["14 flatten ✅"] --> A15["15 watermark ⭕"]
     end
     subgraph fin["finalizePipeline · before save"]
         direction TB
-        F1["16 colorspaceToResult ⚠️"] --> F2["17 stripMetadata ✅"]
+        F1["16 colorspaceToResult ✅"] --> F2["17 stripMetadata ✅"]
     end
     A15 --> F1
 
@@ -77,9 +77,9 @@ imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:
 | # | imgproxy stage | Realized in ImagePipe | Status | Notes |
 | --- | --- | --- | --- | --- |
 | 1 | `vectorGuardScale` | — | ⭕ | Gated on SVG/vector input support, which isn't implemented yet (SVG is rejected after decode identifies an SVG loader, before transforms). In scope; this pre-scale stage follows once SVG input lands. (see "Source input formats") |
-| 2 | `trim` | `lib/image_pipe/transform/operation/trim.ex` | ✅ | Replicates imgproxy `vips_trim`: (1) colourspace-convert to sRGB for detection; (2) flatten alpha onto magenta `{255,0,255}` before detecting; (3) smart bg = top-left pixel `getpoint(0,0)` of the prepared image; (4) `find_trim` to locate the border box; (5) equal_hor / equal_ver symmetrization — each pair of opposite margins is made equal to the *smaller* inset (trims less aggressively, symmetrically); (6) degenerate box (`width==0 \|\| height==0`) → image returned **unchanged**; (7) extract from the **original** image, preserving its colorspace/alpha. Materializing op (`requires_materialization?: true`). **Disables shrink-on-load when in the first pipeline** (mirrors imgproxy nil-ing `ImgData` at stage 2, before `scaleOnLoad` at stage 3). Trim in a later pipeline does not disable pipeline-1 scale-on-load. **Diverges — detection colorspace (folded into #124):** imgproxy converts to sRGB *for detection* inside `vips_trim` regardless of `scp`; ImagePipe detects in the source-profile space (its `NormalizeColorProfile` op stays positioned after geometry, gated on `scp`). Same root divergence as #124 — when #124 imports every image to a working space before processing, trim detection inherits the correct space. **#124's fix must include trim's detection step.** **Diverges — sRGB-skip uses stored header interpretation**, not imgproxy's `guess_interpretation` — at most an extra idempotent sRGB round-trip, no dimension effect. |
+| 2 | `trim` | `lib/image_pipe/transform/operation/trim.ex` | ✅ | Replicates imgproxy `vips_trim`: (1) colourspace-convert to sRGB for detection; (2) flatten alpha onto magenta `{255,0,255}` before detecting; (3) smart bg = top-left pixel `getpoint(0,0)` of the prepared image; (4) `find_trim` to locate the border box; (5) equal_hor / equal_ver symmetrization — each pair of opposite margins is made equal to the *smaller* inset (trims less aggressively, symmetrically); (6) degenerate box (`width==0 \|\| height==0`) → image returned **unchanged**; (7) extract from the **original** image, preserving its colorspace/alpha. Materializing op (`requires_materialization?: true`). **Disables shrink-on-load when in the first pipeline** (mirrors imgproxy nil-ing `ImgData` at stage 2, before `scaleOnLoad` at stage 3). Trim in a later pipeline does not disable pipeline-1 scale-on-load. Trim's detection inherits working-space pixels because the input color preamble (`lib/image_pipe/transform/input_color_management.ex`) runs before all operations — pixel-equivalent to imgproxy calling `colorspaceToProcessing` inside `vips_trim`. **Minor bounded divergence — sRGB-skip uses stored header interpretation**, not imgproxy's `guess_interpretation`: at most an extra idempotent sRGB round-trip, no dimension effect (see stage 4 notes). |
 | 3 | `scaleOnLoad` | **decode planning** — `lib/image_pipe/transform/decode_planner.ex` | ✅ | Shrink-on-load computed as a libvips load option (`shrink`/`scale`), not a transform op. Decode opens `:sequential`. The realized factor (`decode_shrink`) and stored extent (`source_dimensions`) are **confined to the pipeline whose decode produced them** — a preceding crop and the residual resize each clear them, so an absolute crop in a later chained (`/-/`) pipeline is sized against that pipeline's input, not rescaled by a stale factor (#180). This matches imgproxy Pro chained pipelines (`IMGPROXY_MAX_CHAINED_PIPELINES`): each pipeline is a full processing pass over the previous pipeline's in-memory output, so `scaleOnLoad`'s preshrink factor (`scale_on_load.go`) exists only for the initial decode and never carries into a later pipeline. |
-| 4 | `colorspaceToProcessing` | `lib/image_pipe/transform/operation/normalize_color_profile.ex` | ⚠️ | imgproxy color-manages **every** image into a working space; ImagePipe converts only when `scp` is on (issue #124). With `scp:0` + a tone effect on a wide-gamut source, effects run in the source profile space. **Also diverges in position:** imgproxy converts at stage 4, **before** crop/scale; ImagePipe positions `NormalizeColorProfile` **after** geometry (crop+resize) and before effects, so resize math runs in the source profile space rather than the working space. |
+| 4 | `colorspaceToProcessing` | `lib/image_pipe/transform/input_color_management.ex` (fixed preamble) | ✅ | ImagePipe imports **every** profiled/wide-gamut/CMYK source to a working space (sRGB for 8-bit; B_W for greyscale) via a fixed preamble in `PlanExecutor.execute/3`, unconditionally, before trim and all geometry — regardless of `scp`. Mirrors imgproxy `colorspaceToProcessing`: import gating (has profile, not canonical sRGB-IEC61966, UCHAR/USHORT coding), PCS sniff, 16-bit-alpha band split/rejoin, and linear-source skip (scRGB). For untagged/already-sRGB inputs the preamble is a no-op. **Minor bounded divergence (stage/order):** ImagePipe's working-space chooser and sRGB-IEC61966 skip read the **stored** libvips interpretation (header), where imgproxy uses `vips_image_guess_interpretation` for those same checks. For all normally-decoded sources — the full conformance suite — the stored and guessed interpretations agree; they can diverge only for atypical inputs whose stored interpretation is unset or MULTIBAND. |
 | 5 | `crop` | `lib/image_pipe/transform/operation/crop.ex` | ✅ | Pre-resize crop with anchor / focal-point / smart / object gravity. |
 | 6 | `scale` | `lib/image_pipe/transform/operation/resize.ex` | ✅ | `fit`/`fill`/`fill-down`/`force`/`auto`, enlarge, min-width/height, zoom, dpr. Pro `resizing_algorithm` (`ra`) missing. **Diverges — fit+dpr rounding fold (#199):** ImagePipe rounds the fit dimension and *then* multiplies by dpr (two rounds), where imgproxy folds dpr into a single `imath.Scale` (`prepare.go` `calcScale`/`calcSizes`); on a fractional fit dimension the result is 1px off (`rs:fit:300:200/dpr:2` on 1600×1200 → 534 vs imgproxy 533). |
 | 7 | `rotateAndFlip` | `.../transform/pending_orientation.ex`, `.../transform/orientation_flush.ex`, `.../transform/orientation.ex`, `.../operation/rotate.ex`, `.../operation/flip.ex` | ✅ | EXIF auto-orient + user rotate/flip are carried as deferred `pending_orientation` state and applied **late** at the orientation-flush boundary — **after** crop/resize, with crop gravity and resize dimensions compensated into the storage frame (`orientation.ex`, a port of imgproxy `gravity.go` `RotateAndFlip`) so the observable result matches. Compose suborder EXIF → user-rotate → user-flip; EXIF auto-orient is the default. Flush streams EXIF orientations 1/2 and materializes 3–8 (and any quarter/half-turn user rotate or vertical flip). The same storage↔display compensation extends to shrink-on-load: a gravity crop carrying a pending quarter turn swaps the storage-frame `decode_shrink` per-axis factors before rescaling its display-frame dims (#185). imgproxy rescales crop dims in the **display** frame (its `SrcWidth`/preshrink are `ExtractGeometry`-swapped — `prepare.go`); ImagePipe reaches the same result by swapping the storage-frame factors ahead of the quarter-turn crop swap. |
@@ -98,8 +98,8 @@ imgproxy's `finalizePipeline` (`processing/processing.go`), applied before save:
 
 | # | imgproxy stage | Realized in ImagePipe | Status | Notes |
 | --- | --- | --- | --- | --- |
-| 16 | `colorspaceToResult` | `lib/image_pipe/transform/operation/normalize_color_profile.ex` (when `scp`) | ⚠️ | imgproxy always converts to the output colorspace before save; ImagePipe has no unconditional conversion — same `scp`-gated divergence as stage 4 (issue #124). |
-| 17 | `stripMetadata` | **encoder finalize** — `lib/image_pipe/output/encoder.ex` | ✅ | Strips EXIF/XMP/IPTC at encode. **Diverges** on `keep_copyright` (preserves EXIF copyright/artist only; imgproxy keeps full XMP/IPTC) and on the `scp`-gated ICC handling. See "Metadata, color, and source decoding". |
+| 16 | `colorspaceToResult` | **encoder finalize** — `lib/image_pipe/output/encoder.ex` (`color_result`) | ✅ | The encoder finalize state machine reads `Plan.Output.color_profile` (`:preserve_source` or `:strip`) and the `imagepipe-icc-imported` / `imagepipe-icc-backup` fields stamped by the delivery seam: when `:preserve_source` + imported + format supports profiles, re-export to the restored source profile (`icc_export`); when `:strip` + imported, the image is already in the working space — drop the profile; when neither side imported (untagged/sRGB source), convert-to-standard (`icc_transform`) is a no-op. Always unconditional — matches imgproxy `colorspaceToResult` running before save regardless of `scp`. |
+| 17 | `stripMetadata` | **encoder finalize** — `lib/image_pipe/output/encoder.ex` | ✅ | Strips EXIF/XMP/IPTC at encode, after the stage-16 color-result step completes. **Diverges** on `keep_copyright` (preserves EXIF copyright/artist only; imgproxy keeps full XMP/IPTC). ICC handling is owned by stage 16; the strip runs after re-embed or drop. See "Metadata, color, and source decoding". |
 
 ### Surrounding stages
 
@@ -121,14 +121,18 @@ save. ImagePipe realizes these at request and output boundaries:
 - **Not every imgproxy stage is a transform op** — `scaleOnLoad` is decode
   planning, `fixSize` is the output boundary, `stripMetadata`/`colorspaceToResult`
   are encoder finalize. The "Realized in" column is the map.
-- **The standing divergence is color management (#124).** The host result cap now
+- **Color management (#124) is resolved.** Stages 4 and 16 are now ✅: every
+  input is unconditionally imported to a working space before trim and geometry
+  (`InputColorManagement` preamble), and the encoder finalize re-embeds or drops
+  the source profile per `Plan.Output.color_profile`. The host result cap
   downscales to match imgproxy (#165), with a deliberate, strictly-safe superset:
   independent per-axis width/height + a result-pixel cap, and a composited-image
-  clamp point. The trim detection-colorspace divergence is the same root cause as
-  #124 and is tracked there (trim is now the only early-pipeline stage whose
-  detection runs in the source-profile space rather than the working space; it will
-  be resolved when #124 lands). Everything else either matches or is an explicitly
-  missing/out-of-scope surface documented in the tables below.
+  clamp point. A minor bounded divergence remains at stage 4: the working-space
+  chooser and sRGB-IEC61966 skip use the stored header interpretation rather than
+  imgproxy's `guess_interpretation` — agreement for all normally-decoded sources,
+  potential divergence only for atypical MULTIBAND/unset inputs (see stage 4 notes).
+  Everything else either matches or is an explicitly missing/out-of-scope surface
+  documented in the tables below.
 
 ## Differential conformance
 
@@ -144,7 +148,8 @@ matrix: each constellation carries a verdict that maps to a stage row.
   extendAspectRatio, padding, flatten, applyFilters (blur/sharpen), stripMetadata.
 - **`:diverges`** (⚠️ rows): asserts a *structured* divergence still holds (region
   mean-delta ≥ floor), so an accidental convergence fails and forces a verdict flip
-  here + a matrix update. Covers colorspace #124 (`scp:0`) and trim-detection space.
+  here + a matrix update. The former colorspace #124 (`scp:0`) and trim-detection
+  divergences have converged and moved to the `:equal` group.
 - **lossy group**: dimension + content-type contract only (independent encoders), no
   pixel claim.
 - **Combination constellations**: a focused set crossing option intersections the
@@ -462,7 +467,7 @@ plan machinery.
 - ✅ `IMGPROXY_STRIP_METADATA` — Parser config default: `imgproxy: [strip_metadata: true]`. URL override: `sm:0` disables. Strips EXIF, XMP, and IPTC at encode time via `ImagePipe.Plan.Output` metadata policy.
 - ✅ `IMGPROXY_KEEP_COPYRIGHT` — Parser config default: `imgproxy: [keep_copyright: true]`. URL override: `kcr:0` disables. **Diverges from imgproxy**: preserves EXIF copyright/artist fields only; imgproxy retains full XMP/IPTC blobs. ImagePipe strips XMP/IPTC even when `kcr` is on (privacy-conservative).
 - ⭕ `IMGPROXY_STRIP_METADATA_DPI`
-- ✅ `IMGPROXY_STRIP_COLOR_PROFILE` — Parser config default: `imgproxy: [strip_color_profile: true]`. URL override: `scp:0` disables. Implemented as a `NormalizeColorProfile` transform operation (ICC-aware sRGB conversion) positioned after geometry and before effects; the embedded profile header is dropped at encode. **Diverges from imgproxy**: imgproxy color-manages every image into a working space regardless of `scp`; ImagePipe only converts when `scp` is on (tracked in issue #124). With `scp:0` plus a tone effect on a wide-gamut source, effects run in the source profile space.
+- ✅ `IMGPROXY_STRIP_COLOR_PROFILE` — Parser config default: `imgproxy: [strip_color_profile: true]`. URL override: `scp:0` disables. Sets `Plan.Output.color_profile`: `scp:1` → `:strip` (convert to standard space, drop the profile at encode); `scp:0` → `:preserve_source` (re-embed the source profile on output). Input working-space conditioning is unconditional and not controlled by this option — every profiled/wide-gamut/CMYK source is imported to a working space before processing via the `InputColorManagement` preamble, matching imgproxy's `colorspaceToProcessing`. Encoder finalize handles re-embed or drop per the policy (stage 16).
 - ⭕ `IMGPROXY_COLOR_PROFILES_DIR`
 - ⭕ `IMGPROXY_PRESERVE_HDR`
 - ✅ `IMGPROXY_AUTO_ROTATE`
@@ -766,7 +771,7 @@ transforms or output encoding.
 | `strip_metadata` | `sm` | Supported | Default on. Parser config: `imgproxy: [strip_metadata: true]`. URL override `sm:0` disables. Strips EXIF, XMP, and IPTC at encode time via `ImagePipe.Plan.Output` metadata policy. |
 | `keep_copyright` | `kcr` | Supported | Default on. Parser config: `imgproxy: [keep_copyright: true]`. URL override `kcr:0` disables. **Diverges from imgproxy**: preserves EXIF copyright/artist fields only; imgproxy retains full XMP/IPTC blobs. ImagePipe strips XMP/IPTC even when `kcr` is on (privacy-conservative). |
 | `dpi` | | Missing | Pro metadata rewrite. |
-| `strip_color_profile` | `scp` | Supported | Default on. Parser config: `imgproxy: [strip_color_profile: true]`. URL override `scp:0` disables. Implemented as a `NormalizeColorProfile` transform operation (ICC-aware sRGB conversion) positioned after geometry and before effects; the embedded profile header is dropped at encode. **Diverges from imgproxy**: imgproxy color-manages every image regardless of `scp`; ImagePipe only converts when `scp` is on (tracked in issue #124). With `scp:0` plus a tone effect on a wide-gamut source, effects run in the source profile space. |
+| `strip_color_profile` | `scp` | Supported | Default on. Parser config: `imgproxy: [strip_color_profile: true]`. URL override `scp:0` disables. Sets `Plan.Output.color_profile`: `scp:1` → `:strip`; `scp:0` → `:preserve_source`. Input color conditioning runs unconditionally (not controlled by this option): the `InputColorManagement` preamble imports every profiled source to a working space before processing, matching imgproxy. The encoder finalize re-embeds the source profile (`scp:0`, format supports profiles) or drops it (`scp:1`). |
 | `preserve_hdr` | `ph` | Missing | No HDR preservation toggle. |
 | `color_profile` | `cp`, `icc` | Missing | Pro profile conversion/embedding. |
 | `enforce_thumbnail` | `eth` | Missing | No embedded thumbnail decode selection. |
