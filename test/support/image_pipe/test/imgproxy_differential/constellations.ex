@@ -161,6 +161,143 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # conformance case on a Display-P3 source.
       c("scp0_colorspace_124", :icc_p3, "rs:fit:200:200/scp:0"),
 
+      # --- #203 Tier 1: high-yield combination seams (existing sources) ---
+      #
+      # T1.1: EXIF quarter-turn × asymmetric cover. exif_6 is storage 400×300 /
+      # display 300×400; the existing rotate_exif is a symmetric fit and can't expose
+      # the per-axis storage↔display compensation that an asymmetric cover does.
+      c("exif_cover_asym", :exif_6, "rs:fill:200:150"),
+      # T1.2: EXIF quarter-turn × non-center INLINE crop gravity (c:W:H:TYPE, not the
+      # inert result-gravity form). North crop gravity must rotate into the storage
+      # frame before the quarter turn.
+      c("exif_crop_north", :exif_6, "c:200:120:no"),
+      # T1.3: EXIF × extend with non-center gravity. Extend runs post-orientation-flush
+      # in the display frame, fed by the compensated resize dims; south gravity places
+      # the fit-scaled image in the 200×200 canvas. The square 200:200 box downscales the
+      # rotated block more than the sibling 200:300 extend_so cases, surfacing the same
+      # libvips-version downscale skew the landscape exif_2/3/4_extend_so cases show:
+      # maxΔ=16, 0 band-bytes over Δ16, image in the correct post-orientation quadrant.
+      # Δ32/budget-64 absorbs the version skew (the exif-extend convention) while a 1px
+      # block-edge shift (Δ≈160 over the block perimeter) blows the budget.
+      %{
+        c("exif_extend_south", :exif_6, "rs:fit:200:200/ex:1:so")
+        | tol: %{threshold: 32, budget: 64}
+      },
+      # T1.4: #124 colorspace import compounded with a blur. scp:0 alone is already a
+      # PASS (scp0_colorspace_124) since #124 imports the P3 source into the working
+      # space before processing, exactly like imgproxy — so the blur runs in the same
+      # space on both sides. Authored :equal (the issue's DIVERGE prediction predates
+      # the #124 close); the bake confirms or refutes.
+      c("scp0_blur_icc_p3", :icc_p3, "rs:fit:200:200/scp:0/bl:3"),
+      # T1.5: alpha-flatten × transparent extend-padding × background. Does the
+      # (0,0,0,0) extend padding composite onto bg the same way the source's own alpha
+      # does? Forced PNG keeps it pixel-claimable.
+      c("alpha_extend_bg", :alpha, "rs:fit:64:64/ex:1/bg:255:0:0"),
+      # T1.6: generalize the #199 fit+dpr rounding fold through a SECOND wrapper
+      # (extend, not exar) with a fractional fit dim. Since #199 landed (#218) the
+      # fit/zoom/dpr fold into one imath.Scale per axis, so this is a PASS-confirmation
+      # that the fold isn't exar-specific. The residual is the identical libvips-version
+      # edge-AA seam as [[extend_ar_dpr_marker]]: 201 band-bytes over Δ2, maxΔ=28, 0 over
+      # Δ32 — confined to sharp marker edges. Budget set just above the seam KEEPING the
+      # strict Δ2 threshold (a 1px structural shift diverges every edge and blows it).
+      %{
+        c("extend_dpr_fractional_marker", :marker, "rs:fit:300:200/ex:1/dpr:2")
+        | tol: %{threshold: 2, budget: 256}
+      },
+      # T1.7: corner extend compounds #200 on BOTH axes. small (120×90) with enlarge-off
+      # stays inside the 400×300 canvas, so the SE-corner offset has real play on the
+      # east AND south anchors simultaneously (a marker source fills a 4:3 box exactly,
+      # leaving the offset inert) — a stronger pin than the single-axis
+      # extend_offset_east_marker. PASS-confirmation since #200 landed (#218).
+      c("extend_corner_offset_small", :small, "rs:fit:400:300/ex:1:soea:20:20"),
+      # T1.8: EXIF-6 ∘ user rot:90 compose (#146 deferred PendingOrientation). After
+      # #211/#219 the rotation-primitive seam is gone and the harder transpose/transverse
+      # ∘ rot:90 already passes, so this quarter-turn ∘ quarter-turn is a PASS-confirmation.
+      c("exif_user_rot90", :exif_6, "rot:90"),
+      # T1.9: user-rotate branch of inline crop-gravity compensation — same seam as T1.2
+      # but driven by the user rotate input (crop.go adjusts CropGravity for user
+      # rotate/flip too). Rotation-primitive seam excluded by #219, so any divergence is
+      # genuine CropGravity user-rotate compensation.
+      c("rot90_crop_north_marker", :marker, "rot:90/c:200:120:no"),
+
+      # --- #203 Tier 2: coverage completeness (mostly PASS-confirmations) ---
+      #
+      # T2.1: inline crop EAST offset — confirms #200 does NOT generalize to the crop
+      # path (imgproxy feeds calcPosition→Crop directly with the correct sign).
+      c("crop_east_offset_marker", :marker, "c:300:200:ea:20:0"),
+      # T2.2: cover result-crop SOUTH offset — same #200-non-generalization confirmation
+      # for the cropToResult path.
+      c("cover_gravity_south_offset_marker", :marker, "rs:fill:300:200/g:so:0:20"),
+      # T2.3: focal-point INLINE crop gravity (fp on the crop path, untested in the
+      # suite). calc_position ScaleToEven vs crop.ex round-ties-to-even.
+      c("crop_focal_marker", :marker, "c:200:200:fp:0.3:0.7"),
+      # T2.4: odd-gap center origin in the cover result-crop. marker 1600×1200 fill
+      # 300×200 cover-scales to 300×225 (gap 25 on height — ODD), center gravity; checks
+      # ShrinkToEven(outer−inner+1,2) is wired into result-crop, generalizing #195/#196
+      # beyond extend.
+      c("cover_odd_gap_center_marker", :marker, "rs:fill:300:200/g:ce"),
+      # T2.5: trim × shrink-on-load suppression cross. trim nils ImgData before
+      # scaleOnLoad, so the fit can't shrink-on-load and resamples from full resolution;
+      # tested only in isolation before. Both sides agree on the trimmed box and the fit
+      # scale (dims match at 267×200), so the residual is pure resampling-path skew on the
+      # zone-plate source — the worst-case resampling cell in the suite. maxΔ=42 (≪ the
+      # ~255 a misaligned full-contrast ring would show), spread diffusely across the
+      # plate. Threshold set just above that 42 skew ceiling with a tight budget: a
+      # structural crop/scale shift misaligns the center rings (maxΔ→~255, thousands of
+      # band-bytes) and blows budget 64, while the diffuse AA skew clears it.
+      %{
+        c("trim_resize_high_freq", :high_freq, "t:10/rs:fit:300:200")
+        | tol: %{threshold: 48, budget: 64}
+      },
+      # T2.6: enlarge-off DprScale collapse under forced min-dim upscale. small
+      # (120×90) is smaller than the target, so DprScale collapses to 1.0 while mw/mh
+      # force an upscale (#198 result_box effective_dpr path).
+      c("min_dims_dpr_enlarge_off_small", :small, "rs:fit:100:100/mw:200/mh:200/dpr:2"),
+      # T2.7: padding × extend stacking. small + enlarge-off keeps the fit at 120×90, so
+      # ex:1 genuinely extends to the 200×150 box (live, not inert) and pd:20 then stacks
+      # on top — both canvas ops compose.
+      c("extend_padding_stack_small", :small, "rs:fit:200:150/ex:1/pd:20"),
+      # T2.8: crop + resize with BOTH gravities live — inline crop gravity north
+      # (c:1000:1000:no, the source window) and result gravity south (g:so, the cover
+      # window). The most common real shape; zero prior coverage of the two-gravity chain.
+      c("crop_resize_two_gravities_marker", :marker, "c:1000:1000:no/rs:fill:300:200/g:so"),
+      # T2.9: corner gravity on the cover result-crop (calcPosition corner placement).
+      c("cover_corner_gravity_marker", :marker, "rs:fill:300:300/g:noea"),
+      # T2.10: focal-point on the cover result-crop (fp tested on crop in T2.3; untested
+      # on the result-crop site).
+      c("cover_focal_marker", :marker, "rs:fill:300:300/g:fp:0.2:0.8"),
+      # T2.11: fill-down + non-center (corner) gravity — only center fill-down today.
+      # The residual is the identical libvips-version anti-aliasing seam as
+      # [[fill_down_marker]]: 166 band-bytes over Δ2 at one sharp marker edge, maxΔ=14,
+      # the edge at the same position in both. Strict Δ2 threshold, budget widened just
+      # over the seam (a real crop shift blows far past 256).
+      %{
+        c("fill_down_corner_gravity_marker", :marker, "rs:fill-down:500:500/g:soea")
+        | tol: %{threshold: 2, budget: 256}
+      },
+      # T2.12: force resize (stretch; no aspect preservation, no result-crop — a
+      # distinct code path), untested entirely.
+      c("force_resize_marker", :marker, "rs:force:300:200"),
+      # T2.13: auto resize (picks fit/fill by source vs target orientation), untested
+      # entirely. Landscape source into a portrait target.
+      c("auto_resize_marker", :marker, "rs:auto:200:300"),
+      # T2.14: inline pre-resize crop corner, no resize — the genuine c:W:H:TYPE corner
+      # form on the crop path.
+      c("crop_corner_marker", :marker, "c:600:600:soea"),
+      # T2.15: user rot:180 half-turn baseline (no axis swap). De-risked by #211/#219 —
+      # the affine primitive seamed even at 180°, now fixed (vips_rot).
+      c("user_rot180_marker", :marker, "rot:180"),
+      # T2.16: horizontal / vertical flip alone (horizontal streams, vertical
+      # materializes). fl:1 = horizontal, fl:0:1 = vertical.
+      c("flip_h_marker", :marker, "fl:1"),
+      c("flip_v_marker", :marker, "fl:0:1"),
+      # T2.17: user rotate ∘ flip suborder compose (rotation-primitive seam excluded by
+      # #219, so a divergence would be genuine suborder).
+      c("rot90_flip_h_marker", :marker, "rot:90/fl:1"),
+      # T2.18: EXIF-6 ∘ user-flip compose (flip never used the affine path, so
+      # unaffected by #211/#219 — this exercises the EXIF ∘ user-flip suborder directly).
+      c("exif_user_flip_h", :exif_6, "fl:1"),
+
       # --- lossy group: contract-only (dims/content-type/decode), no pixel claim ---
       lossy("lossy_webp", :high_freq_webp, "rs:fill:240:180/f:webp"),
       lossy("lossy_jpeg_q40", :high_freq, "rs:fill:240:180/q:40/f:jpg"),

@@ -19,10 +19,22 @@
     "small.png" => "517719b9e7ad77f867266b8c4e135d383cdc94c3bf14f7bc26c2060a98ae870a"
   },
   entries: %{
+    "alpha_extend_bg" => %{
+      authored_sha256: "bb2345c840edb18a92e9668f24db92256556b759566ae4d41d8f4787b2e9d6ea",
+      fixture_filename: "alpha_extend_bg.png",
+      fixture_sha256: "cdcaf41f0c8f64c3f76aa258be5789dea1cd6f7843e95230e10fd7099ce29713",
+      kind: :transform
+    },
     "alpha_resize" => %{
       authored_sha256: "c96b21e6ce5753b5a33105abf5f1dd477fdea3fb08629f136e5418c0a40f6af6",
       fixture_filename: "alpha_resize.png",
       fixture_sha256: "4423b7a96fff78ba10be919543ea7d515067da45c83fdaa7c59add65b47357f6",
+      kind: :transform
+    },
+    "auto_resize_marker" => %{
+      authored_sha256: "67bab8434519003df4a368ab2010eb3637db0aa16bffb0e40a8091fadba24c48",
+      fixture_filename: "auto_resize_marker.png",
+      fixture_sha256: "c55cd6309fa68b2e9244f3dbd9e0c18d62ef82f8392b42a968acdf3d0ff18b61",
       kind: :transform
     },
     "background_alpha" => %{
@@ -37,16 +49,64 @@
       fixture_sha256: "02e9f874b5b4bf5cf007a844040bc7e3806abdd55216d67e024b737a71c8ecd3",
       kind: :transform
     },
+    "cover_corner_gravity_marker" => %{
+      authored_sha256: "fc1d9286041c294f36a5f99c4ab15122d510dbb6c22517317563ee542a33ee5e",
+      fixture_filename: "cover_corner_gravity_marker.png",
+      fixture_sha256: "fe01761f16eea85fdcebe34db835579bad6c1adc428914e1d2c5190c7df48d54",
+      kind: :transform
+    },
+    "cover_focal_marker" => %{
+      authored_sha256: "c94cf6b12c4abc0098b5b072ce3d7c04d1a8c9917eba93fec9a8cbc18e0c12e9",
+      fixture_filename: "cover_focal_marker.png",
+      fixture_sha256: "3571ad4e89b9d6ad964d5dffd1fe6e4c763a50d7b7a2cb286c73b6d44d49dea3",
+      kind: :transform
+    },
+    "cover_gravity_south_offset_marker" => %{
+      authored_sha256: "cada26d1bc72ba2f9ab72977c45c77a17892c72a2874d96eeef03016fc0e7f5c",
+      fixture_filename: "cover_gravity_south_offset_marker.png",
+      fixture_sha256: "892457cfed820ba8fc335c32155c450230fa641860f6b94e57075532be6697f1",
+      kind: :transform
+    },
     "cover_min_dims_marker" => %{
       authored_sha256: "6843b0b4e54a0a8895fe5cf6e357dda9e244edd3615249d972c9c1933b7d27c2",
       fixture_filename: "cover_min_dims_marker.png",
       fixture_sha256: "58eb1dd93b5541973c662cdbf3f7e3546ac7cc5fae0aa6f7f78116db1a643935",
       kind: :transform
     },
+    "cover_odd_gap_center_marker" => %{
+      authored_sha256: "6dfbb76ed0bdf41e8dc257883925c91e725bf57887b3a0c7818906edfcdd1af0",
+      fixture_filename: "cover_odd_gap_center_marker.png",
+      fixture_sha256: "58eb1dd93b5541973c662cdbf3f7e3546ac7cc5fae0aa6f7f78116db1a643935",
+      kind: :transform
+    },
+    "crop_corner_marker" => %{
+      authored_sha256: "e0ac6fdc62cc0d89df05d21af6667aca17c6f5bff68c7651bac5a905979e7d9a",
+      fixture_filename: "crop_corner_marker.png",
+      fixture_sha256: "e9381c5c967db8a47d0efa265a2fbf9e9a5fa8f371b48dd2f254c570ac04771b",
+      kind: :transform
+    },
+    "crop_east_offset_marker" => %{
+      authored_sha256: "9d310c515cd87fa1e5d14dc7e9d9cce0f20ebef9d24f04f990bf07a15b85acf3",
+      fixture_filename: "crop_east_offset_marker.png",
+      fixture_sha256: "512ad3df5c2027f2299dd8ce8fc588b9e1a1d5a4bb7ce9c3396d0296fdb38cde",
+      kind: :transform
+    },
+    "crop_focal_marker" => %{
+      authored_sha256: "a80e361cbc22cac116488fa2ad9458a0cfb3f5856b2579c48e1977c897407ae0",
+      fixture_filename: "crop_focal_marker.png",
+      fixture_sha256: "fc26c82d52009da1733fc0e4a841566a7fafd47aaa773eb29158ab6c57e1e895",
+      kind: :transform
+    },
     "crop_gravity_marker" => %{
       authored_sha256: "365d131e39e4315c49699d27e1de8574c5505ee48a543be7d85074ca36da7160",
       fixture_filename: "crop_gravity_marker.png",
       fixture_sha256: "50a02be76fc5b4c3e91456af442ff5dca1e4dbbdd77fef385feb46e5801f0658",
+      kind: :transform
+    },
+    "crop_resize_two_gravities_marker" => %{
+      authored_sha256: "2692a4606d5d061371cfd7dc968f3f8e4d8efe1435871915876ac27c8c8bc674",
+      fixture_filename: "crop_resize_two_gravities_marker.png",
+      fixture_sha256: "03afc585b5e5abf85d5367a0c9a6ac907aa35b3adba4ee8f8417ceca7b566243",
       kind: :transform
     },
     "dpr_marker" => %{
@@ -193,6 +253,36 @@
       fixture_sha256: "053a2a202bfa785721c8e9cd4fdb09b5a3d62934858c7d80fece6a94d9d82af5",
       kind: :transform
     },
+    "exif_cover_asym" => %{
+      authored_sha256: "2cd5e4002bb2727688ea4cedaac791ab77dd4a5566c994403b63c5d994dfd030",
+      fixture_filename: "exif_cover_asym.png",
+      fixture_sha256: "7b7c895adfc90b4546f5dd82aeb22ab7b8a0eda59efa4c61718a58e9aaff0126",
+      kind: :transform
+    },
+    "exif_crop_north" => %{
+      authored_sha256: "bb36fce2229e308e5e281ddc1b39cb3124d702fa76b61f51a51231a64ee85700",
+      fixture_filename: "exif_crop_north.png",
+      fixture_sha256: "1cfc70f3884009d60100aa6d83ae5cc5ddf101e03fb1b01964f59fa0a92a6080",
+      kind: :transform
+    },
+    "exif_extend_south" => %{
+      authored_sha256: "e262a0526a95a2a034706429679d1c0ced8facc9975163e96e95c70f6a7f46f2",
+      fixture_filename: "exif_extend_south.png",
+      fixture_sha256: "c69533dfb15e426ac760589bf0b6bbb8eab3e85d10e6d169e3ff12b927e1c3c9",
+      kind: :transform
+    },
+    "exif_user_flip_h" => %{
+      authored_sha256: "669a5f4a69d8da54f87b00834297b3df140a55dc55a0124488c463f9f553e8f5",
+      fixture_filename: "exif_user_flip_h.png",
+      fixture_sha256: "356a11d4845340173e3ec149c165e1cd276dc0047050d0c5970c4b2cb646a038",
+      kind: :transform
+    },
+    "exif_user_rot90" => %{
+      authored_sha256: "84d1ee1a4eaf0a1001e1da449038a8198b14066d06ece73a68ae901c1eca0d77",
+      fixture_filename: "exif_user_rot90.png",
+      fixture_sha256: "affcf95a6c6eea6fd2f79027f8490292617369a9cfa81b24d47286a0cafc86ef",
+      kind: :transform
+    },
     "extend_ar_dpr_marker" => %{
       authored_sha256: "ab2f24f77c971a86c30e9c987bcf6ac2f8843b60a57371c6c1b0806a2b8fd2a5",
       fixture_filename: "extend_ar_dpr_marker.png",
@@ -203,6 +293,18 @@
       authored_sha256: "4b7510901d7ee641c3a79fabd0b0b42e8e3f9af04ff473700f2f7922a660ebb7",
       fixture_filename: "extend_ar_small.png",
       fixture_sha256: "b228e4eb6c51b2ee76f132330567c629859803875ec544311bd070ae7bdb4b1d",
+      kind: :transform
+    },
+    "extend_corner_offset_small" => %{
+      authored_sha256: "3369f2041fcc3a54c70c15d6cf55a81cce46d5be093da6b66b7a8f73bd308463",
+      fixture_filename: "extend_corner_offset_small.png",
+      fixture_sha256: "d26cb97cf990f1a00ac95d0f40bf826f433cd7d344e5342a24b00ef77cdf601c",
+      kind: :transform
+    },
+    "extend_dpr_fractional_marker" => %{
+      authored_sha256: "f8b8a575e88565547d73ce2e46374ddf9a6b97487aefb2857fdd56f3ca6d9f9f",
+      fixture_filename: "extend_dpr_fractional_marker.png",
+      fixture_sha256: "aa11c87e7f0ab3640e99e33fa8723fc0373a52dfb4fce1786e70ea5c1269db06",
       kind: :transform
     },
     "extend_gravity_small" => %{
@@ -223,10 +325,22 @@
       fixture_sha256: "99327146b129ba5b4bd2c80f1f5964d68e607ac87990b5f2cc5304ed4b6ee2b8",
       kind: :transform
     },
+    "extend_padding_stack_small" => %{
+      authored_sha256: "63fc271613fdef578d11104e0fd6b28be8c4399166406cbfd095d5dc26c57b3d",
+      fixture_filename: "extend_padding_stack_small.png",
+      fixture_sha256: "d2802f1f15949d73b1ddf3b7ff0128def0382520875252af8b3e5955e78892a0",
+      kind: :transform
+    },
     "extend_small" => %{
       authored_sha256: "3676ecd409c4d3169f20404c59606e4b6d587f658067f9a56b4505c5c39e98f2",
       fixture_filename: "extend_small.png",
       fixture_sha256: "c17cded72bf2ad1924f0646d3b6225e95a724c825cc43225b39ec01151002a18",
+      kind: :transform
+    },
+    "fill_down_corner_gravity_marker" => %{
+      authored_sha256: "e64b87598bb1891106c138f9435dbe1ee91a731d41e7b5da76336021cd90c59c",
+      fixture_filename: "fill_down_corner_gravity_marker.png",
+      fixture_sha256: "81e505a01f3d56b81a62745684eb071abe8dac60c6ca7772e687fb0b983e75f6",
       kind: :transform
     },
     "fill_down_marker" => %{
@@ -239,6 +353,24 @@
       authored_sha256: "047b59e479e2208accc8d6b51591bb0dea7c10e1acd14f56c083a4e9c89e52ca",
       fixture_filename: "fit_min_dims_gravity_marker.png",
       fixture_sha256: "c4350027d975c5328abfbd1316102fadc421966c8404bd02b34d0844a4e6bb93",
+      kind: :transform
+    },
+    "flip_h_marker" => %{
+      authored_sha256: "6380f86f3e9a64a05f1ee858f54e273f8c609dfbfb77d3ab60775af694e50ed1",
+      fixture_filename: "flip_h_marker.png",
+      fixture_sha256: "97a92326a2223a93ba24e7bc7c793c000e848a50afaa1ece4c392c97d80c01f2",
+      kind: :transform
+    },
+    "flip_v_marker" => %{
+      authored_sha256: "323559e249dc05e0116cc585fa9afbe90b6f4254ece2f21ef9f39a71df17e756",
+      fixture_filename: "flip_v_marker.png",
+      fixture_sha256: "d42e4551a3be362316d26269b302766a75a3ccdc3870bd18fd202ede1d841fd9",
+      kind: :transform
+    },
+    "force_resize_marker" => %{
+      authored_sha256: "6b8e2914ff96ceff9d318e5b9bc324231347a852fdeb670caad0ff9fe7ef05ac",
+      fixture_filename: "force_resize_marker.png",
+      fixture_sha256: "b9a1442e44341fdc7023896be69f33159e0ed1c8b7e0e9647d4b27c9ef83cc02",
       kind: :transform
     },
     "gravity_offset_marker" => %{
@@ -274,6 +406,12 @@
       fixture_sha256: "19a131c89a0ba5daba808655526498764cbea3c018673d8e6002e3ee1a408f2f",
       kind: :transform
     },
+    "min_dims_dpr_enlarge_off_small" => %{
+      authored_sha256: "29eda9d2bae3f78a41b82243f90d949db1f66c97c50987b275a690218178effe",
+      fixture_filename: "min_dims_dpr_enlarge_off_small.png",
+      fixture_sha256: "382e257c3b80c21ea3799b830299447cd8636ac7bce5621d7a2b321284583ab1",
+      kind: :transform
+    },
     "min_dims_dpr_marker" => %{
       authored_sha256: "ea817e0877989758723b4e90bd942c1153e53b38751e898b01a06b97ed031467",
       fixture_filename: "min_dims_dpr_marker.png",
@@ -290,6 +428,18 @@
       authored_sha256: "d5b7f5cb45fa28d7707f418705c24481fc357ca313e29329d8867c7a6376e048",
       fixture_filename: "padding_dpr_border.png",
       fixture_sha256: "423ee3f25796212d24fab9eef6ad27de8f67fb62d69eeae973b2f893b37c2b15",
+      kind: :transform
+    },
+    "rot90_crop_north_marker" => %{
+      authored_sha256: "7c9e50f49050b765f163af862c06062a0bbb1f120e485df59fae33b44e21346a",
+      fixture_filename: "rot90_crop_north_marker.png",
+      fixture_sha256: "05fcbafccc3cdae639190c478e981c94b9ae62aa61c19d7adb4126a31516176e",
+      kind: :transform
+    },
+    "rot90_flip_h_marker" => %{
+      authored_sha256: "663960b5efe0ff98ed3d11e4b323081374cddedaef67b61eb624f236f6ff1a31",
+      fixture_filename: "rot90_flip_h_marker.png",
+      fixture_sha256: "3602aa2bb77f1d211b4943e282539533bb9323e14ed91cfac98a88960d84221f",
       kind: :transform
     },
     "rotate_exif" => %{
@@ -322,6 +472,12 @@
       fixture_sha256: "eb4dfa2bee8f658209f2786c5d3a4518f84173209b55864568f233fd09c4be31",
       kind: :transform
     },
+    "scp0_blur_icc_p3" => %{
+      authored_sha256: "af35c7415e6a30cc698e65d3d6a8ddafe866650af6e82717238ccfbe2122ee34",
+      fixture_filename: "scp0_blur_icc_p3.png",
+      fixture_sha256: "277e3cc0a0fc915323978f2bb6d3680bab76b8fcc9abab29cb0fb6092374f6c3",
+      kind: :transform
+    },
     "scp0_colorspace_124" => %{
       authored_sha256: "6ea97617c9f447d32a2496bae12dbd9a47a727e74f13fd2b06c583bc003f47a7",
       fixture_filename: "scp0_colorspace_124.png",
@@ -350,6 +506,18 @@
       authored_sha256: "089cddc807e4ae8931d39dc3ec914b408d959ebccd131df555c76b556af71b64",
       fixture_filename: "trim_icc_p3.png",
       fixture_sha256: "4af9c52b2a01bae8cc0ca491a68f1f8072f3a6c31ace8e7e5c30adfd02aa9a74",
+      kind: :transform
+    },
+    "trim_resize_high_freq" => %{
+      authored_sha256: "106af208caf732aa9c34186853d211903203defd541984327f9f12f046e9f587",
+      fixture_filename: "trim_resize_high_freq.png",
+      fixture_sha256: "1470298dfbd3d677e9c6f4ad75f38445f48c5851f2e759dc3e63e1c257810d69",
+      kind: :transform
+    },
+    "user_rot180_marker" => %{
+      authored_sha256: "927682c44c9ea190212feec3950893f52589f79c776bfd1131890c9482b7047a",
+      fixture_filename: "user_rot180_marker.png",
+      fixture_sha256: "25ec6ecdb9819a322dc873f4481293cdc9eff940c04e2fb39ef0983ed9961240",
       kind: :transform
     },
     "zoom_marker" => %{
