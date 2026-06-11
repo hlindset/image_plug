@@ -307,6 +307,41 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # unaffected by #211/#219 — this exercises the EXIF ∘ user-flip suborder directly).
       c("exif_user_flip_h", :exif_6, "fl:1"),
 
+      # --- #226: gravity × placement-site coverage tail (west crop/cover, north
+      # extend, smart pre-resize crop) ---
+      #
+      # PASS-confirmations filling anchor × site cells #203's triage table left open.
+      # The placement bugs that motivated the table (#194 cropToResult box, #195/#196
+      # extend center origin, #200 extend offset sign/clamp) are all fixed and every
+      # anchor/site is exercised somewhere, so a divergence here is a genuine
+      # site-specific calcPosition bug, not yield.
+      #
+      # West on the pre-resize crop site (c:W:H:TYPE). marker 1600×1200, a 300×200
+      # window anchored west → left=0, vertically centered (top=500). West has 1300px of
+      # horizontal play here, so a left/center confusion shifts the window across sharp
+      # marker edges (maxΔ→~255) — unlike the cover/extend sites whose box aspect can
+      # leave the west anchor inert.
+      c("crop_west_marker", :marker, "c:300:200:we"),
+      # West on the cover result-crop site (rs:fill/g:TYPE). The box is PORTRAIT (200×300)
+      # so the cover surplus is horizontal: marker 4:3 covers 200×300 at scale 0.25 →
+      # 400×300, and the 200-wide result-crop has 200px of horizontal play. West → left=0
+      # (the left half of the cover). A landscape box (e.g. 300×200) leaves only vertical
+      # surplus, making west inert — so the box puts the west anchor on a live axis.
+      c("cover_west_gravity_marker", :marker, "rs:fill:200:300/g:we"),
+      # North on the extend site — the exact vertical mirror of [[extend_gravity_small]]
+      # (south). small (120×90) with enlarge-off stays 120×90 inside the 300×200 canvas,
+      # so north has real vertical play (110px) and anchors the image to the top (y=0),
+      # not the centre. extend already covers south/east/west/soea but never the top.
+      c("extend_gravity_north_small", :small, "rs:fit:300:200/ex:1:no"),
+      # Smart (attention) crop on the pre-resize crop site (c:W:H:sm). The two libvips
+      # versions pick the SAME salient window on the sharp marker source — the bake is an
+      # exact match (maxΔ=0), so it holds at the strict default Δ2/64. Smart crop is still
+      # attention-skew-prone (the #203 T3.8 caveat), so a future regression here is most
+      # likely a libvips-version attention difference picking a different window: that is a
+      # structural divergence to quarantine (`:triage` + a tracking issue), never a tol to
+      # widen.
+      c("crop_smart_marker", :marker, "c:300:300:sm"),
+
       # --- lossy group: contract-only (dims/content-type/decode), no pixel claim ---
       lossy("lossy_webp", :high_freq_webp, "rs:fill:240:180/f:webp"),
       lossy("lossy_jpeg_q40", :high_freq, "rs:fill:240:180/q:40/f:jpg"),

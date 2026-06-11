@@ -168,7 +168,12 @@ matrix: each constellation carries a verdict that maps to a stage row.
   independent gravities live, the `force`/`auto`/`fill-down` resize paths, user
   `rot`/`flip` and EXIF∘user composes, trim×resize, and colorspace+blur — all
   PASS-confirmations on existing sources, except the bounded inert-extend alpha
-  divergence (#220) the corner-extend case surfaced.
+  divergence (#220) the corner-extend case surfaced. The #226 tail closes the
+  remaining anchor × site cells: `west` on the inline crop (`crop_west_marker`) and
+  cover result-crop (`cover_west_gravity_marker`) sites, `north` on extend
+  (`extend_gravity_north_small`, the vertical mirror of `extend_gravity_small`), and
+  a smart/attention pre-resize crop (`crop_smart_marker`, `c:W:H:sm`) — all exact
+  PASS-confirmations at the strict default tol.
 
 Regeneration and the libvips provenance model are documented in
 `test/support/image_pipe/test/imgproxy_differential/README.md`.

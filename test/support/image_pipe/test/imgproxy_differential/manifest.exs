@@ -79,6 +79,12 @@
       fixture_sha256: "58eb1dd93b5541973c662cdbf3f7e3546ac7cc5fae0aa6f7f78116db1a643935",
       kind: :transform
     },
+    "cover_west_gravity_marker" => %{
+      authored_sha256: "54e3be50efd25b894d04cdb91d4d4a16213d4335f673dc54b45f65ea6538de27",
+      fixture_filename: "cover_west_gravity_marker.png",
+      fixture_sha256: "cc951096a398c2ae0347478e4604d8d63e0b2b707c42880be21800597bf36dd5",
+      kind: :transform
+    },
     "crop_corner_marker" => %{
       authored_sha256: "e0ac6fdc62cc0d89df05d21af6667aca17c6f5bff68c7651bac5a905979e7d9a",
       fixture_filename: "crop_corner_marker.png",
@@ -107,6 +113,18 @@
       authored_sha256: "2692a4606d5d061371cfd7dc968f3f8e4d8efe1435871915876ac27c8c8bc674",
       fixture_filename: "crop_resize_two_gravities_marker.png",
       fixture_sha256: "03afc585b5e5abf85d5367a0c9a6ac907aa35b3adba4ee8f8417ceca7b566243",
+      kind: :transform
+    },
+    "crop_smart_marker" => %{
+      authored_sha256: "80b4561916217d3885f004b360b8190795dd9ddc7e63ca550ee9f928658f6d6a",
+      fixture_filename: "crop_smart_marker.png",
+      fixture_sha256: "89c3c63fc4b6c8580ec5e62a72a27fec124fa0b9cad63a7a794a6cf44638bf25",
+      kind: :transform
+    },
+    "crop_west_marker" => %{
+      authored_sha256: "c4bd5db86579f71f0afdb10b63d89dffc8094198e7aa9d037c156cd2915675f5",
+      fixture_filename: "crop_west_marker.png",
+      fixture_sha256: "512ad3df5c2027f2299dd8ce8fc588b9e1a1d5a4bb7ce9c3396d0296fdb38cde",
       kind: :transform
     },
     "dpr_marker" => %{
@@ -305,6 +323,12 @@
       authored_sha256: "f8b8a575e88565547d73ce2e46374ddf9a6b97487aefb2857fdd56f3ca6d9f9f",
       fixture_filename: "extend_dpr_fractional_marker.png",
       fixture_sha256: "aa11c87e7f0ab3640e99e33fa8723fc0373a52dfb4fce1786e70ea5c1269db06",
+      kind: :transform
+    },
+    "extend_gravity_north_small" => %{
+      authored_sha256: "fadf889b74f06d696b0f29cc3aae6aae4108d13f0b4f6d93ae183c1fa7238f70",
+      fixture_filename: "extend_gravity_north_small.png",
+      fixture_sha256: "cad8f380cd29378a0ff86ba270333033bc6cd4dbcdb3759ae88e2949b0c959f2",
       kind: :transform
     },
     "extend_gravity_small" => %{
