@@ -290,6 +290,9 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
     case "icc":
       return parseColorProfile(currentState, args);
 
+    case "ph":
+      return parsePreserveHdr(currentState, args);
+
     default:
       return null;
   }
@@ -995,6 +998,23 @@ function parseColorProfile(currentState: DemoState, args: string[]): DemoState |
   return {
     ...currentState,
     colorProfile,
+  };
+}
+
+function parsePreserveHdr(currentState: DemoState, args: string[]): DemoState | null {
+  if (args.length !== 1) {
+    return null;
+  }
+
+  const value = parseBooleanValue(args[0]);
+
+  if (value === null) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    preserveHdr: value,
   };
 }
 

@@ -198,6 +198,7 @@ export type DemoState = {
   keepCopyright: boolean;
   stripColorProfile: boolean;
   colorProfile: ColorProfile;
+  preserveHdr: boolean;
 };
 
 export type ProcessedImageMetadata = {
@@ -395,6 +396,7 @@ export const defaultDemoState: DemoState = {
   keepCopyright: true,
   stripColorProfile: true,
   colorProfile: "none",
+  preserveHdr: false,
 };
 
 export function optionSegments(currentState: DemoState): string[] {
@@ -557,6 +559,10 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (currentState.colorProfile !== "none") {
     segments.push(`cp:${currentState.colorProfile}`);
+  }
+
+  if (currentState.preserveHdr) {
+    segments.push("ph:1");
   }
 
   return segments;
