@@ -46,19 +46,25 @@ dims-mismatch, a `:diverges` case that now matches, or authored-hash drift) sort
 top, and a top-of-page counts line summarizes them. The slider and Geist fonts load from
 a CDN; with no network the side-by-side panels remain the source of truth.
 
-## libvips skew — warn-and-attempt
+## libvips provenance — record both, compare anyway
 
-Fixtures are baked by the container's libvips (recorded as `imgproxy_libvips` in
-`manifest.exs`). ImagePipe tracks a bleeding-edge libvips (via the custom Vix fork)
-while imgproxy lags, so the versions rarely match. Empirically the ✅ stages still
-agree to tolerance across minor libvips gaps, so the test **compares anyway and prints
-a one-time warning** when the versions differ — a failure under skew may reflect a
-libvips version difference rather than an ImagePipe regression. (`:diverges`
-constellations always run regardless of skew, since the divergence they pin is
-algorithmic, not kernel-version-dependent.)
+Fixtures are baked by the container's libvips, recorded as `imgproxy_libvips` in
+`manifest.exs`. That value is the bundled `.so` **ABI soname** (e.g. `42.20.2`): the
+darthsim image exposes no libvips *release* string and ships no `vips` CLI. ImagePipe's
+own libvips reports only its **release** (`Vix.Vips.version()`, e.g. `8.18.2`). The two
+are different version schemes with no clean conversion, so they cannot be compared
+directly — and ImagePipe tracks a bleeding-edge libvips (via the custom Vix fork) while
+imgproxy lags, so they would differ regardless.
 
-Validated at bootstrap: imgproxy libvips `42.20.2` (≈ 8.17.x) vs ImagePipe `8.18.2`
-produced **0.0% pixel difference over Δ2** on every ✅ stage.
+The harness therefore makes no version-match claim: it always runs the pixel comparison
+and emits a one-time provenance note carrying both versions, each tagged with its scheme
+(the `:equal` tolerances absorb minor libvips-version resampling differences). A failure
+may still reflect a libvips-version difference rather than an ImagePipe regression — read
+the note's two versions when triaging. (`:diverges` constellations pin an algorithmic
+divergence, not a kernel-version one, so they are unaffected.)
+
+Recorded at bootstrap: imgproxy libvips `42.20.2` (.so ABI soname, ≈ release 8.17.x) and
+ImagePipe `8.18.2` (release) produced **0.0% pixel difference over Δ2** on every ✅ stage.
 
 ## Quarantine mechanism
 

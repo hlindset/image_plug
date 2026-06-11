@@ -138,7 +138,8 @@ decoded pixel output against committed fixtures generated from a pinned real img
 matrix: each constellation carries a verdict that maps to a stage row.
 
 - **`:equal`** (transform group, ✅ stages): tight count-based pixel agreement on PNG
-  output, skew-gated to the fixtures' libvips. Stages exercised: trim (sRGB),
+  output against the fixtures' libvips (tolerances absorb minor libvips-version
+  resampling differences). Stages exercised: trim (sRGB),
   scaleOnLoad (JPEG/WebP), crop, scale (fit/fill/fill-down/auto), rotate, extend,
   extendAspectRatio, padding, flatten, applyFilters (blur/sharpen), stripMetadata.
 - **`:diverges`** (⚠️ rows): asserts a *structured* divergence still holds (region
@@ -154,7 +155,7 @@ matrix: each constellation carries a verdict that maps to a stage row.
   fit+dpr rounding fold (#199, via `extend_ar_dpr_marker`) and the stage-10 extend
   east/south offset sign + clamp (#200, via `extend_offset_east_marker`).
 
-Regeneration and the libvips skew model are documented in
+Regeneration and the libvips provenance model are documented in
 `test/support/image_pipe/test/imgproxy_differential/README.md`.
 
 ## Status legend
