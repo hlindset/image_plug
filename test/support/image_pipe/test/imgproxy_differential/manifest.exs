@@ -194,7 +194,7 @@
       kind: :transform
     },
     "extend_ar_dpr_marker" => %{
-      authored_sha256: "9b2cc1456b402da222a8af310ff7417b7539c068050236bdfdaae7dae043d17b",
+      authored_sha256: "ab2f24f77c971a86c30e9c987bcf6ac2f8843b60a57371c6c1b0806a2b8fd2a5",
       fixture_filename: "extend_ar_dpr_marker.png",
       fixture_sha256: "aa11c87e7f0ab3640e99e33fa8723fc0373a52dfb4fce1786e70ea5c1269db06",
       kind: :transform

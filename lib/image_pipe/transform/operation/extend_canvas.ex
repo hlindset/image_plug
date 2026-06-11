@@ -151,9 +151,22 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvas do
     end
   end
 
+  # imgproxy calc_position.go places the image relative to the anchored edge and
+  # clamps the origin to [0, outer - inner] (allowOverflow=false). West/north/center
+  # add the offset; right/bottom anchors move the image AWAY from that edge, i.e.
+  # subtract (`left = outer - inner - offX`).
   defp offset(axis, gravity, configured_offset, image_size, canvas_size) do
-    base_offset(axis, gravity, image_size, canvas_size) + round(configured_offset)
+    base = base_offset(axis, gravity, image_size, canvas_size)
+    signed = base + offset_direction(axis, gravity) * round(configured_offset)
+
+    signed
+    |> max(0)
+    |> min(canvas_size - image_size)
   end
+
+  defp offset_direction(:x, {:anchor, :right, _y}), do: -1
+  defp offset_direction(:y, {:anchor, _x, :bottom}), do: -1
+  defp offset_direction(_axis, _gravity), do: 1
 
   defp base_offset(:x, {:anchor, :left, _y}, _image_size, _canvas_size), do: 0
 

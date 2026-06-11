@@ -99,30 +99,24 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # resolved by carrying the canvas-preserving resize scale into ExtendCanvas,
       # the same way padding does.
       c("extend_offset_dpr_marker", :marker, "rs:fit:400:150/ex:1:we:5:0/dpr:2"),
-      # extend + EAST gravity + absolute offset. Quarantined (#200): a pre-existing
-      # sign divergence the dpr fix does not touch. imgproxy moves the image AWAY
-      # from the anchored edge — east: left = width − innerWidth − offX
-      # (calc_position.go:44-46) → left = 400 − 200 − 20 = 180. ExtendCanvas anchors
-      # right (canvas − image) then ADDS the offset, landing the image past the east
-      # edge (clamped by embed). Independent of dpr (shown here at dpr:1); the dpr
-      # fix scales the magnitude but not the sign, so it stays quarantined.
-      %{
-        c("extend_offset_east_marker", :marker, "rs:fit:400:150/ex:1:ea:20:0")
-        | triage: %{
-            reason: "extend east/south offset sign (adds, should subtract)",
-            issue: "#200"
-          }
-      },
-      # extend-aspect-ratio + dpr. Quarantined (#199): the AR canvas dims match
-      # (600×400) and the placement is correct, but the centred image is 1px wider
-      # than imgproxy's (534 vs 533) — ImagePipe rounds the fit dimension and THEN
-      # multiplies by dpr (round(266.67)=267, ×2=534) where imgproxy folds dpr into
-      # one scale (round(266.67×2)=533, imath.Scale). One full column (col 567)
-      # diverges at Δ255. A general fit+dpr fractional-rounding divergence, not an
-      # extend bug; the resize-scale rework is out of scope for this PR.
+      # extend + EAST gravity + absolute offset. imgproxy moves the image AWAY from
+      # the anchored edge — east: left = width − innerWidth − offX
+      # (calc_position.go:44-46) → left = 400 − 200 − 20 = 180 — and clamps the origin
+      # to [0, outer − inner] (allowOverflow=false). ExtendCanvas now subtracts the
+      # offset for right/bottom anchors and clamps to match (#200).
+      c("extend_offset_east_marker", :marker, "rs:fit:400:150/ex:1:ea:20:0"),
+      # extend-aspect-ratio + dpr. The AR canvas (600×400) and placement match, and
+      # the centred image is now 533px wide (not 534): ImagePipe folds dpr into the
+      # single resize scale (round(266.67×2)=533, imath.Scale) instead of rounding the
+      # fit dimension first (#199). With the dims aligned the residual is the same
+      # libvips-version resampling seam as [[min_dims_dpr_marker]]: 201 band-bytes over
+      # Δ2 confined to 3 columns (x=100, x=188-190) at sharp marker edges, max Δ28,
+      # spread vertically along the edges (a 1px structural shift would instead diverge
+      # every edge at near-full contrast — thousands of bytes — and blow the budget).
+      # Budget set just above the seam while KEEPING the strict Δ2 threshold.
       %{
         c("extend_ar_dpr_marker", :marker, "rs:fit:300:200/exar:1/dpr:2")
-        | triage: %{reason: "fit+dpr separate-rounding 1px width divergence", issue: "#199"}
+        | tol: %{threshold: 2, budget: 256}
       },
       # extend + non-center gravity, no dpr. small (120×90) is smaller than the
       # 300×200 box on both axes, so south gravity has real vertical play: the
