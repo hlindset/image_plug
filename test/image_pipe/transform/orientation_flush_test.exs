@@ -1,6 +1,7 @@
 defmodule ImagePipe.Transform.OrientationFlushTest do
   use ExUnit.Case, async: true
   alias ImagePipe.Transform.{OrientationFlush, PendingOrientation, State}
+  alias Vix.Vips.Operation
 
   defp marked, do: Image.Draw.rect!(Image.new!(40, 20, color: :white), 0, 0, 4, 4, color: :red)
   defp oriented(base, n), do: Image.set_orientation!(base, n)
@@ -20,13 +21,19 @@ defmodule ImagePipe.Transform.OrientationFlushTest do
     end
   end
 
-  # Reference: apply EXIF (autorotate) then user rotate then user flip directly.
+  # Reference: apply EXIF (autorotate) then user rotate then user flip directly,
+  # using the SAME primitives the flush uses — the exact `vips_rot` for the user
+  # rotate, not Image.rotate/2's affine resampler (#211).
   defp reference(base, %PendingOrientation{} = po) do
     img = if po.auto_rotate?, do: elem(ok(Image.autorotate(base)), 0), else: base
-    img = if po.user_angle != 0, do: Image.rotate!(img, po.user_angle), else: img
+    img = if po.user_angle != 0, do: rot_exact!(img, po.user_angle), else: img
     img = if po.user_flip_x, do: Image.flip!(img, :horizontal), else: img
     if po.user_flip_y, do: Image.flip!(img, :vertical), else: img
   end
+
+  defp rot_exact!(img, 90), do: ok(Operation.rot(img, :VIPS_ANGLE_D90))
+  defp rot_exact!(img, 180), do: ok(Operation.rot(img, :VIPS_ANGLE_D180))
+  defp rot_exact!(img, 270), do: ok(Operation.rot(img, :VIPS_ANGLE_D270))
 
   defp ok({:ok, v}), do: v
 
@@ -56,7 +63,7 @@ defmodule ImagePipe.Transform.OrientationFlushTest do
 
     assert {:ok, %State{} = result} = OrientationFlush.flush(state)
     # Reference applies ONLY the user 90°, never the EXIF tag.
-    expected = Image.rotate!(oriented(base, 6), 90)
+    expected = rot_exact!(oriented(base, 6), 90)
     assert_pixels_match(result.image, expected)
   end
 end

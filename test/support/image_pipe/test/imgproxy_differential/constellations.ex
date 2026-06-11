@@ -235,19 +235,12 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
 
   defp exif_transpose_crosses do
     [
-      # EXIF transpose/transverse ∘ user rot:90 leaves a 1px black (uncovered) seam
-      # at the frame and block edges (max Δ200 at x=0 and x=100, full height) — a
-      # real coverage error in the #146 rotate compose, quarantined under #211. The
-      # ∘fl variants and the plain `exif_5_cover`/`exif_7_cover` cases all match, so
-      # the bug is isolated to transpose ∘ user quarter-turn.
-      %{
-        c("exif_5_cover_rot90", :exif_5, "rs:fill:200:150/rot:90")
-        | triage: %{reason: "EXIF transpose ∘ user rot:90: 1px black edge seam", issue: "#211"}
-      },
-      %{
-        c("exif_7_cover_rot90", :exif_7, "rs:fill:200:150/rot:90")
-        | triage: %{reason: "EXIF transverse ∘ user rot:90: 1px black edge seam", issue: "#211"}
-      },
+      # EXIF transpose/transverse ∘ user rot:90 — the deepest #146 compose path
+      # (axis-swapping EXIF stacked with an axis-swapping user rotate). The user
+      # rotate now flushes via the exact `vips_rot` instead of Image.rotate/2's
+      # affine resampler, which had left a 1px black edge seam (#211).
+      c("exif_5_cover_rot90", :exif_5, "rs:fill:200:150/rot:90"),
+      c("exif_7_cover_rot90", :exif_7, "rs:fill:200:150/rot:90"),
       c("exif_5_cover_fl", :exif_5, "rs:fill:200:150/fl:1"),
       c("exif_7_cover_fl", :exif_7, "rs:fill:200:150/fl:1")
     ]

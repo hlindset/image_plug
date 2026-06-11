@@ -279,10 +279,6 @@ defmodule ImagePipe.ImgproxyGenReportTest do
     end
 
     assert html =~ "band-bytes over Δ", "per-case metric text not rendered"
-    # The quarantined cases surface their live over-budget divergence (the triage
-    # state annotates, it does not suppress the metric).
-    assert html =~ "over_budget", "expected quarantined cases to show over-budget divergence"
-
     assert html =~ "data:image/png;base64,", "no inlined PNG images in report"
     # alpha_resize / background_alpha exercise RGB band-alignment in the heatmap
     # path; the run must not crash on a band-count mismatch.
