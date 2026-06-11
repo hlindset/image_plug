@@ -5,7 +5,7 @@ defmodule Mix.Tasks.Imgproxy.Reauthor do
   and rewrites the manifest, leaving fixtures and REPORT untouched. Use after a
   `tol` tweak or a `:diverges`→`:equal` verdict flip (no pixels change).
 
-      MIX_ENV=test mise exec -- mix imgproxy.reauthor
+      mise exec -- mix imgproxy.reauthor
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]

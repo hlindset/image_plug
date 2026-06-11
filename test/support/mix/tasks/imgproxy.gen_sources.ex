@@ -5,7 +5,7 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
   the outputs. Regenerating sources is a deliberate act (a libvips bump must not
   silently change inputs).
 
-      MIX_ENV=test mise exec -- mix imgproxy.gen_sources
+      mise exec -- mix imgproxy.gen_sources
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]

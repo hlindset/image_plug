@@ -7,9 +7,10 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   imgproxy fixtures are already committed and ImagePipe renders are live. A DX /
   inspection tool only: it touches no fixtures, manifest, or the `mix test` lane.
 
-      MIX_ENV=test mise exec -- mix imgproxy.gen_report [--out PATH]
+      mise exec -- mix imgproxy.gen_report [--out PATH]
 
-  `--out` defaults to `report.html` beside the harness (gitignored).
+  Auto-selects `MIX_ENV=test` via `mix.exs` `preferred_envs` (the task lives in
+  `test/support`). `--out` defaults to `report.html` beside the harness (gitignored).
   """
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
