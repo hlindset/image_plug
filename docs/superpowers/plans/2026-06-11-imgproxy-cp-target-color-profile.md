@@ -135,6 +135,14 @@ Expected: FAIL — `ImagePipe.Output.ColorProfile` is undefined.
 
 - [ ] **Step 3: Write the module**
 
+> Review note: `Application.app_dir(:image_pipe, …)` at **compile time** is unreliable — the app
+> is often not loaded during compile and it raises `ArgumentError`. There is no `code.priv_dir`/
+> `app_dir` precedent in `lib/` to copy. So: resolve the runtime path via `:code.priv_dir/1` inside
+> `path!/1` (the app is always loaded at request time, and this is release-correct), and use a
+> separate `__DIR__`-relative path only for the compile-time `@external_resource` + presence guard.
+> Filenames are still hardcoded per clause (`icc_path/1` only ever receives the three literals — no
+> atom→path interpolation), so an unknown atom raises `FunctionClauseError` at `path!/1`.
+
 ```elixir
 defmodule ImagePipe.Output.ColorProfile do
   @moduledoc false
@@ -144,30 +152,32 @@ defmodule ImagePipe.Output.ColorProfile do
   # slice is added. The only producer of these atoms is the imgproxy parser, which
   # emits exactly these three; an unknown atom is a programmer error and raises.
 
-  @dir Application.app_dir(:image_pipe, "priv/icc")
+  # Compile-time presence guard only (build tree). Runtime resolution uses
+  # :code.priv_dir/1 in path!/1 so the released artifact path is correct.
+  @source_dir Path.expand(Path.join([__DIR__, "..", "..", "..", "priv", "icc"]))
 
-  @srgb Path.join(@dir, "sRGB.icc")
-  @display_p3 Path.join(@dir, "DisplayP3.icc")
-  @adobe_rgb Path.join(@dir, "AdobeRGB.icc")
+  for name <- ["sRGB.icc", "DisplayP3.icc", "AdobeRGB.icc"] do
+    path = Path.join(@source_dir, name)
+    @external_resource path
 
-  @external_resource @srgb
-  @external_resource @display_p3
-  @external_resource @adobe_rgb
-
-  # Compile-time presence guard: a missing shipped profile fails the build loudly
-  # rather than surfacing as a per-request error on a broken release.
-  for path <- [@srgb, @display_p3, @adobe_rgb] do
     unless File.exists?(path) do
       raise "missing shipped ICC profile: #{path} (see priv/icc/PROVENANCE.md)"
     end
   end
 
   @spec path!(:srgb | :display_p3 | :adobe_rgb) :: String.t()
-  def path!(:srgb), do: @srgb
-  def path!(:display_p3), do: @display_p3
-  def path!(:adobe_rgb), do: @adobe_rgb
+  def path!(:srgb), do: icc_path("sRGB.icc")
+  def path!(:display_p3), do: icc_path("DisplayP3.icc")
+  def path!(:adobe_rgb), do: icc_path("AdobeRGB.icc")
+
+  # icc_path/1 only ever receives the three literals above — never user input.
+  defp icc_path(name), do: Path.join([:code.priv_dir(:image_pipe), "icc", name])
 end
 ```
+
+Note on failure class: the compile-time guard makes a runtime-missing asset effectively
+unreachable, so the `{:error, {:decode, _}}` mapping in Task 3 (for genuine `icc_transform`
+failures on bad *pixels*) is acceptable and needs no asset-specific special-casing.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -195,45 +205,50 @@ The core mechanics. A new top-level `color_result/2` clause for `{:convert, targ
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `test/image_pipe/output/color_result_test.exs` (match the file's existing `Resolved` builder / fixture helpers — adapt the helper names below to the ones already in the file):
+The file's REAL helpers (read `test/image_pipe/output/color_result_test.exs:39-58` to confirm):
+`resolved(format, color_profile, opts \\ [])` (positional), `Encoder.stream_output(image, resolved, [])`
+→ `{:ok, stream, _ct}`, `decode(stream)` → image, and **`header(image, field)`** which normalizes
+`{:ok, v}`/error to `v`/`nil`. **Use `header/2` — not raw `Vix.Vips.Image.header_value/2`, whose
+`{:ok, _}` return makes `!= nil` trivially true and would mask a missing profile.**
 
 ```elixir
 describe "color_profile {:convert, target}" do
-  test "converts to the target and embeds its profile" do
+  test "converts to the target and embeds its profile (untagged sRGB source, N1)" do
     # working-space sRGB image (3-band, no embedded profile — the untagged case)
     {:ok, image} = Vix.Vips.Operation.black(16, 16, bands: 3)
-    resolved = build_resolved(format: :png, color_profile: {:convert, :display_p3})
 
-    {:ok, out} = finalize_for_test(image, resolved)
+    {:ok, stream, _} = Encoder.stream_output(image, resolved(:png, {:convert, :display_p3}), [])
 
-    assert Vix.Vips.Image.header_value(out, "icc-profile-data") != nil
+    assert decode(stream) |> header("icc-profile-data") != nil
   end
 
   test "greyscale source converts to a 3-band RGB target (N2)" do
     {:ok, grey} = Vix.Vips.Operation.black(16, 16, bands: 1)
     {:ok, grey} = Vix.Vips.Operation.colourspace(grey, :VIPS_INTERPRETATION_B_W)
-    resolved = build_resolved(format: :png, color_profile: {:convert, :display_p3})
 
-    {:ok, out} = finalize_for_test(grey, resolved)
+    {:ok, stream, _} = Encoder.stream_output(grey, resolved(:png, {:convert, :display_p3}), [])
+    out = decode(stream)
 
     assert Vix.Vips.Image.bands(out) == 3
-    assert Vix.Vips.Image.header_value(out, "icc-profile-data") != nil
+    assert header(out, "icc-profile-data") != nil
   end
 
   test "embedded target survives metadata strip (not dropped by maybe_drop_profile)" do
     {:ok, image} = Vix.Vips.Operation.black(16, 16, bands: 3)
-    resolved = build_resolved(format: :jpeg, color_profile: {:convert, :adobe_rgb}, strip_metadata: true)
+    res = resolved(:jpeg, {:convert, :adobe_rgb}, strip_metadata: true)
 
-    {:ok, out} = finalize_for_test(image, resolved)
+    {:ok, stream, _} = Encoder.stream_output(image, res, [])
 
-    assert Vix.Vips.Image.header_value(out, "icc-profile-data") != nil
+    assert decode(stream) |> header("icc-profile-data") != nil
   end
 end
 ```
 
 Notes for the implementer:
-- `build_resolved/1` and `finalize_for_test/2` are stand-ins for whatever the file already uses to build a `%ImagePipe.Output.Resolved{}` and invoke the finalize path (the file already tests `:preserve_source`/`:strip`, so equivalents exist — reuse them, do not add new public encoder API).
-- These build `Resolved{color_profile: {:convert, _}}` directly: that is a **real** shape (Task 4's parser produces it), consistent with how the file already builds `Resolved` for `:strip`/`:preserve_source` — not an impossible-misuse struct.
+- These build `Resolved{color_profile: {:convert, _}}` via the existing `resolved/3` helper — a
+  **real** shape (Task 4's parser produces it), exactly how the file already builds `Resolved` for
+  `:strip`/`:preserve_source` (test:67,89). Not an impossible-misuse struct.
+- Do not add new public encoder API; reuse `stream_output/3` + `decode/1` + `header/2`.
 
 - [ ] **Step 2: Run tests to verify they fail**
 
@@ -275,7 +290,7 @@ defp convert_to_target(image, target, format) do
     with {:ok, srgb} <- Operation.colourspace(image, :VIPS_INTERPRETATION_sRGB),
          {:ok, converted} <-
            Operation.icc_transform(srgb, ColorProfile.path!(target),
-             input_profile: "srgb",
+             input_profile: "sRGB",
              depth: icc_depth(srgb)
            ) do
       {:ok, converted}
@@ -314,32 +329,70 @@ Mirrors the existing `strip_color_profile` cross-pipeline machinery. `cp`/`icc`/
 
 - [ ] **Step 1: Write the failing parser tests**
 
-Add to `test/parser/imgproxy_test.exs` (use the file's existing parse helper — shown here as `parse/1` returning `{:ok, %Plan{}}`; adapt to the real helper name):
+REAL call shape (see `test/parser/imgproxy_test.exs:122-140`): `Imgproxy.parse(conn(:get, "/_/<options>/plain/images/cat.jpg"), opts)`
+→ `{:ok, %Plan{}}`. **The `/_/` prefix is required** — without it the request fails as
+`:missing_signature` before reaching the `cp` parser. Use `@no_auto_rotate_opts` (already in the file)
+so unrelated ops don't appear. `Plan`/`Pipeline` are already aliased in the file; for the cache-key
+test alias `ImagePipe.Cache.Key, as: CacheKey` (mirror the existing distinct-cache-key test at
+`imgproxy_test.exs:173`, including its `source_identity`/conn arguments).
 
 ```elixir
 describe "color_profile / cp / icc" do
   test "cp maps each built-in identifier to a convert target" do
     for {str, atom} <- [{"srgb", :srgb}, {"p3", :display_p3}, {"display-p3", :display_p3},
                         {"adobe-rgb", :adobe_rgb}, {"adobergb", :adobe_rgb}] do
-      {:ok, plan} = parse("rs:fit:10:10/cp:#{str}/plain/http://e/i.jpg")
+      assert {:ok, plan} =
+               Imgproxy.parse(conn(:get, "/_/cp:#{str}/plain/images/cat.jpg"), @no_auto_rotate_opts)
+
       assert plan.output.color_profile == {:convert, atom}
     end
   end
 
   test "icc is an alias for cp" do
-    {:ok, plan} = parse("rs:fit:10:10/icc:p3/plain/http://e/i.jpg")
+    assert {:ok, plan} =
+             Imgproxy.parse(conn(:get, "/_/icc:p3/plain/images/cat.jpg"), @no_auto_rotate_opts)
+
     assert plan.output.color_profile == {:convert, :display_p3}
   end
 
   test "unknown identifier is a parse error" do
-    assert {:error, _} = parse("cp:rec2020/plain/http://e/i.jpg")
+    assert {:error, _} =
+             Imgproxy.parse(conn(:get, "/_/cp:rec2020/plain/images/cat.jpg"), @no_auto_rotate_opts)
   end
 
   test "cp overrides scp regardless of the scp boolean" do
-    {:ok, p1} = parse("cp:p3/scp:1/plain/http://e/i.jpg")
-    {:ok, p0} = parse("cp:p3/scp:0/plain/http://e/i.jpg")
+    assert {:ok, p1} =
+             Imgproxy.parse(conn(:get, "/_/cp:p3/scp:1/plain/images/cat.jpg"), @no_auto_rotate_opts)
+
+    assert {:ok, p0} =
+             Imgproxy.parse(conn(:get, "/_/cp:p3/scp:0/plain/images/cat.jpg"), @no_auto_rotate_opts)
+
     assert p1.output.color_profile == {:convert, :display_p3}
     assert p0.output.color_profile == {:convert, :display_p3}
+  end
+
+  # cp is a global output option, NOT a pipeline operation — mirror the scp test at
+  # imgproxy_test.exs:122. A no-geometry cp must collapse to one empty-ops pipeline
+  # (proves consume_color_profile_request + reject_empty_pipelines work, Step 3f).
+  test "cp is not a pipeline operation" do
+    assert {:ok, plan} =
+             Imgproxy.parse(conn(:get, "/_/cp:p3/plain/images/cat.jpg"), @no_auto_rotate_opts)
+
+    assert plan.output.color_profile == {:convert, :display_p3}
+    assert [%Pipeline{operations: []}] = plan.pipelines
+  end
+
+  # Distinct targets must NOT collide in the cache key; equal targets must (parser
+  # boundary, mirroring the sm/kcr/scp distinct-key test at imgproxy_test.exs:173).
+  test "different cp targets produce distinct cache keys" do
+    key = fn opt ->
+      c = conn(:get, "/_/#{opt}/plain/images/cat.jpg")
+      {:ok, plan} = Imgproxy.parse(c, @no_auto_rotate_opts)
+      CacheKey.build(c, plan, "src-identity")
+    end
+
+    assert key.("cp:p3") == key.("cp:display-p3")
+    refute key.("cp:p3") == key.("cp:adobe-rgb")
   end
 end
 ```
@@ -409,7 +462,9 @@ Accept the assignment onto the pipeline (in the per-option `update_*`/reducer th
   %{pipeline | color_profile: value}
 ```
 
-In `apply_request_defaults/2` (line 299), resolve the effective target and put it on the output, alongside the existing `strip_color_profile?` work:
+In `apply_request_defaults/2` (line 299): compute the effective target **from the incoming
+`pipelines` param** (before they are rebound), then put it on the output. The `color_profile =`
+binding must come before the `pipelines =` rebinding so it reads the pre-consume values:
 ```elixir
 color_profile = effective_color_profile(pipelines)
 ```
@@ -430,6 +485,32 @@ defp effective_color_profile(pipelines) do
     %PipelineRequest{}, acc -> acc
   end)
 end
+```
+
+- [ ] **Step 3f: options.ex — consume the per-pipeline target (mirror `scp`)**
+
+`cp` is a global output option, not a pipeline operation. Like `strip_color_profile`, the
+per-pipeline field must be **reset after** `effective_color_profile/1` reads it, so a no-geometry
+`cp:p3/plain/...` pipeline becomes empty and `reject_empty_pipelines` collapses it to the canonical
+`[%PipelineRequest{}]` (and a `cp` in a non-final group doesn't leave a spurious empty pipeline).
+Without this, `cp` diverges from the `scp` machinery and the "cp is not a pipeline operation" test
+(Step 1) fails.
+
+In `apply_request_defaults/2`, add the consume to the `pipelines` map chain (line ~307, before
+`reject_empty_pipelines`):
+```elixir
+pipelines =
+  pipelines
+  |> Enum.map(&consume_auto_rotate_request/1)
+  |> Enum.map(&consume_strip_color_profile_request/1)
+  |> Enum.map(&consume_color_profile_request/1)
+  |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
+  |> reject_empty_pipelines()
+```
+and define it next to `consume_strip_color_profile_request/1` (line ~370):
+```elixir
+defp consume_color_profile_request(%PipelineRequest{} = pipeline),
+  do: %{pipeline | color_profile: nil}
 ```
 
 - [ ] **Step 3d: parsed_request.ex — output field + type**
@@ -472,56 +553,88 @@ git commit -m "feat(imgproxy): parse cp/icc target, overriding scp slot"
 **Files:**
 - Modify: `test/image_pipe/imgproxy_wire_conformance_test.exs`
 
-Real `ImagePipe.call/2` requests asserting user-visible contracts: embedded profile + decoded pixels, no-geometry form, `cp` overrides `scp`, EXIF still stripped, cache reuse / distinct keys. Keep representative, not exhaustive.
-
-> Read the existing tests in this file first to reuse its request helpers, fixture sources, and decode helpers (it already decodes response bodies and asserts dimensions/headers). The snippets below name stand-in helpers — map them to the real ones.
+Real `ImagePipe.call/2` requests via `call_imgproxy/2,3`, asserting user-visible contracts. Uses the
+file's REAL helpers (read them first): `wide_gamut_origin_opts/0` (serves a P3 PNG at any path; use
+`images/wide.png`), `metadata_origin_opts/0` (serves a JPEG with EXIF Copyright + ImageDescription +
+XMP at `images/meta.jpg`), `response_metadata/1` → `{image, field_names}`, `sampled_pixels/1`, and
+`cached_opts/1` + `CountingOriginImage` for behavioral cache-reuse. The distinct-cache-**key**
+assertion lives in Task 4 (parser boundary, `CacheKey.build`), not here.
 
 - [ ] **Step 1: Write the failing wire tests**
 
 ```elixir
 describe "cp/icc target color profile (wire)" do
   test "cp:display-p3 embeds the target and changes pixels vs strip" do
-    # use a wide-gamut fixture if available; otherwise any RGB source — the assertion
-    # is on embedded profile presence + decoded pixels, per the spec.
-    p3 = request!("rs:fit:32:32/cp:display-p3/plain/#{src()}")
-    strip = request!("rs:fit:32:32/scp:1/plain/#{src()}")
+    {p3_img, p3_fields} =
+      response_metadata(call_imgproxy("/_/cp:display-p3/f:png/plain/images/wide.png", wide_gamut_origin_opts()))
 
-    assert decoded(p3) |> has_embedded_icc?()
-    refute decoded(p3) |> pixels() == decoded(strip) |> pixels()
+    {strip_img, _} =
+      response_metadata(call_imgproxy("/_/scp:1/f:png/plain/images/wide.png", wide_gamut_origin_opts()))
+
+    assert "icc-profile-data" in p3_fields
+    refute sampled_pixels(p3_img) == sampled_pixels(strip_img)
   end
 
   test "cp works without geometry (no-geometry form)" do
-    resp = request!("cp:adobe-rgb/plain/#{src()}")
-    assert decoded(resp) |> has_embedded_icc?()
+    {_img, fields} =
+      response_metadata(call_imgproxy("/_/cp:adobe-rgb/f:png/plain/images/wide.png", wide_gamut_origin_opts()))
+
+    assert "icc-profile-data" in fields
   end
 
-  test "cp overrides scp: profile embedded, not stripped" do
-    resp = request!("cp:p3/scp:1/plain/#{src()}")
-    assert decoded(resp) |> has_embedded_icc?()
+  test "cp overrides scp: target embedded, not stripped" do
+    {_img, fields} =
+      response_metadata(call_imgproxy("/_/cp:p3/scp:1/f:png/plain/images/wide.png", wide_gamut_origin_opts()))
+
+    assert "icc-profile-data" in fields
   end
 
-  test "EXIF/GPS still stripped under a cp target" do
-    resp = request!("cp:display-p3/plain/#{src_with_gps()}")
-    img = decoded(resp)
-    assert has_embedded_icc?(img)
-    assert exif_gps(img) == nil
+  test "EXIF/XMP still stripped under a cp target (target does not suppress metadata strip)" do
+    # default strip_metadata; keep_copyright defaults true, so assert a NON-copyright
+    # EXIF field + XMP are gone while the cp target ICC is present.
+    {_img, fields} =
+      response_metadata(call_imgproxy("/_/cp:display-p3/f:jpeg/plain/images/meta.jpg", metadata_origin_opts()))
+
+    assert "icc-profile-data" in fields
+    refute "exif-ifd0-ImageDescription" in fields
+    refute "xmp-data" in fields
   end
 
-  test "cache: equal cp requests reuse; different targets get distinct keys" do
-    k_p3a = cache_key!("cp:p3/plain/#{src()}")
-    k_p3b = cache_key!("cp:display-p3/plain/#{src()}")
-    k_adobe = cache_key!("cp:adobe-rgb/plain/#{src()}")
+  test "equal cp requests reuse the filesystem cache (different option order)" do
+    {opts, cache_root} =
+      cached_opts(
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test",
+             req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+        ]
+      )
 
-    assert k_p3a == k_p3b
-    refute k_p3a == k_adobe
+    try do
+      first = call_imgproxy("/_/cp:p3/rs:fit:80:80/f:jpeg/plain/images/beach.jpg", opts)
+      assert first.status == 200
+      assert_received :origin_fetch
+
+      # Same plan, different option order -> same cache key -> cache hit, no refetch.
+      second = call_imgproxy("/_/rs:fit:80:80/cp:p3/f:jpeg/plain/images/beach.jpg", opts)
+      assert second.status == 200
+      assert second.resp_body == first.resp_body
+      refute_received :origin_fetch
+    after
+      File.rm_rf!(cache_root)
+    end
   end
 end
 ```
 
-- [ ] **Step 2: Run tests to verify they fail / then pass**
+- [ ] **Step 2: Run tests to verify they pass**
 
 Run: `mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs`
-Expected: these pass once Tasks 2-4 are in (this task adds no production code — it pins the end-to-end contract). If any fail, the failure points at a real integration gap to fix before proceeding. If a true wide-gamut fixture is unavailable, note it inline and assert embedded-profile presence + that pixels differ from the `scp:1` baseline rather than absolute pixel values.
+Expected: PASS once Tasks 2-4 are in (this task adds no production code — it pins the end-to-end
+contract). The pixel-diff assertion is meaningful because `wide.png` is a genuine P3 source: `cp:display-p3`
+re-embeds/keeps wide-gamut color while `scp:1` converts to sRGB and drops, so the sampled pixels differ.
+If any test fails, the failure points at a real integration gap to fix before proceeding.
 
 - [ ] **Step 3: Commit**
 
@@ -545,6 +658,7 @@ Update the two `Missing` rows (lines ~778-779) and the `IMGPROXY_COLOR_PROFILES_
 
 - `color_profile` / `cp`,`icc` → **Supported (built-in RGB targets)**. State: targets `srgb` (surface-faithful built-in name), `display-p3`/`p3` and `adobe-rgb`/`adobergb` (**ImagePipe extensions** — Pro reaches these only via `IMGPROXY_COLOR_PROFILES_DIR`, so the same URL may resolve differently on Pro). `cmyk` not yet supported (→ #214). Shipped profiles are **CC0 substitutes** — bytes differ from Pro for every identifier incl. `srgb`; primaries match, `description`/TRC may differ; **not byte-conformant**. `cp` overrides/survives `scp`. No percent-decoding in v1.
 - Tag the divergence axes per the conformance discipline: **surface** (extension identifiers), **behavioral/pixel** (CC0 substitute bytes), **stage/order** (none new — reuses encoder finalize).
+- Record the **format-ignored parity**: imgproxy ignores `cp` when the output format can't carry a profile; ImagePipe's `convert_to_target` returns the image un-embedded when `Format.supports_color_profile?/1` is false. Vacuous for all four current output formats, but note the parity so the conformance doc records it rather than leaving it implicit (it becomes load-bearing for CMYK, #214).
 - `IMGPROXY_COLOR_PROFILES_DIR` stays ⭕ — custom-dir resolution out of scope.
 
 - [ ] **Step 2: Commit**
@@ -616,4 +730,26 @@ Do not push unless asked.
 
 **Placeholder scan:** the only intentional `<…>` placeholders are real-value fills in `PROVENANCE.md` (source/license/SHA) and the stand-in test-helper names, both flagged to map to existing helpers. No TBD/TODO in production steps.
 
-**Type consistency:** target atoms `:srgb | :display_p3 | :adobe_rgb` consistent across `ColorProfile.path!/1`, parser `color_profile_target/1`, plan `{:convert, target}`, and `color_profile_policy/2`. Plan field name `color_profile` consistent (parser pipeline field, output map key, `Plan.Output.color_profile`). `convert_to_target/3`, `effective_color_profile/1`, `color_profile_policy/2` referenced consistently where defined.
+**Type consistency:** target atoms `:srgb | :display_p3 | :adobe_rgb` consistent across `ColorProfile.path!/1`, parser `color_profile_target/1`, plan `{:convert, target}`, and `color_profile_policy/2`. Plan field name `color_profile` consistent (parser pipeline field, output map key, `Plan.Output.color_profile`). `convert_to_target/3`, `effective_color_profile/1`, `consume_color_profile_request/1`, `color_profile_policy/2` referenced consistently where defined.
+
+## Plan-review log
+
+Parallel disjoint-focus review run on this plan before execution (3 reviewers: compatibility,
+Elixir-correctness-vs-code, test-quality/conventions). All findings verified against the real code and
+applied:
+- **Elixir B1** — `Application.app_dir/2` at compile time is unreliable (no in-repo precedent). Task 2
+  now uses a `__DIR__`-relative compile-time presence guard + runtime `:code.priv_dir/1`.
+- **Compat B1** — `cp` must mirror `scp`'s consume step or a no-geometry/multi-group `cp` leaves a
+  spurious pipeline (`pipeline_empty?` compares to a default `%PipelineRequest{}`; an unconsumed
+  `:display_p3` ≠ default). Task 4 adds `consume_color_profile_request/1` + a "cp is not a pipeline
+  operation" test mirroring `imgproxy_test.exs:122`.
+- **Test B1/B2** — invented helpers replaced with real ones: GPS test → `metadata_origin_opts` +
+  `response_metadata` asserting non-copyright EXIF/XMP stripped; distinct-cache-**key** moved to Task 4
+  (`CacheKey.build`), wire cache test → behavioral reuse via `cached_opts` + `CountingOriginImage`.
+- **Test N2 (correctness)** — raw `Vix.Vips.Image.header_value/2` returns `{:ok, _}`, so `!= nil` was
+  trivially true and would mask a missing profile; Task 3 now uses the file's `header/2` wrapper.
+- **Test N4** — parser snippets now use `Imgproxy.parse(conn(:get, "/_/…"), opts)` with the required
+  `/_/` prefix (else `:missing_signature` fires before the `cp` parser).
+- **Compat N1/N2** — `input_profile: "sRGB"` (match existing encoder spelling); Task 6 records the
+  format-ignored parity. Real helper names pinned throughout (`resolved/3`, `stream_output/3`,
+  `decode/1`, `header/2`, `sampled_pixels/1`, `wide_gamut_origin_opts/0`, `metadata_origin_opts/0`).
