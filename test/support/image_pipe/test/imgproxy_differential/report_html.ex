@@ -53,7 +53,10 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
 
     """
     <header class="report-header">
-      <h1>imgproxy differential — visual diff</h1>
+      <div class="title-row">
+        <h1>imgproxy differential — visual diff</h1>
+        <button id="theme-toggle">theme: auto</button>
+      </div>
       <p class="provenance">imgproxy <code>#{esc(prov.imgproxy_digest)}</code> · imgproxy libvips <code>#{esc(prov.imgproxy_libvips)}</code> (.so ABI soname) · ImagePipe libvips <code>#{esc(prov.pipe_libvips_at_gen)}</code> (release, at gen) · runtime <code>#{esc(prov.runtime_libvips)}</code> (release)</p>
       #{skew}
       <p class="counts">#{counts(cards)}</p>
@@ -72,14 +75,11 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
           <button data-status-set="failing">failing <span class="btn-count"></span></button>
           <button data-status-set="quarantined">quarantined <span class="btn-count"></span></button>
         </span>
-        <span class="control-group control-group--right" role="group" aria-label="heatmap mode">
+        <span class="control-group" role="group" aria-label="heatmap mode">
           heatmap:
           <button data-heat-set="banded">banded</button>
           <button data-heat-set="raw">raw</button>
           <button data-heat-set="normalized">normalized</button>
-        </span>
-        <span class="control-group" role="group" aria-label="theme">
-          <button id="theme-toggle">theme: auto</button>
         </span>
       </div>
     </header>
@@ -325,7 +325,10 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     code, .url, .metric { font-family:"Geist Mono",ui-monospace,"SFMono-Regular","Menlo",monospace; }
     .report-header { position:sticky; top:0; z-index:2; padding:16px 24px;
       background:var(--surface-bar); border-bottom:1px solid var(--border-subtle); }
+    .title-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
     .report-header h1 { margin:0 0 6px; font-size:18px; }
+    #theme-toggle { font-size:12px; padding:3px 8px; border:1px solid var(--border-subtle);
+      background:var(--surface-control); color:var(--text-primary); border-radius:5px; cursor:pointer; }
     .provenance, .counts { margin:4px 0; color:var(--text-muted); font-size:12px; }
     .counts { color:var(--text-primary); font-weight:600; }
     .banner { margin:8px 0; padding:8px 10px; border-radius:6px; font-size:12px; }
@@ -333,8 +336,6 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     .banner.drift { background:color-mix(in srgb, var(--danger) 18%, transparent); }
     .controls { display:flex; gap:18px; flex-wrap:wrap; align-items:baseline; margin-top:10px; }
     .control-group { font-size:12px; color:var(--text-muted); }
-    /* filters cluster left, display controls (heatmap, theme) get pushed right */
-    .control-group--right { margin-left:auto; }
     .controls button { margin-left:4px; padding:3px 8px; border:1px solid var(--border-subtle);
       background:var(--surface-control); color:var(--text-primary); border-radius:5px; cursor:pointer; }
     .controls button.active { background:var(--accent); border-color:var(--accent); color:var(--accent-text); font-weight:600; }
