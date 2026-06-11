@@ -65,6 +65,7 @@ defmodule ImagePipe.MixProject do
       preferred_envs: [
         coveralls: :test,
         "coveralls.html": :test,
+        "imgproxy.diagnose": :test,
         "imgproxy.gen_report": :test,
         "imgproxy.reauthor": :test,
         "imgproxy.gen_sources": :test

@@ -28,6 +28,15 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
   @doc "Map of `source` atom -> committed source filename."
   def source_files, do: @source_files
 
+  @default_tol %{threshold: 2, budget: 64}
+
+  @doc """
+  Tolerance applied to a `:equal` constellation that carries no explicit `:tol`
+  (`%{threshold: 2, budget: 64}` — strict Δ2, small budget). The conformance test,
+  `gen_report`, and `diagnose` all read this so the default can't drift between them.
+  """
+  def default_tol, do: @default_tol
+
   @doc "The authored constellation list."
   def all do
     [

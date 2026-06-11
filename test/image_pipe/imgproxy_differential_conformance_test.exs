@@ -1,36 +1,11 @@
 defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
   use ExUnit.Case, async: true
-  import Plug.Test
 
-  alias ImagePipe.SourceTest.RootHTTPAdapter
-  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest, PixelCompare}
+  alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Harness, Manifest, PixelCompare}
 
   @base "test/support/image_pipe/test/imgproxy_differential"
-  @fixtures_dir "#{@base}/fixtures"
+  @sources_dir "#{@base}/sources"
   @manifest_path "#{@base}/manifest.exs"
-
-  @default_tol %{threshold: 2, budget: 64}
-
-  defmodule SourceOrigin do
-    @sources_dir "test/support/image_pipe/test/imgproxy_differential/sources"
-    def init(opts), do: opts
-
-    def call(conn, _opts) do
-      file = Path.basename(conn.request_path)
-
-      conn
-      |> Plug.Conn.put_resp_content_type(content_type(file))
-      |> Plug.Conn.send_resp(200, File.read!(Path.join(@sources_dir, file)))
-    end
-
-    defp content_type(f) do
-      case Path.extname(f) do
-        ".jpg" -> "image/jpeg"
-        ".webp" -> "image/webp"
-        _ -> "image/png"
-      end
-    end
-  end
 
   setup_all do
     unless File.exists?(@manifest_path) do
@@ -70,7 +45,21 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
              "#{@c.id}: authored fields changed since generation — run `mix imgproxy.reauthor` " <>
                "(tol/verdict-only edits) or regenerate fixtures."
 
-      run_constellation(@c, entry)
+      run_constellation(@c, entry, manifest)
+    end
+  end
+
+  # Fixtures are baked against specific source bytes (the manifest records each source's
+  # hash). If a committed source drifts, every fixture comparison silently compares
+  # against stale bytes — so verify the sources match here, with a clear message, rather
+  # than letting it surface as a confusing pixel mismatch.
+  test "committed sources match the manifest's recorded hashes", %{manifest: manifest} do
+    for {filename, recorded_sha256} <- manifest.sources do
+      path = Path.join(@sources_dir, filename)
+
+      assert Manifest.file_sha256(path) == recorded_sha256,
+             "source #{filename} changed since the fixtures were baked — restore it or " <>
+               "regenerate (`mise run diff:bake`)."
     end
   end
 
@@ -86,20 +75,22 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
     end
   end
 
-  defp run_constellation(%{group: :transform} = c, entry) do
-    out = imagepipe_image(c)
+  defp run_constellation(%{group: :transform} = c, entry, manifest) do
+    out = Harness.render_image(c)
     fixture = fixture_image(c, entry)
     assert_same_dims!(c, out, fixture)
 
-    tol = c.tol || @default_tol
+    tol = c.tol || Constellations.default_tol()
     outliers = PixelCompare.outliers(out, fixture, tol.threshold)
 
     assert outliers <= tol.budget,
-           "#{c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})"
+           "#{c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})" <>
+             libvips_drift_hint(manifest)
   end
 
-  defp run_constellation(%{group: :lossy} = c, entry) do
-    {out, content_type} = imagepipe_response(c)
+  defp run_constellation(%{group: :lossy} = c, entry, _manifest) do
+    {body, content_type} = Harness.render(c)
+    out = Image.open!(body, access: :random, fail_on: :error)
 
     assert {Image.width(out), Image.height(out)} == {entry.width, entry.height},
            "#{c.id}: dims #{inspect({Image.width(out), Image.height(out)})} != #{inspect({entry.width, entry.height})}"
@@ -113,25 +104,23 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
            "#{c.id}: dims #{inspect(PixelCompare.dims(out))} != fixture #{inspect(PixelCompare.dims(fixture))}"
   end
 
-  defp imagepipe_response(c) do
-    conn =
-      :get
-      |> conn(Constellations.imgproxy_path(c))
-      |> ImagePipe.Plug.call(plug_opts())
+  # Tolerances are calibrated against the ImagePipe libvips that baked the fixtures
+  # (recorded in the manifest, same release scheme as `Vix.Vips.version/0`). On a
+  # different runtime libvips (CI, another machine, a Vix bump) a pixel diff may be
+  # version skew rather than a regression — surface that right in the failure.
+  defp libvips_drift_hint(manifest) do
+    runtime = Vix.Vips.version()
 
-    content_type =
-      conn
-      |> Plug.Conn.get_resp_header("content-type")
-      |> List.first()
-      |> then(fn ct -> ct && ct |> String.split(";") |> List.first() end)
-
-    {Image.open!(conn.resp_body, access: :random, fail_on: :error), content_type}
+    if runtime == manifest.pipe_libvips_at_gen do
+      ""
+    else
+      " (runtime libvips #{runtime}; fixtures calibrated at #{manifest.pipe_libvips_at_gen} — " <>
+        "a diff may be version skew, not a regression)"
+    end
   end
 
-  defp imagepipe_image(c), do: elem(imagepipe_response(c), 0)
-
   defp fixture_image(c, entry) do
-    path = Path.join(@fixtures_dir, entry.fixture_filename)
+    path = Harness.fixture_path(entry)
 
     unless File.exists?(path) do
       flunk(
@@ -142,15 +131,6 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
     assert Manifest.file_sha256(path) == entry.fixture_sha256,
            "#{c.id}: fixture #{path} sha256 mismatch — corrupted or edited; regenerate."
 
-    Image.open!(File.read!(path), access: :random, fail_on: :error)
-  end
-
-  defp plug_opts do
-    ImagePipe.Plug.init(
-      parser: ImagePipe.Parser.Imgproxy,
-      sources: [
-        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: SourceOrigin]}
-      ]
-    )
+    Harness.fixture_image(entry)
   end
 end

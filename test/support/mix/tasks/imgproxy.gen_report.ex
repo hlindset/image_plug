@@ -15,12 +15,9 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   use Mix.Task
   use Boundary, top_level?: true, check: [out: false]
 
-  import Plug.Test, only: [conn: 2]
-
-  alias ImagePipe.SourceTest.RootHTTPAdapter
-
   alias ImagePipe.Test.ImgproxyDifferential.{
     Constellations,
+    Harness,
     Manifest,
     OptsSummary,
     PixelCompare,
@@ -31,11 +28,8 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   alias Vix.Vips.Operation
 
   @base "test/support/image_pipe/test/imgproxy_differential"
-  @sources_dir "#{@base}/sources"
-  @fixtures_dir "#{@base}/fixtures"
   @manifest_path "#{@base}/manifest.exs"
   @default_out "#{@base}/report.html"
-  @default_tol %{threshold: 2, budget: 64}
   @raw_amp 8
 
   @impl Mix.Task
@@ -46,7 +40,7 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
     {:ok, _} = Application.ensure_all_started(:image_pipe)
 
     manifest = Manifest.load!(@manifest_path)
-    plug_opts = plug_opts()
+    plug_opts = Harness.plug_opts()
 
     cards = Enum.map(Constellations.all(), fn c -> build_card(c, manifest, plug_opts) end)
 
@@ -66,7 +60,7 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
 
   defp build_card(c, manifest, plug_opts) do
     entry = Map.fetch!(manifest.entries, c.id)
-    {body, content_type} = render(c, plug_opts)
+    {body, content_type} = Harness.render(c, plug_opts)
     pipe = Image.open!(body, access: :random, fail_on: :error)
 
     card =
@@ -97,7 +91,7 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
 
   # transform / :diverges: compare against the committed fixture image.
   defp group_fields(%{group: :transform} = c, entry, pipe, _content_type) do
-    fixture = fixture_image(entry)
+    fixture = Harness.fixture_image(entry)
     fixture_dims = dims(fixture)
 
     if fixture_dims != dims(pipe) do
@@ -134,7 +128,7 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   end
 
   defp metric_fields(%{verdict: :equal} = c, pipe, fixture) do
-    tol = c.tol || @default_tol
+    tol = c.tol || Constellations.default_tol()
     outliers = PixelCompare.outliers(pipe, fixture, tol.threshold)
 
     %{
@@ -171,8 +165,7 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
 
   defp attach_images(%{status: :dims_mismatch} = card, body, content_type, _pipe, entry) do
     Map.merge(card, %{
-      imgproxy_img:
-        data_uri("image/png", File.read!(Path.join(@fixtures_dir, entry.fixture_filename))),
+      imgproxy_img: data_uri("image/png", File.read!(Harness.fixture_path(entry))),
       pipe_img: data_uri(content_type, body),
       heat_banded: nil,
       heat_raw: nil,
@@ -181,14 +174,13 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   end
 
   defp attach_images(card, body, content_type, pipe, entry) do
-    fixture = fixture_image(entry)
+    fixture = Harness.fixture_image(entry)
     a = to_rgb(fixture)
     b = to_rgb(pipe)
-    threshold = (card.tol || @default_tol).threshold
+    threshold = (card.tol || Constellations.default_tol()).threshold
 
     Map.merge(card, %{
-      imgproxy_img:
-        data_uri("image/png", File.read!(Path.join(@fixtures_dir, entry.fixture_filename))),
+      imgproxy_img: data_uri("image/png", File.read!(Harness.fixture_path(entry))),
       pipe_img: data_uri(content_type, body),
       heat_banded: data_uri("image/png", png(banded_heatmap(a, b, threshold))),
       heat_raw: data_uri("image/png", png(raw_heatmap(a, b))),
@@ -267,58 +259,6 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   defp ok!({:ok, value}), do: value
   defp ok!({:error, reason}), do: raise("vips operation failed: #{inspect(reason)}")
 
-  defp fixture_image(entry) do
-    Image.open!(File.read!(Path.join(@fixtures_dir, entry.fixture_filename)),
-      access: :random,
-      fail_on: :error
-    )
-  end
-
   defp dims(image), do: {Image.width(image), Image.height(image)}
   defp fmt_dims({w, h}), do: "#{w}×#{h}"
-
-  defp render(c, plug_opts) do
-    conn =
-      :get
-      |> conn(Constellations.imgproxy_path(c))
-      |> ImagePipe.Plug.call(plug_opts)
-
-    content_type =
-      conn
-      |> Plug.Conn.get_resp_header("content-type")
-      |> List.first()
-      |> then(fn ct -> ct && ct |> String.split(";") |> List.first() end)
-
-    {conn.resp_body, content_type}
-  end
-
-  defp plug_opts do
-    ImagePipe.Plug.init(
-      parser: ImagePipe.Parser.Imgproxy,
-      sources: [
-        path:
-          {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: &source_plug/1]}
-      ]
-    )
-  end
-
-  # Function plug mirroring the conformance test's inline SourceOrigin: serve the
-  # committed source bytes for the requested basename. RootHTTPAdapter forwards
-  # `req_options` straight into Req.get, so a function plug wires identically to
-  # the test's module plug.
-  defp source_plug(conn) do
-    file = Path.basename(conn.request_path)
-
-    conn
-    |> Plug.Conn.put_resp_content_type(content_type(file))
-    |> Plug.Conn.send_resp(200, File.read!(Path.join(@sources_dir, file)))
-  end
-
-  defp content_type(file) do
-    case Path.extname(file) do
-      ".jpg" -> "image/jpeg"
-      ".webp" -> "image/webp"
-      _ -> "image/png"
-    end
-  end
 end
