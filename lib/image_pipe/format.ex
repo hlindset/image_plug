@@ -6,6 +6,7 @@ defmodule ImagePipe.Format do
     deps: []
 
   @output_formats [:avif, :webp, :jpeg, :png]
+  @color_profile_formats [:avif, :webp, :jpeg, :png]
   @source_only_formats [:heif, :tiff, :jpeg2000, :jpeg_xl]
   @source_formats @output_formats ++ @source_only_formats
   @mime_types %{
@@ -43,6 +44,10 @@ defmodule ImagePipe.Format do
 
   @spec source_only_format?(term()) :: boolean()
   def source_only_format?(format), do: format in @source_only_formats
+
+  @doc "Returns whether the format supports an embedded colour profile. Mirrors imgproxy's `SupportsColourProfile()`."
+  @spec supports_color_profile?(output_format()) :: boolean()
+  def supports_color_profile?(format), do: format in @color_profile_formats
 
   @spec suffix(String.t()) :: {:ok, String.t()} | {:error, term()}
   def suffix(mime_type) do
