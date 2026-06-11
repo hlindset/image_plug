@@ -246,6 +246,55 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
     refute_received :source_fetch_called
   end
 
+  # #124: color_profile participates in the ETag.
+  # scp:0 (color_profile: :preserve_source) and scp:1 (color_profile: :strip)
+  # produce different output bytes, so they must produce different ETags.
+  # The cachebuster changes the storage key but must NOT change the ETag
+  # (adding a cachebuster yields identical output bytes → must not force re-download).
+  test "scp:0 and scp:1 produce distinct etags", %{opts: opts} do
+    scp0_conn = ImagePipe.Plug.call(conn(:get, "/_/scp:0/plain/beach.jpg"), opts)
+    assert_received {:cache_get, key_scp0}
+
+    flush_messages()
+
+    scp1_conn = ImagePipe.Plug.call(conn(:get, "/_/scp:1/plain/beach.jpg"), opts)
+    assert_received {:cache_get, key_scp1}
+
+    assert scp0_conn.status == 200
+    assert scp1_conn.status == 200
+
+    assert [scp0_etag] = get_resp_header(scp0_conn, "etag")
+    assert [scp1_etag] = get_resp_header(scp1_conn, "etag")
+
+    refute scp0_etag == scp1_etag,
+           "scp:0 and scp:1 must produce different ETags (different output bytes)"
+
+    refute key_scp0 == key_scp1,
+           "scp:0 and scp:1 must use different cache keys"
+  end
+
+  test "adding a cachebuster changes the cache key but not the etag", %{opts: opts} do
+    base_conn = ImagePipe.Plug.call(conn(:get, "/_/plain/beach.jpg"), opts)
+    assert_received {:cache_get, key1}
+
+    flush_messages()
+
+    busted_conn = ImagePipe.Plug.call(conn(:get, "/_/cb:v2/plain/beach.jpg"), opts)
+    assert_received {:cache_get, key2}
+
+    assert base_conn.status == 200
+    assert busted_conn.status == 200
+
+    assert [base_etag] = get_resp_header(base_conn, "etag")
+    assert [busted_etag] = get_resp_header(busted_conn, "etag")
+
+    assert base_etag == busted_etag,
+           "cachebuster must not change the ETag (same bytes, different storage slot)"
+
+    assert key1 != key2,
+           "cachebuster must change the cache key (different storage slot)"
+  end
+
   defp flush_messages do
     receive do
       _message -> flush_messages()

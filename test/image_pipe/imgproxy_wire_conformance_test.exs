@@ -296,6 +296,87 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule WideGamutTrimOriginImage do
+    @moduledoc false
+    # 64x64 Display-P3 PNG with a 10px black border and a 44x44 colored inner block.
+    # trim:10 = threshold 10; the solid-black border is within tolerance, so trim crops to the inner block.
+    def call(conn, _opts) do
+      {:ok, base} = Image.new(64, 64, color: [0, 0, 0])
+      {:ok, p3_base} = Image.to_colorspace(base, :p3, [])
+      {:ok, inner} = Image.new(44, 44, color: [200, 50, 50])
+      {:ok, p3_inner} = Image.to_colorspace(inner, :p3, [])
+      body = Image.Draw.image!(p3_base, p3_inner, 10, 10) |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule GreyscaleTrimOriginImage do
+    @moduledoc false
+    alias Vix.Vips.Operation
+
+    # 64x64 B_W (greyscale) PNG with a white border and a black 40x44 inner block at (12, 10).
+    # Mirrors TrimOriginImage geometry but as a single-band greyscale source so the
+    # trim pipeline exercises the B_W working space.
+    def call(conn, _opts) do
+      {:ok, rgb_base} = Image.new(64, 64, color: :white)
+      {:ok, grey_base} = Operation.colourspace(rgb_base, :VIPS_INTERPRETATION_B_W)
+      {:ok, rgb_inner} = Image.new(40, 44, color: :black)
+      {:ok, grey_inner} = Operation.colourspace(rgb_inner, :VIPS_INTERPRETATION_B_W)
+
+      body =
+        Image.Draw.image!(grey_base, grey_inner, 12, 10) |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule CmykOriginImage do
+    @moduledoc false
+    # Serves the committed CMYK JPEG fixture which carries an embedded CMYK ICC profile.
+    def call(conn, _opts) do
+      body = File.read!("test/support/image_pipe/test/imgproxy_differential/sources/cmyk.jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule LinearLightOriginImage do
+    @moduledoc false
+    alias Vix.Vips.Operation
+
+    # Serves a small scRGB (linear-light) PNG. libvips creates an scRGB image via
+    # colourspace conversion from sRGB; the interpretation is :VIPS_INTERPRETATION_scRGB.
+    # InputColorManagement treats this as a "linear-light" branch: it drops the profile
+    # (no backup recorded) and converts to the working space.
+    def call(conn, _opts) do
+      {:ok, base} = Image.new(20, 20, color: [180, 60, 60])
+      {:ok, linear} = Operation.colourspace(base, :VIPS_INTERPRETATION_scRGB)
+      body = Image.write!(linear, :memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule CorruptSourceOriginImage do
+    @moduledoc false
+    # Returns a response with content-type image/png but a body that is not a
+    # valid image. The pipeline decode step must surface {:decode, _} -> 415.
+    def call(conn, _opts) do
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, "not a valid image \xFF\xFE\x00")
+    end
+  end
+
   defmodule SolidWideOrigin do
     @moduledoc false
     # Solid 400x300 (4:3) opaque red — larger than the extend targets below, so the
@@ -1926,6 +2007,116 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       refute "icc-profile-data" in default_fields,
              "default (scp on): icc-profile-data must be absent from the response"
     end
+
+    test "scp:0 option-order equivalence: same output regardless of URL position" do
+      # scp:0 in different URL positions must parse to the same plan (order-insensitive)
+      # and therefore produce byte-identical output.
+      first =
+        call_imgproxy(
+          "/_/scp:0/rs:fit:80:80/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      second =
+        call_imgproxy(
+          "/_/rs:fit:80:80/scp:0/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert first.status == 200
+      assert second.status == 200
+      assert first.resp_body == second.resp_body
+    end
+
+    test "scp:0 filesystem cache reuses the same entry for semantically-equivalent requests" do
+      {opts, cache_root} =
+        cached_opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+          ]
+        )
+
+      try do
+        first =
+          call_imgproxy(
+            "/_/scp:0/rs:fit:80:80/f:jpeg/plain/images/beach.jpg",
+            opts
+          )
+
+        assert first.status == 200
+        assert_received :origin_fetch
+
+        # Same plan, different URL option order -> same cache key -> cache hit.
+        second =
+          call_imgproxy(
+            "/_/rs:fit:80:80/scp:0/f:jpeg/plain/images/beach.jpg",
+            opts
+          )
+
+        assert second.status == 200
+        assert second.resp_body == first.resp_body
+        refute_received :origin_fetch
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+  end
+
+  # #124: request-boundary pixel tests for input color management.
+  #
+  # The behavioral contract for scp:0 on a wide-gamut (Display-P3) source:
+  # - The input is color-managed to the working space (sRGB) before any
+  #   processing step (`colorspaceToProcessing` preamble).
+  # - With scp:0 the source ICC profile is re-embedded in the finalized output.
+  # - With scp:1 (default) the profile is dropped and pixels are mapped to sRGB.
+  #
+  # These tests assert on the decoded response body, not just headers.
+  describe "scp:0 pixel behavior (#124)" do
+    test "resize-only scp:0 on a wide-gamut source: profile present, correct dimensions" do
+      conn =
+        call_imgproxy(
+          "/_/rs:fit:200:200/scp:0/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert conn.status == 200
+
+      {image, fields} = response_metadata(conn)
+
+      # The re-embedded profile must be present in the decoded output.
+      assert "icc-profile-data" in fields,
+             "scp:0 + resize: icc-profile-data must be present in the decoded output"
+
+      # Dimensions: rs:fit:200:200 on a 40×40 source without el (no-enlarge) leaves it
+      # at 40×40 (source is already within the fit box).
+      assert dimensions(image) == {40, 40}
+    end
+
+    test "scp:0 output differs from scp:1 (working-space round-trip visible in pixels)" do
+      # The working-space import transforms out-of-gamut P3 reds: scp:0 re-embeds
+      # the P3 profile (so the pixels stay in P3 representation), while scp:1 maps
+      # to sRGB (clipping out-of-gamut values). The two outputs must differ.
+      scp0 =
+        call_imgproxy(
+          "/_/scp:0/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      scp1 =
+        call_imgproxy(
+          "/_/scp:1/f:png/plain/images/wide.png",
+          wide_gamut_origin_opts()
+        )
+
+      assert scp0.status == 200
+      assert scp1.status == 200
+
+      refute scp0.resp_body == scp1.resp_body,
+             "scp:0 and scp:1 outputs must differ (working-space round-trip is observable)"
+    end
   end
 
   describe "output capability handling" do
@@ -2244,11 +2435,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     assert conn.status == 200
     assert content_type(conn) == ["image/png"]
-
-    image = decoded_image(conn)
-
-    assert Image.width(image) == 40
-    assert Image.height(image) == 30
+    assert dimensions(conn) == {40, 30}
   end
 
   # Resize fill + padding + background: rs:fill:100:100/g:ce + pd:10 + bg:ffffff.
@@ -2263,11 +2450,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
     assert conn.status == 200
     assert content_type(conn) == ["image/png"]
+    assert dimensions(conn) == {120, 120}
 
     image = decoded_image(conn)
-
-    assert Image.width(image) == 120
-    assert Image.height(image) == 120
 
     # Corner (0,0) is in the padding region → must be the background white.
     assert Image.get_pixel!(image, 0, 0) == [255, 255, 255]
@@ -2592,6 +2777,38 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       refute_received :cache_lookup
       refute_received :cache_put
       refute_received :origin_fetch
+    end
+
+    # #124: trim on a wide-gamut (Display-P3) source. After the color-management
+    # preamble the image is in the sRGB working space, so trim detects against those
+    # pixels. The border here is pure black (identical in P3 and sRGB) so the trim
+    # box is stable and the inner 44×44 block is always detected.
+    test "trim on a wide-gamut (P3) source detects the border after color management" do
+      conn =
+        call_imgproxy(
+          "/_/trim:10/f:png/plain/images/wide.png",
+          origin_opts(WideGamutTrimOriginImage)
+        )
+
+      assert conn.status == 200
+      # The inner block is 44×44; trim must crop down to it.
+      assert dimensions(conn) == {44, 44}
+    end
+
+    # #124: trim on a greyscale (B_W working-space) source. The color-management
+    # preamble converts to the B_W working space, then trim detects against single-band
+    # pixels. The border is white and the inner block is black (high contrast), so
+    # the standard trim threshold detects the box reliably.
+    test "trim on a greyscale source detects the border in the B_W working space" do
+      conn =
+        call_imgproxy(
+          "/_/trim:10/f:png/plain/images/grey.png",
+          origin_opts(GreyscaleTrimOriginImage)
+        )
+
+      assert conn.status == 200
+      # GreyscaleTrimOriginImage geometry: 40×44 inner block at (12, 10).
+      assert dimensions(conn) == {40, 44}
     end
   end
 
@@ -2930,6 +3147,70 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
       assert pixels_close?(op, tp),
              "#{label}: pixel mismatch at (#{x},#{y}): #{inspect(op)} vs twin #{inspect(tp)}"
+    end
+  end
+
+  # #124 edge cases: CMYK, linear-light, and corrupt-source handling.
+  describe "scp edge cases (#124)" do
+    # CMYK → sRGB working space: scp:0 re-embeds the source profile in formats that
+    # support color profiles. JPEG is used here because PNG forces sRGB on write and
+    # drops any CMYK profile; JPEG preserves the CMYK interpretation. The cmyk.jpg
+    # fixture carries an embedded CMYK ICC profile; after color management to the sRGB
+    # working space, scp:0 restores the original CMYK profile into the JPEG output.
+    # The scp:1 counter-assertion verifies the re-embed is scp-driven, not unconditional:
+    # scp:1 must either drop the profile or differ in body (if libvips tags CMYK-JPEG
+    # output regardless, scp:0 carries the original CMYK profile bytes and scp:1 does not).
+    test "scp:0 on a CMYK source re-embeds the source profile when the format supports it" do
+      scp0_conn =
+        call_imgproxy("/_/scp:0/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
+
+      scp1_conn =
+        call_imgproxy("/_/scp:1/f:jpeg/plain/images/cmyk.jpg", origin_opts(CmykOriginImage))
+
+      assert scp0_conn.status == 200
+      assert scp1_conn.status == 200
+
+      {_image, scp0_fields} = response_metadata(scp0_conn)
+
+      assert "icc-profile-data" in scp0_fields,
+             "scp:0 on CMYK: icc-profile-data must be present (format supports color profiles)"
+
+      # Counter-assertion: scp:0 vs scp:1 outputs must differ, proving the re-embed
+      # is scp-driven. Whether scp:1 carries its own minimal profile tag or none,
+      # the bodies differ because scp:0 embeds the original CMYK profile data.
+      refute scp0_conn.resp_body == scp1_conn.resp_body,
+             "scp:0 and scp:1 CMYK outputs must differ (re-embed is scp-driven, not unconditional)"
+    end
+
+    # Linear-light (scRGB) branch: InputColorManagement drops the embedded profile
+    # for scRGB sources (no backup recorded, color_imported? stays false), then
+    # converts to the working space. With scp:0 there is no source profile to
+    # re-embed, so the output must NOT carry icc-profile-data.
+    test "scp:0 on a linear-light (scRGB) source does not embed a profile in the output" do
+      conn =
+        call_imgproxy(
+          "/_/scp:0/f:png/plain/images/linear.png",
+          origin_opts(LinearLightOriginImage)
+        )
+
+      assert conn.status == 200
+
+      {_image, fields} = response_metadata(conn)
+
+      refute "icc-profile-data" in fields,
+             "scp:0 on linear-light: no source profile was imported, so none should be re-embedded"
+    end
+
+    # Corrupt/undecodable source must surface as HTTP 415 at the wire boundary.
+    # The decode failure propagates as {:decode, _} and the plug maps it to 415.
+    test "corrupt source body is rejected with 415 at the wire boundary" do
+      conn =
+        call_imgproxy(
+          "/_/scp:0/f:png/plain/images/bad.png",
+          origin_opts(CorruptSourceOriginImage)
+        )
+
+      assert conn.status == 415
     end
   end
 
