@@ -42,13 +42,16 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
     {:ok, alpha} = Image.new(256, 256, color: [0, 200, 100, 128], bands: 4)
     write!(alpha, "alpha.png", suffix: ".png")
 
-    exif =
+    exif_base =
       400
       |> Image.new!(300, color: [200, 180, 60])
       |> Image.Draw.rect!(0, 0, 200, 150, color: [40, 40, 200])
-      |> Image.set_orientation!(6)
 
-    write!(exif, "exif.jpg", suffix: ".jpg", quality: 95)
+    for o <- [2, 3, 4, 5, 6, 7, 8] do
+      exif_base
+      |> Image.set_orientation!(o)
+      |> write!("exif_#{o}.jpg", suffix: ".jpg", quality: 95)
+    end
 
     icc =
       512
