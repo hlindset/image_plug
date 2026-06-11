@@ -1,6 +1,7 @@
 defmodule ImagePipe.Output.ColorResultTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Output.ColorProfile
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Transform.InputColorManagement, as: ICM
@@ -131,6 +132,19 @@ defmodule ImagePipe.Output.ColorResultTest do
       {:ok, stream, _} = Encoder.stream_output(image, res, [])
 
       assert decode(stream) |> header("icc-profile-data") != nil
+    end
+
+    test "each target embeds its own profile bytes (named-target contract)" do
+      {:ok, image} = Operation.black(16, 16, bands: 3)
+
+      embedded = fn target ->
+        {:ok, stream, _} = Encoder.stream_output(image, resolved(:png, {:convert, target}), [])
+        decode(stream) |> header("icc-profile-data")
+      end
+
+      assert embedded.(:adobe_rgb) == File.read!(ColorProfile.path!(:adobe_rgb))
+      assert embedded.(:display_p3) == File.read!(ColorProfile.path!(:display_p3))
+      refute embedded.(:adobe_rgb) == embedded.(:display_p3)
     end
   end
 end
