@@ -84,14 +84,27 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # imports the embedded profile into a working space before any operation. A
   # failure is a decode failure (corrupt/unsupported profile), surfaced as
   # {:decode, _} to stay consistent with the materialization contract.
-  defp seed_color_management(%State{} = state, opts) do
+  defp seed_color_management(%State{telemetry_opts: telemetry_opts} = state, opts) do
     if Keyword.get(opts, :seed_orientation, false) do
-      case InputColorManagement.condition(state, supports_hdr?: false) do
-        {:ok, %State{} = state} -> {:ok, state}
-        {:error, {InputColorManagement, reason}} -> {:error, {:decode, reason}}
-      end
+      Telemetry.span(telemetry_opts, [:transform, :input_color_management], %{}, fn ->
+        run_color_management(state)
+      end)
     else
       {:ok, state}
+    end
+  end
+
+  defp run_color_management(%State{image: image} = state) do
+    working_space = InputColorManagement.working_space(VipsImage.interpretation(image), false)
+
+    case InputColorManagement.condition(state, supports_hdr?: false) do
+      {:ok, %State{} = new_state} ->
+        {{:ok, new_state},
+         %{result: :ok, working_space: working_space, imported?: new_state.color_imported?}}
+
+      {:error, {InputColorManagement, reason}} ->
+        {{:error, {:decode, reason}},
+         %{result: :processing_error, working_space: working_space, imported?: false}}
     end
   end
 

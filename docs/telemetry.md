@@ -59,6 +59,7 @@ streaming spans.
 [:image_pipe, :source, :fetch, ...]
 [:image_pipe, :source, :fetch_decode, ...]
 [:image_pipe, :transform, :execute, ...]
+[:image_pipe, :transform, :input_color_management, ...]
 [:image_pipe, :transform, :operation, ...]
 [:image_pipe, :transform, :materialize, ...]
 [:image_pipe, :encode, ...]
@@ -125,6 +126,37 @@ the number of `[:transform, :operation]` spans. Treat the aggregate as "what
 the request asked for" and the per-op spans as "what actually ran".
 
 Stop metadata: `:result` (`:ok` or `:processing_error`).
+
+### Input color management span (`[:transform, :input_color_management]`)
+
+The `[:image_pipe, :transform, :input_color_management]` span wraps the
+data-determined input-color preamble (`ImagePipe.Transform.InputColorManagement`),
+which runs once at the start of transform execution to condition the decoded image
+into a working colorspace before any plan operation. It is emitted nested inside
+`[:transform, :execute]`.
+
+Stop metadata:
+
+- `:result` — `:ok` on success, or `:processing_error` when a corrupt or
+  unsupported embedded ICC profile prevents conditioning (maps to a `415`
+  response). The default Logger escalates `:processing_error` to `:warning`.
+- `:working_space` — the VIPS interpretation atom of the resolved working
+  colorspace (e.g. `:VIPS_INTERPRETATION_sRGB`).
+- `:imported?` — `true` when the source had an importable embedded ICC profile
+  that was imported into the working space; `false` otherwise (no profile, or a
+  profile that was recognized and skipped — e.g. the canonical sRGB IEC61966
+  profile on an sRGB source).
+
+This span fires even when the preamble is a no-op (e.g. a source with no
+embedded profile, or one already in a standard colour space); `imported?:
+false` covers that case.
+
+The default Logger renders it as:
+
+```text
+image_pipe transform input_color_management: ok (VIPS_INTERPRETATION_sRGB)
+image_pipe transform input_color_management: ok imported (VIPS_INTERPRETATION_sRGB)
+```
 
 ### Per-operation transform spans (`[:transform, :operation]`)
 
@@ -481,6 +513,7 @@ defmodule MyApp.ImagePipeTelemetry do
     [:source, :fetch],
     [:source, :fetch_decode],
     [:transform, :execute],
+    [:transform, :input_color_management],
     [:transform, :operation],
     [:transform, :materialize],
     [:encode],
