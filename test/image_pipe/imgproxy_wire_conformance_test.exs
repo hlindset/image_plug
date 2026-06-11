@@ -200,6 +200,43 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule ColorCharOriginImage do
+    @moduledoc false
+
+    alias Vix.Vips.Image, as: VixImage
+    alias Vix.Vips.MutableImage, as: VixMutableImage
+
+    # Generates a JPEG carrying the three EXIF color-characterization tags that
+    # imgproxy's `vips_icc_remove` strips when it drops the profile, plus a
+    # non-color EXIF field (ImageDescription) as a control so a wire test can
+    # show the profile-drop path — not general metadata stripping — removes them.
+    def call(conn, _opts) do
+      img = Image.new!(64, 64, color: [10, 200, 30])
+
+      {:ok, tagged} =
+        VixImage.mutate(img, fn mut ->
+          VixMutableImage.set(mut, "exif-ifd0-WhitePoint", :gchararray, "0.3127 0.329")
+
+          VixMutableImage.set(
+            mut,
+            "exif-ifd0-PrimaryChromaticities",
+            :gchararray,
+            "0.64 0.33 0.3 0.6 0.15 0.06"
+          )
+
+          VixMutableImage.set(mut, "exif-ifd2-ColorSpace", :gchararray, "65535")
+          VixMutableImage.set(mut, "exif-ifd0-ImageDescription", :gchararray, "A test image")
+          :ok
+        end)
+
+      body = Image.write!(tagged, :memory, suffix: ".jpg")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/jpeg")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule WideGamutOriginImage do
     @moduledoc false
 
@@ -2028,6 +2065,53 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
              "default (scp on): icc-profile-data must be absent from the response"
     end
 
+    test "scp:1 + sm:0 also strips the EXIF color-characterization tags (vips_icc_remove)" do
+      # imgproxy's `vips_icc_remove` (called by colorspaceToResult when the profile
+      # is dropped) removes three EXIF color tags alongside the ICC blob — and does
+      # so independent of StripMetadata. So with scp:1 (default) + sm:0 (keep
+      # metadata), the profile-drop path must strip them even though sm:0 keeps
+      # everything else.
+      #
+      # sm:0/scp:0 baseline first: keeping the profile (scp:0) must leave the color
+      # tags in place, so the scp:1 refute below cannot pass against a tag-less
+      # source. WhitePoint and PrimaryChromaticities are the observable tags;
+      # ImageDescription is the control proving sm:0 itself strips nothing.
+      kept_conn =
+        call_imgproxy("/_/scp:0/sm:0/f:jpeg/plain/images/char.jpg", color_char_origin_opts())
+
+      assert kept_conn.status == 200
+
+      {_kept_image, kept_fields} = response_metadata(kept_conn)
+
+      assert "exif-ifd0-WhitePoint" in kept_fields,
+             "sm:0/scp:0 baseline: WhitePoint must be present; source is missing the tag"
+
+      assert "exif-ifd0-PrimaryChromaticities" in kept_fields,
+             "sm:0/scp:0 baseline: PrimaryChromaticities must be present; source is missing the tag"
+
+      # scp:1 (default) + sm:0: the profile-drop path runs vips_icc_remove's field
+      # list. WhitePoint and PrimaryChromaticities are removed; ImageDescription
+      # stays (sm:0 strips nothing). exif-ifd2-ColorSpace is on the removal list
+      # too, but is NOT asserted here: libvips reconstructs it from the encoded
+      # image's color interpretation on JPEG write, so it reappears on imgproxy
+      # output identically — it is not an output-observable divergence.
+      stripped_conn =
+        call_imgproxy("/_/sm:0/f:jpeg/plain/images/char.jpg", color_char_origin_opts())
+
+      assert stripped_conn.status == 200
+
+      {_stripped_image, stripped_fields} = response_metadata(stripped_conn)
+
+      refute "exif-ifd0-WhitePoint" in stripped_fields,
+             "scp:1 + sm:0: WhitePoint must be stripped by the profile-drop path"
+
+      refute "exif-ifd0-PrimaryChromaticities" in stripped_fields,
+             "scp:1 + sm:0: PrimaryChromaticities must be stripped by the profile-drop path"
+
+      assert "exif-ifd0-ImageDescription" in stripped_fields,
+             "scp:1 + sm:0: ImageDescription must survive (sm:0 strips no general metadata)"
+    end
+
     test "scp:0 option-order equivalence: same output regardless of URL position" do
       # scp:0 in different URL positions must parse to the same plan (order-insensitive)
       # and therefore produce byte-identical output.
@@ -3365,6 +3449,17 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         path:
           {RootHTTPAdapter,
            root_url: "http://origin.test", req_options: [plug: MetadataOriginImage]}
+      ]
+    ]
+  end
+
+  defp color_char_origin_opts do
+    [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: ColorCharOriginImage]}
       ]
     ]
   end
