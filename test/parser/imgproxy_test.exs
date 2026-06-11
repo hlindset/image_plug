@@ -223,9 +223,14 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     refute base == key.("/_/sm:1/kcr:0/scp:1/plain/images/cat.jpg")
     refute base == key.("/_/sm:1/kcr:1/scp:0/plain/images/cat.jpg")
 
+    refute base == key.("/_/sm:1/kcr:1/scp:1/ph:1/plain/images/cat.jpg")
+
     # explicit output format keys through the same output material
     refute key.("/_/f:jpeg/sm:1/plain/images/cat.jpg") ==
              key.("/_/f:jpeg/sm:0/plain/images/cat.jpg")
+
+    refute key.("/_/f:png/ph:0/plain/images/cat.jpg") ==
+             key.("/_/f:png/ph:1/plain/images/cat.jpg")
   end
 
   describe "color_profile / cp / icc" do

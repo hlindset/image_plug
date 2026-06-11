@@ -214,7 +214,8 @@ defmodule ImagePipe.Cache.KeyTest do
                format_qualities: %{},
                strip_metadata: true,
                color_profile: :strip,
-               keep_copyright: true
+               keep_copyright: true,
+               hdr: :tone_map
              ],
              auto_rotate: false,
              representation: [version: 1],
@@ -955,7 +956,8 @@ defmodule ImagePipe.Cache.KeyTest do
              format_qualities: %{},
              strip_metadata: true,
              color_profile: :strip,
-             keep_copyright: true
+             keep_copyright: true,
+             hdr: :tone_map
            ]
 
     refute inspect(key_one.data) =~ "image/webp"
@@ -988,7 +990,8 @@ defmodule ImagePipe.Cache.KeyTest do
                format_qualities: %{},
                strip_metadata: true,
                color_profile: :strip,
-               keep_copyright: true
+               keep_copyright: true,
+               hdr: :tone_map
              ]
 
       refute inspect(key.data) =~ "*/*"
@@ -1037,7 +1040,8 @@ defmodule ImagePipe.Cache.KeyTest do
              format_qualities: %{},
              strip_metadata: true,
              color_profile: :strip,
-             keep_copyright: true
+             keep_copyright: true,
+             hdr: :tone_map
            ]
   end
 
@@ -1088,7 +1092,8 @@ defmodule ImagePipe.Cache.KeyTest do
              format_qualities: %{},
              strip_metadata: true,
              color_profile: :strip,
-             keep_copyright: true
+             keep_copyright: true,
+             hdr: :tone_map
            ]
 
     refute inspect(key.data) =~ "image/jpeg"
