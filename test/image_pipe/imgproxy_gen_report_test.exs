@@ -242,9 +242,15 @@ defmodule ImagePipe.ImgproxyGenReportTest do
       refute html =~ "status-over_budget flagged failing"
     end
 
-    test "slider wrapper is capped to the render width" do
+    test "slider panel is capped to the render width" do
       html = ReportHtml.render(sample_doc())
-      assert html =~ ~s(class="slider" style="width:240px;max-width:100%")
+      assert html =~ ~s(class="panel slider" style="width:240px")
+    end
+
+    test "filter buttons carry live-count slots and a theme toggle is present" do
+      html = ReportHtml.render(sample_doc())
+      assert html =~ ~s(class="btn-count")
+      assert html =~ ~s(id="theme-toggle")
     end
   end
 

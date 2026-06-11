@@ -66,17 +66,20 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
         </span>
         <span class="control-group" role="group" aria-label="status filter">
           status:
-          <button data-status-set="all">all</button>
-          <button data-status-set="flagged">flagged</button>
-          <button data-status-set="failing">failing</button>
-          <button data-status-set="quarantined">quarantined</button>
+          <button data-status-set="all">all <span class="btn-count"></span></button>
+          <button data-status-set="flagged">flagged <span class="btn-count"></span></button>
+          <button data-status-set="failing">failing <span class="btn-count"></span></button>
+          <button data-status-set="quarantined">quarantined <span class="btn-count"></span></button>
         </span>
         <span class="control-group" role="group" aria-label="type filter">
           type:
-          <button data-type-set="all">all</button>
-          <button data-type-set="transform">transform</button>
-          <button data-type-set="known_divergence">known divergence</button>
-          <button data-type-set="lossy">lossy</button>
+          <button data-type-set="all">all <span class="btn-count"></span></button>
+          <button data-type-set="transform">transform <span class="btn-count"></span></button>
+          <button data-type-set="known_divergence">known divergence <span class="btn-count"></span></button>
+          <button data-type-set="lossy">lossy <span class="btn-count"></span></button>
+        </span>
+        <span class="control-group" role="group" aria-label="theme">
+          <button id="theme-toggle">theme: auto</button>
         </span>
       </div>
     </header>
@@ -154,46 +157,53 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     if c.status in [:pass, :diverges_ok, :contract_ok], do: "ok", else: "bad"
   end
 
+  # Lossy: ImagePipe render alone (no imgproxy fixture to compare).
   defp visuals(%{group: :lossy} = c) do
     """
-    <div class="lossy-only">
-      <figure><img src="#{c.pipe_img}" alt="ImagePipe #{esc(c.id)}"><figcaption>ImagePipe (no imgproxy reference — contract only)</figcaption></figure>
+    <div class="visuals">
+      #{panel(c.pipe_img, "ImagePipe (contract only — no imgproxy reference)")}
     </div>
     """
   end
 
+  # Dims mismatch: the two renders side by side; no slider/heatmap (the mismatch is
+  # the finding).
   defp visuals(%{status: :dims_mismatch} = c) do
-    side_by_side(c)
+    """
+    <div class="visuals">
+      #{panel(c.imgproxy_img, "imgproxy #{fmt(c.fixture_dims)}")}
+      #{panel(c.pipe_img, "ImagePipe #{fmt(c.pipe_dims)}")}
+    </div>
+    """
   end
 
+  # All panels flow in one wrapping row: imgproxy, ImagePipe, slider, and the
+  # active heatmap (the toggle hides the other two).
   defp visuals(c) do
     """
-    #{side_by_side(c)}
-    <div class="slider" style="width:#{elem(c.pipe_dims, 0)}px;max-width:100%">
-      <img-comparison-slider>
-        <img slot="first" src="#{c.imgproxy_img}" alt="imgproxy">
-        <img slot="second" src="#{c.pipe_img}" alt="ImagePipe">
-      </img-comparison-slider>
-    </div>
-    <div class="heatmaps">
-      <figure class="heat-banded"><img src="#{c.heat_banded}" alt="banded diff"><figcaption>banded (Δ#{heat_threshold(c)})</figcaption></figure>
-      <figure class="heat-raw"><img src="#{c.heat_raw}" alt="raw diff"><figcaption>raw ×8</figcaption></figure>
-      <figure class="heat-normalized"><img src="#{c.heat_normalized}" alt="normalized diff"><figcaption>normalized (per-case)</figcaption></figure>
+    <div class="visuals">
+      #{panel(c.imgproxy_img, "imgproxy #{fmt(c.fixture_dims)}")}
+      #{panel(c.pipe_img, "ImagePipe #{fmt(c.pipe_dims)}")}
+      <figure class="panel slider" style="width:#{min(elem(c.pipe_dims, 0), 280)}px">
+        <img-comparison-slider>
+          <img slot="first" src="#{c.imgproxy_img}" alt="imgproxy">
+          <img slot="second" src="#{c.pipe_img}" alt="ImagePipe">
+        </img-comparison-slider>
+        <figcaption>slider</figcaption>
+      </figure>
+      <figure class="panel heat-banded"><img src="#{c.heat_banded}" alt="banded diff"><figcaption>banded (Δ#{heat_threshold(c)})</figcaption></figure>
+      <figure class="panel heat-raw"><img src="#{c.heat_raw}" alt="raw diff"><figcaption>raw ×8</figcaption></figure>
+      <figure class="panel heat-normalized"><img src="#{c.heat_normalized}" alt="normalized diff"><figcaption>normalized (per-case)</figcaption></figure>
     </div>
     """
+  end
+
+  defp panel(img, caption) do
+    ~s(<figure class="panel"><img src="#{img}" alt="#{esc(caption)}"><figcaption>#{esc(caption)}</figcaption></figure>)
   end
 
   defp heat_threshold(%{tol: %{threshold: t}}), do: t
   defp heat_threshold(_), do: 2
-
-  defp side_by_side(c) do
-    """
-    <div class="pair">
-      <figure><img src="#{c.imgproxy_img}" alt="imgproxy"><figcaption>imgproxy #{fmt(c.fixture_dims)}</figcaption></figure>
-      <figure><img src="#{c.pipe_img}" alt="ImagePipe"><figcaption>ImagePipe #{fmt(c.pipe_dims)}</figcaption></figure>
-    </div>
-    """
-  end
 
   defp fmt(nil), do: ""
   defp fmt({w, h}), do: "#{w}×#{h}"
@@ -211,17 +221,70 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     """
     <script>
     (function () {
-      var body = document.body;
+      var root = document.documentElement, body = document.body;
+      var cards = Array.prototype.slice.call(document.querySelectorAll(".card"));
+
+      function statusMatch(c, s) { return s === "all" || c.classList.contains(s); }
+      function typeMatch(c, t) { return t === "all" || c.classList.contains("group-" + t); }
+      function countWhere(pred) { return cards.filter(pred).length; }
+
+      // Live counts: each button shows how many cards it would leave visible, given
+      // the OTHER axis's current selection. Also marks the active button per axis.
+      function refresh() {
+        var st = body.getAttribute("data-status");
+        var ty = body.getAttribute("data-type");
+        var ht = body.getAttribute("data-heat");
+        document.querySelectorAll("[data-status-set]").forEach(function (b) {
+          var s = b.getAttribute("data-status-set");
+          setCount(b, countWhere(function (c) { return statusMatch(c, s) && typeMatch(c, ty); }));
+          b.classList.toggle("active", s === st);
+        });
+        document.querySelectorAll("[data-type-set]").forEach(function (b) {
+          var t = b.getAttribute("data-type-set");
+          setCount(b, countWhere(function (c) { return statusMatch(c, st) && typeMatch(c, t); }));
+          b.classList.toggle("active", t === ty);
+        });
+        document.querySelectorAll("[data-heat-set]").forEach(function (b) {
+          b.classList.toggle("active", b.getAttribute("data-heat-set") === ht);
+        });
+      }
+
+      function setCount(b, n) {
+        var s = b.querySelector(".btn-count");
+        if (s) s.textContent = "(" + n + ")";
+      }
+
       function bind(attr, setAttr) {
-        document.querySelectorAll("[" + setAttr + "]").forEach(function (btn) {
-          btn.addEventListener("click", function () {
-            body.setAttribute(attr, btn.getAttribute(setAttr));
+        document.querySelectorAll("[" + setAttr + "]").forEach(function (b) {
+          b.addEventListener("click", function () {
+            body.setAttribute(attr, b.getAttribute(setAttr));
+            refresh();
           });
         });
       }
       bind("data-heat", "data-heat-set");
       bind("data-status", "data-status-set");
       bind("data-type", "data-type-set");
+
+      // theme: auto → light → dark, persisted across regenerations
+      var THEMES = ["auto", "light", "dark"], KEY = "imgproxy-report-theme";
+      var themeBtn = document.getElementById("theme-toggle");
+      function applyTheme(mode) {
+        if (mode === "auto") root.removeAttribute("data-theme");
+        else root.setAttribute("data-theme", mode);
+        themeBtn.textContent = "theme: " + mode;
+      }
+      var saved = null;
+      try { saved = localStorage.getItem(KEY); } catch (e) {}
+      applyTheme(THEMES.indexOf(saved) >= 0 ? saved : "auto");
+      themeBtn.addEventListener("click", function () {
+        var cur = root.getAttribute("data-theme") || "auto";
+        var next = THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length];
+        applyTheme(next);
+        try { localStorage.setItem(KEY, next); } catch (e) {}
+      });
+
+      refresh();
     })();
     </script>
     """
@@ -229,19 +292,28 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
 
   defp css do
     """
+    /* dark is the base; `data-theme` (set by the toggle) overrides, and with no
+       explicit choice the auto media-query below follows the OS preference */
     :root {
       color-scheme: dark;
       --surface-app:#0b0d10; --surface-bar:#0d1015; --surface-control:#202733;
       --border-subtle:#242b36; --text-primary:#f6f1e7; --text-muted:#8fa0b3;
-      --accent:#ffb84d; --danger:#ff6b6b; --checker-square:#1b222b;
+      --accent:#ffb84d; --accent-text:#0b0d10; --danger:#ff6b6b; --checker-square:#1b222b;
       --image-shadow:0 22px 80px rgb(0 0 0 / 38%);
     }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --surface-app:#f4f6f8; --surface-bar:#fff; --surface-control:#eef2f7;
+      --border-subtle:#d9e0ea; --text-primary:#11151b; --text-muted:#687586;
+      --accent:#d48100; --accent-text:#fff; --danger:#c62828; --checker-square:#dfe5ee;
+      --image-shadow:0 22px 80px rgb(10 16 24 / 18%);
+    }
     @media (prefers-color-scheme: light) {
-      :root {
+      :root:not([data-theme="dark"]) {
         color-scheme: light;
         --surface-app:#f4f6f8; --surface-bar:#fff; --surface-control:#eef2f7;
         --border-subtle:#d9e0ea; --text-primary:#11151b; --text-muted:#687586;
-        --accent:#d48100; --danger:#c62828; --checker-square:#dfe5ee;
+        --accent:#d48100; --accent-text:#fff; --danger:#c62828; --checker-square:#dfe5ee;
         --image-shadow:0 22px 80px rgb(10 16 24 / 18%);
       }
     }
@@ -259,10 +331,12 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     .banner { margin:8px 0; padding:8px 10px; border-radius:6px; font-size:12px; }
     .banner.skew { background:color-mix(in srgb, var(--accent) 18%, transparent); }
     .banner.drift { background:color-mix(in srgb, var(--danger) 18%, transparent); }
-    .controls { display:flex; gap:18px; flex-wrap:wrap; margin-top:10px; }
+    .controls { display:flex; gap:18px; flex-wrap:wrap; align-items:baseline; margin-top:10px; }
     .control-group { font-size:12px; color:var(--text-muted); }
     .controls button { margin-left:4px; padding:3px 8px; border:1px solid var(--border-subtle);
       background:var(--surface-control); color:var(--text-primary); border-radius:5px; cursor:pointer; }
+    .controls button.active { background:var(--accent); border-color:var(--accent); color:var(--accent-text); font-weight:600; }
+    .btn-count { opacity:0.7; font-variant-numeric:tabular-nums; }
     .cards { padding:24px; display:flex; flex-direction:column; gap:24px; }
     .card { background:var(--surface-bar); border:1px solid var(--border-subtle);
       border-radius:10px; padding:16px; }
@@ -278,20 +352,23 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     .metric { font-weight:600; }
     .metric.ok { color:var(--accent); }
     .metric.bad { color:var(--danger); }
-    .pair { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
-    /* one heatmap shows at a time (global toggle), so the panel is single-column */
-    .heatmaps { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; max-width:420px; }
-    .lossy-only { margin-top:12px; max-width:420px; }
-    figure { margin:0; }
-    figure img, .slider img, .slider img-comparison-slider {
-      max-width:100%; display:block; border-radius:6px;
+    /* all panels (imgproxy, ImagePipe, slider, the active heatmap) flow in one
+       wrapping row at a consistent width so nothing is stranded or stacked */
+    .visuals { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-start; margin-top:14px; }
+    .panel { margin:0; }
+    .panel img, .panel img-comparison-slider {
+      display:block; max-width:280px; border-radius:6px;
       background:repeating-conic-gradient(var(--checker-square) 0 25%, transparent 0 50%) 50% / 20px 20px;
     }
     figcaption { font-size:11px; color:var(--text-muted); margin-top:4px; }
-    /* slider wrapper is capped to the render's own width (inline style) so the drag
-       divider never extends past the images; it still shrinks on narrow screens */
-    .slider { margin-top:12px; box-shadow:var(--image-shadow); border-radius:6px; }
-    .slider img, .slider img-comparison-slider { width:100%; }
+    /* slider wrapper is capped to the render width (inline style); the divider/handle
+       use the accent colour so they stay visible over a light, checkered image */
+    .panel.slider { max-width:100%; box-shadow:var(--image-shadow); border-radius:6px; }
+    .panel.slider img, .panel.slider img-comparison-slider { width:100%; max-width:100%; }
+    .panel.slider img-comparison-slider {
+      --divider-width:3px; --divider-color:var(--accent);
+      --default-handle-color:var(--accent); --default-handle-opacity:1;
+    }
     body[data-heat="banded"] .heat-raw, body[data-heat="banded"] .heat-normalized { display:none; }
     body[data-heat="raw"] .heat-banded, body[data-heat="raw"] .heat-normalized { display:none; }
     body[data-heat="normalized"] .heat-banded, body[data-heat="normalized"] .heat-raw { display:none; }
