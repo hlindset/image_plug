@@ -142,6 +142,7 @@ defmodule ImagePipe.Output.ColorResultTest do
         decode(stream) |> header("icc-profile-data")
       end
 
+      assert embedded.(:srgb) == File.read!(ColorProfile.path!(:srgb))
       assert embedded.(:adobe_rgb) == File.read!(ColorProfile.path!(:adobe_rgb))
       assert embedded.(:display_p3) == File.read!(ColorProfile.path!(:display_p3))
       refute embedded.(:adobe_rgb) == embedded.(:display_p3)

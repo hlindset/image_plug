@@ -215,6 +215,16 @@ defmodule ImagePipe.Parser.ImgproxyTest do
       assert plan.output.color_profile == {:convert, :display_p3}
     end
 
+    test "color_profile long-form is an alias for cp" do
+      assert {:ok, plan} =
+               Imgproxy.parse(
+                 conn(:get, "/_/color_profile:p3/plain/images/cat.jpg"),
+                 @no_auto_rotate_opts
+               )
+
+      assert plan.output.color_profile == {:convert, :display_p3}
+    end
+
     test "unknown identifier is a parse error" do
       assert {:error, _} =
                Imgproxy.parse(
