@@ -130,6 +130,29 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
     assert content_origin(out) == {7, 0}
   end
 
+  # #220: an extend whose resolved canvas equals the current image dims is inert.
+  # imgproxy's extendImage() returns early in that case (`width <= imgWidth &&
+  # height <= imgHeight`), leaving the image untouched; ExtendCanvas must do the
+  # same and NOT run the embed, which would add a spurious alpha band even though
+  # no padding is produced. Requested dims at-or-below the image (clamped to
+  # max(image, requested)) resolve to the image size, so the canvas never grows.
+  test "inert extend (canvas == image dims) is a no-op and adds no band (#220)" do
+    op = %ExtendCanvas{
+      rule: {:dimensions, {:pixels, 4}, {:pixels, 4}},
+      gravity: {:anchor, :right, :bottom},
+      x_offset: 20.0,
+      y_offset: 20.0,
+      background: :transparent
+    }
+
+    image = white(4, 4)
+    assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(image))
+    assert {Image.width(out), Image.height(out)} == {4, 4}
+    assert Image.bands(out) == 3
+    refute Image.has_alpha?(out)
+    assert out == image
+  end
+
   # #200 guard: center keeps ADDing the offset (calcPosition center adds offX/offY);
   # only right/bottom anchors flip the sign. Center origin of inner 4 in 11 is 4
   # (ShrinkToEven(11-4+1, 2)); +2 → 6, within [0, 7] so the clamp is a no-op.
