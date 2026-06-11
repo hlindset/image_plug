@@ -33,6 +33,26 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ManifestTest do
     assert Manifest.load!(path) == @sample
   end
 
+  test "write! emits inner entry-map keys in canonical sorted order", %{tmp_dir: tmp} do
+    path = Path.join(tmp, "manifest.exs")
+    Manifest.write!(path, @sample)
+    rendered = File.read!(path)
+
+    assert key_order(rendered, "rs_fill") ==
+             ~w(kind authored_sha256 fixture_filename fixture_sha256)a |> Enum.sort()
+
+    assert key_order(rendered, "lossy_webp") ==
+             ~w(kind authored_sha256 width height content_type)a |> Enum.sort()
+  end
+
+  # The order the keys of `entry_id`'s inner map appear in the rendered manifest.
+  defp key_order(rendered, entry_id) do
+    [_, block] = Regex.run(~r/#{entry_id}" => %\{(.*?)\}/s, rendered)
+
+    Regex.scan(~r/(\w+):/, block)
+    |> Enum.map(fn [_, key] -> String.to_existing_atom(key) end)
+  end
+
   test "load! rejects a malformed manifest with a clear error", %{tmp_dir: tmp} do
     path = Path.join(tmp, "bad.exs")
     File.write!(path, "%{not: :a_manifest}")
