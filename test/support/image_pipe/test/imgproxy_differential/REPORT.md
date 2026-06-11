@@ -1,8 +1,8 @@
 # imgproxy differential conformance — generation report
 
 - imgproxy digest: `sha256:9ed8f87b34d55c7844951ff65bcf6605de54ba6670f64951c7215f9b125a482e`
-- imgproxy libvips: `42.20.2`
-- ImagePipe libvips at generation: `8.18.2`
+- imgproxy libvips (.so ABI soname): `42.20.2`
+- ImagePipe libvips at generation (release): `8.18.2`
 
 ## Constellations
 
@@ -13,6 +13,28 @@
 - `crop_gravity_marker` — transform
 - `dpr_marker` — transform
 - `enlarge_small` — transform
+- `exif_2_cover` — transform
+- `exif_2_crop_no` — transform
+- `exif_2_extend_so` — transform
+- `exif_3_cover` — transform
+- `exif_3_crop_no` — transform
+- `exif_3_extend_so` — transform
+- `exif_4_cover` — transform
+- `exif_4_crop_no` — transform
+- `exif_4_extend_so` — transform
+- `exif_5_cover` — transform
+- `exif_5_cover_fl` — transform
+- `exif_5_cover_rot90` — transform
+- `exif_5_crop_no` — transform
+- `exif_5_extend_so` — transform
+- `exif_7_cover` — transform
+- `exif_7_cover_fl` — transform
+- `exif_7_cover_rot90` — transform
+- `exif_7_crop_no` — transform
+- `exif_7_extend_so` — transform
+- `exif_8_cover` — transform
+- `exif_8_crop_no` — transform
+- `exif_8_extend_so` — transform
 - `extend_ar_dpr_marker` — transform
 - `extend_ar_small` — transform
 - `extend_gravity_small` — transform

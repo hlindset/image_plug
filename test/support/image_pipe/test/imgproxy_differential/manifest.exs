@@ -5,7 +5,13 @@
   sources: %{
     "alpha.png" => "7ef18f9ce1e08b6752fa8e55caf0819882d3779b997b65ec7a6c0c45e3a75fee",
     "border.png" => "350a6d992b4204dc619ccc492475ced70509b9f350fb7aed6f6156cb5efe1952",
-    "exif.jpg" => "ffc9f345632012165b7c80950b5d97999c370cc8f434995e52f58099fc675905",
+    "exif_2.jpg" => "8756ad8af4a475b0f3a3a6899d9f4e4133fb6ba9db48de3de0351c0a89c41a47",
+    "exif_3.jpg" => "1d1f1f82266ae21079b7da91a715f540e260f38a4aca56e99b6c2d40b1367ea4",
+    "exif_4.jpg" => "b56080f10510693331c1cfb35028b401c7d8958505710ec3bdc098c2e4df7042",
+    "exif_5.jpg" => "627dfc2290f56b47acffe53f25dcc6cedda9e51a28ae7ac815aba098d7add7f7",
+    "exif_6.jpg" => "ffc9f345632012165b7c80950b5d97999c370cc8f434995e52f58099fc675905",
+    "exif_7.jpg" => "e3e222be9871ff6064dd88d2fd0e6281f39b04183bf6960a8dc22dde82b4f976",
+    "exif_8.jpg" => "51d5a8f471da85a76b6327bcc08afe22f55994001003d252f0c98e6540ffd023",
     "high_freq.jpg" => "54ded6c57ec02c685e275276b54947f8c9345015342fc8a2acc9d8e54e4a7d43",
     "high_freq.webp" => "32d8e080d7e440b6329a441d2913222906d320bdeb060e956eb68a297c51df18",
     "icc_p3.png" => "80ce9bc055c01a12a9d8bf3db1693a1b46995f66bfdb796503636122de264869",
@@ -53,6 +59,138 @@
       authored_sha256: "0d9961c83de9d80484bc44550ec74ae802741ad0d8034bbf63829eba31df9322",
       fixture_filename: "enlarge_small.png",
       fixture_sha256: "566e927840c7a479afe63b1042d32bdd2df82edce0230e3a3c573a42e00c65ce",
+      kind: :transform
+    },
+    "exif_2_cover" => %{
+      authored_sha256: "b5dff066efece2d187f390a877595b2d84d22a883c78ae5f851e5eea37c0be95",
+      fixture_filename: "exif_2_cover.png",
+      fixture_sha256: "255202508ca2403b8307a2928b51178ced4c38a13745135760f75ac791005e50",
+      kind: :transform
+    },
+    "exif_2_crop_no" => %{
+      authored_sha256: "b2f9fd669ac0d4acfe295132d6908d9fa859178006b6a9f8074eccd50bf10f7e",
+      fixture_filename: "exif_2_crop_no.png",
+      fixture_sha256: "203da9019e4b2f2508941bb9f197667ede17c9bab35495fb3c404f79c36dca53",
+      kind: :transform
+    },
+    "exif_2_extend_so" => %{
+      authored_sha256: "78a78ce3b2e74c50c3e8f1e04b59033961d03b326ef4020b190b180e05b50746",
+      fixture_filename: "exif_2_extend_so.png",
+      fixture_sha256: "ef29ecd2a6a9aca14bd72650ede278c87f530c6b97cdef6b6935ab52f5d70369",
+      kind: :transform
+    },
+    "exif_3_cover" => %{
+      authored_sha256: "475832ca4af43fc00f5149a86865a8fb4f06a2ab8578164f1a34d59b66109518",
+      fixture_filename: "exif_3_cover.png",
+      fixture_sha256: "bbe4adabd8293b548fa7933f110f6d65299af7b84d6ef21a5029b1e82d9ff8bd",
+      kind: :transform
+    },
+    "exif_3_crop_no" => %{
+      authored_sha256: "94b83d4ad6d2e7f28ae1c20ef04bd0820180c2b7a144fa4c05e2f55c6ce88416",
+      fixture_filename: "exif_3_crop_no.png",
+      fixture_sha256: "133dbb7eb8d513da849d91f58c9ab608b1969a24720429255e19405456797b6a",
+      kind: :transform
+    },
+    "exif_3_extend_so" => %{
+      authored_sha256: "9851c0a753653ad60c9f41964007469fb40d49bfd83eaffe6c60771193955518",
+      fixture_filename: "exif_3_extend_so.png",
+      fixture_sha256: "2f0389acb56d7c26683ddd6e00f0a240a45d97a2adb465d6773e927d123b0ed8",
+      kind: :transform
+    },
+    "exif_4_cover" => %{
+      authored_sha256: "c6e75456a056bd08eefaa9fd1f2703f1a0141990fed554d3bcf0b72fde94d5f9",
+      fixture_filename: "exif_4_cover.png",
+      fixture_sha256: "f6ced049d65c6f9b957fd0d739135d7deda98def7e6f928d9d5e585ed560486f",
+      kind: :transform
+    },
+    "exif_4_crop_no" => %{
+      authored_sha256: "83742ebe028de990624d76fa9078f56c85f390c79ed7cdba6712c94d3fa99c99",
+      fixture_filename: "exif_4_crop_no.png",
+      fixture_sha256: "133dbb7eb8d513da849d91f58c9ab608b1969a24720429255e19405456797b6a",
+      kind: :transform
+    },
+    "exif_4_extend_so" => %{
+      authored_sha256: "acf9708abb634c9dad2568b6bc8dd781cc5930a0b3183f1178f76e238ae03a44",
+      fixture_filename: "exif_4_extend_so.png",
+      fixture_sha256: "f0faef7ede4bbe5e4f7593bf8127b2cc336a4df88752c4f50efc77826dfccf19",
+      kind: :transform
+    },
+    "exif_5_cover" => %{
+      authored_sha256: "73b7b23e6299461428479a539b96d10e0e2143d54bca81ad48a4466196a15942",
+      fixture_filename: "exif_5_cover.png",
+      fixture_sha256: "2c5fdb339ee14be1fcc30d098ca80dca9e30cf09f48b68a33c11ce4d3ad2271b",
+      kind: :transform
+    },
+    "exif_5_cover_fl" => %{
+      authored_sha256: "2266e74fe340f8837cb2140132e5d986de238d351a081ce74344b765aee99d1d",
+      fixture_filename: "exif_5_cover_fl.png",
+      fixture_sha256: "7b7c895adfc90b4546f5dd82aeb22ab7b8a0eda59efa4c61718a58e9aaff0126",
+      kind: :transform
+    },
+    "exif_5_cover_rot90" => %{
+      authored_sha256: "8bb5427efd530920c4327d8889e8d867ea20846b7a233a5763688a1078454a9d",
+      fixture_filename: "exif_5_cover_rot90.png",
+      fixture_sha256: "255202508ca2403b8307a2928b51178ced4c38a13745135760f75ac791005e50",
+      kind: :transform
+    },
+    "exif_5_crop_no" => %{
+      authored_sha256: "ea712d0c37f8aa727306e8b6688e51aafae0d9d3bb63edfed2d07973b766a4b7",
+      fixture_filename: "exif_5_crop_no.png",
+      fixture_sha256: "e29999f169ef8cbf73afd885de1a3fe1175c7213424592b6c752020d72f6664b",
+      kind: :transform
+    },
+    "exif_5_extend_so" => %{
+      authored_sha256: "4a0be7c49af32f415888b2b3a99f2497bb40f97a80b2308ac02c3f2a01d2366c",
+      fixture_filename: "exif_5_extend_so.png",
+      fixture_sha256: "231caaba0f232ddb90d32a7c21b8378da1ca1e445737a3fec8777a46991ae945",
+      kind: :transform
+    },
+    "exif_7_cover" => %{
+      authored_sha256: "81a6b3c7eaec836fc5fa03349ee034f8a1147fcf95917dab1fb40cfd831d4fc7",
+      fixture_filename: "exif_7_cover.png",
+      fixture_sha256: "122320325795a93e90121504d8115ce5d10c5cb838ad823278c78733316714db",
+      kind: :transform
+    },
+    "exif_7_cover_fl" => %{
+      authored_sha256: "c81f38186c960f55c5ffba4f1fb697ffbf35c040541f3a86b5e75b09c97cd10c",
+      fixture_filename: "exif_7_cover_fl.png",
+      fixture_sha256: "2b1b736ed8a03f337ee9405951199fa5e011402e40cd9c48e712b80cc25c69ab",
+      kind: :transform
+    },
+    "exif_7_cover_rot90" => %{
+      authored_sha256: "2e1432bfa6d54ebb66db4fffda0836864e1fc6d0f0049dd0354cea7bc627ffc6",
+      fixture_filename: "exif_7_cover_rot90.png",
+      fixture_sha256: "f6ced049d65c6f9b957fd0d739135d7deda98def7e6f928d9d5e585ed560486f",
+      kind: :transform
+    },
+    "exif_7_crop_no" => %{
+      authored_sha256: "0384ebd259bb27c3c8aef702be23f5d53d61d077bdb4d89bb87b997fd63f98f8",
+      fixture_filename: "exif_7_crop_no.png",
+      fixture_sha256: "133dbb7eb8d513da849d91f58c9ab608b1969a24720429255e19405456797b6a",
+      kind: :transform
+    },
+    "exif_7_extend_so" => %{
+      authored_sha256: "0fad42d030b753ac03bfe5f8068704db4754e67f522c90620259a6f90a0654aa",
+      fixture_filename: "exif_7_extend_so.png",
+      fixture_sha256: "209d4e4ea4fc451007ed1a3888db0a83336ecef84326f474f266b434619821e3",
+      kind: :transform
+    },
+    "exif_8_cover" => %{
+      authored_sha256: "1ddb98683358bf52323624b24557a1f675f601eb75fbdfb3102524c62f6c059a",
+      fixture_filename: "exif_8_cover.png",
+      fixture_sha256: "2b1b736ed8a03f337ee9405951199fa5e011402e40cd9c48e712b80cc25c69ab",
+      kind: :transform
+    },
+    "exif_8_crop_no" => %{
+      authored_sha256: "cf785d702334ee80d302a5b41633ca732eef52b0c5dc65212f855d5c31eb8171",
+      fixture_filename: "exif_8_crop_no.png",
+      fixture_sha256: "133dbb7eb8d513da849d91f58c9ab608b1969a24720429255e19405456797b6a",
+      kind: :transform
+    },
+    "exif_8_extend_so" => %{
+      authored_sha256: "da6209bc1024ff37c65feb756f3adca3f3dfca3c0ad581dc1970b8df045bd83b",
+      fixture_filename: "exif_8_extend_so.png",
+      fixture_sha256: "053a2a202bfa785721c8e9cd4fdb09b5a3d62934858c7d80fece6a94d9d82af5",
       kind: :transform
     },
     "extend_ar_dpr_marker" => %{
@@ -155,7 +293,7 @@
       kind: :transform
     },
     "rotate_exif" => %{
-      authored_sha256: "4920468ba4d56a795323a77b533a0945f66f4620d82fcd84d86d5c3cd508326e",
+      authored_sha256: "252877ba8585482a2b093e9c98880a686c0c93054ab6cd580dfc998be894790b",
       fixture_filename: "rotate_exif.png",
       fixture_sha256: "79d98874795f31d33cb9c4739f7eb69f1b83c2e3b1096858f9ca126232db9322",
       kind: :transform
@@ -197,7 +335,7 @@
       kind: :transform
     },
     "strip_exif" => %{
-      authored_sha256: "200b4edbbb3a02346765812304a4cda3b6ebdd346bd37b906a9d9caa946168c6",
+      authored_sha256: "fd84a77b9cb362428575bae75b4cb195c29724e320e851c74a0a8a9c03ec3a4b",
       fixture_filename: "strip_exif.png",
       fixture_sha256: "79d98874795f31d33cb9c4739f7eb69f1b83c2e3b1096858f9ca126232db9322",
       kind: :transform
