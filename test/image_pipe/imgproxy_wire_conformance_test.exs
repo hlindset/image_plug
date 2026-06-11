@@ -2119,6 +2119,86 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  describe "cp/icc target color profile (wire)" do
+    test "cp:display-p3 embeds the target and changes pixels vs strip" do
+      # The 40×40 P3 source: cp:display-p3 keeps the wide gamut and re-embeds a
+      # target ICC profile, while scp:1 maps to sRGB and drops the profile. The
+      # two encoded outputs must differ (embedded profile + remapped pixels).
+      p3_conn =
+        call_imgproxy("/_/cp:display-p3/f:png/plain/images/wide.png", wide_gamut_origin_opts())
+
+      strip_conn =
+        call_imgproxy("/_/scp:1/f:png/plain/images/wide.png", wide_gamut_origin_opts())
+
+      {_p3_img, p3_fields} = response_metadata(p3_conn)
+      {_strip_img, strip_fields} = response_metadata(strip_conn)
+
+      assert "icc-profile-data" in p3_fields
+
+      refute "icc-profile-data" in strip_fields,
+             "scp:1 baseline: icc-profile-data must be absent so the diff is not tautological"
+
+      refute p3_conn.resp_body == strip_conn.resp_body,
+             "cp:display-p3 and scp:1 outputs must differ (target profile + remapped pixels)"
+    end
+
+    test "cp works without geometry (no-geometry form)" do
+      {_img, fields} =
+        response_metadata(
+          call_imgproxy("/_/cp:adobe-rgb/f:png/plain/images/wide.png", wide_gamut_origin_opts())
+        )
+
+      assert "icc-profile-data" in fields
+    end
+
+    test "cp overrides scp: target embedded, not stripped" do
+      {_img, fields} =
+        response_metadata(
+          call_imgproxy("/_/cp:p3/scp:1/f:png/plain/images/wide.png", wide_gamut_origin_opts())
+        )
+
+      assert "icc-profile-data" in fields
+    end
+
+    test "EXIF/XMP still stripped under a cp target (target does not suppress metadata strip)" do
+      # default strip_metadata; keep_copyright defaults true, so assert a NON-copyright
+      # EXIF field + XMP are gone while the cp target ICC is present.
+      {_img, fields} =
+        response_metadata(
+          call_imgproxy("/_/cp:display-p3/f:jpeg/plain/images/meta.jpg", metadata_origin_opts())
+        )
+
+      assert "icc-profile-data" in fields
+      refute "exif-ifd0-ImageDescription" in fields
+      refute "xmp-data" in fields
+    end
+
+    test "equal cp requests reuse the filesystem cache (different option order)" do
+      {opts, cache_root} =
+        cached_opts(
+          sources: [
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test",
+               req_options: [plug: {CountingOriginImage, test_pid: self()}]}
+          ]
+        )
+
+      try do
+        first = call_imgproxy("/_/cp:p3/rs:fit:80:80/f:jpeg/plain/images/beach.jpg", opts)
+        assert first.status == 200
+        assert_received :origin_fetch
+
+        second = call_imgproxy("/_/rs:fit:80:80/cp:p3/f:jpeg/plain/images/beach.jpg", opts)
+        assert second.status == 200
+        assert second.resp_body == first.resp_body
+        refute_received :origin_fetch
+      after
+        File.rm_rf!(cache_root)
+      end
+    end
+  end
+
   describe "output capability handling" do
     test "automatic negotiation drops avif when the build cannot write it" do
       opts = Keyword.put(@default_opts, :output_capabilities, %{avif: false, webp: true})
