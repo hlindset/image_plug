@@ -32,7 +32,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     <script defer src="#{@slider_js}"></script>
     <style>#{css()}</style>
     </head>
-    <body data-heat="banded" data-filter="all">
+    <body data-heat="banded" data-status="all" data-type="all">
     #{header(prov, cards)}
     <main class="cards">
     #{Enum.map_join(ordered, "\n", &card/1)}
@@ -64,14 +64,19 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
           <button data-heat-set="raw">raw</button>
           <button data-heat-set="normalized">normalized</button>
         </span>
-        <span class="control-group" role="group" aria-label="filter">
-          show:
-          <button data-filter-set="all">all</button>
-          <button data-filter-set="failing">failing</button>
-          <button data-filter-set="attention">attention</button>
-          <button data-filter-set="transform">transform</button>
-          <button data-filter-set="diverges">diverges</button>
-          <button data-filter-set="lossy">lossy</button>
+        <span class="control-group" role="group" aria-label="status filter">
+          status:
+          <button data-status-set="all">all</button>
+          <button data-status-set="attention">attention</button>
+          <button data-status-set="failing">failing</button>
+          <button data-status-set="quarantined">quarantined</button>
+        </span>
+        <span class="control-group" role="group" aria-label="type filter">
+          type:
+          <button data-type-set="all">all</button>
+          <button data-type-set="transform">transform</button>
+          <button data-type-set="diverges">diverges</button>
+          <button data-type-set="lossy">lossy</button>
         </span>
       </div>
     </header>
@@ -82,19 +87,22 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     by_group = Enum.frequencies_by(cards, & &1.group)
     attention = Enum.count(cards, & &1.attention?)
     failing = Enum.count(cards, & &1.failing?)
+    quarantined = Enum.count(cards, &(&1.triage != nil))
     drift = Enum.count(cards, & &1.hash_drift?)
 
     "#{Map.get(by_group, :transform, 0)} transform · " <>
       "#{Map.get(by_group, :diverges, 0)} diverges · " <>
       "#{Map.get(by_group, :lossy, 0)} lossy — " <>
-      "#{attention} attention · #{failing} failing · #{drift} hash-drift"
+      "#{attention} attention · #{failing} failing · " <>
+      "#{quarantined} quarantined · #{drift} hash-drift"
   end
 
   defp card(c) do
     classes =
       ["card", "group-#{c.group}", "status-#{c.status}"] ++
         if(c.attention?, do: ["attention"], else: []) ++
-        if(c.failing?, do: ["failing"], else: [])
+        if(c.failing?, do: ["failing"], else: []) ++
+        if(c.triage, do: ["quarantined"], else: [])
 
     """
     <section id="#{esc(c.id)}" class="#{Enum.join(classes, " ")}" data-group="#{c.group}" data-attention="#{c.attention?}">
@@ -212,7 +220,8 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
         });
       }
       bind("data-heat", "data-heat-set");
-      bind("data-filter", "data-filter-set");
+      bind("data-status", "data-status-set");
+      bind("data-type", "data-type-set");
     })();
     </script>
     """
@@ -286,11 +295,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     body[data-heat="banded"] .heat-raw, body[data-heat="banded"] .heat-normalized { display:none; }
     body[data-heat="raw"] .heat-banded, body[data-heat="raw"] .heat-normalized { display:none; }
     body[data-heat="normalized"] .heat-banded, body[data-heat="normalized"] .heat-raw { display:none; }
-    body[data-filter="failing"] .card:not(.failing) { display:none; }
-    body[data-filter="attention"] .card:not(.attention) { display:none; }
-    body[data-filter="transform"] .card:not(.group-transform) { display:none; }
-    body[data-filter="diverges"] .card:not(.group-diverges) { display:none; }
-    body[data-filter="lossy"] .card:not(.group-lossy) { display:none; }
+    /* status and type are independent axes — a card hidden by either stays hidden,
+       so the two filters intersect (e.g. status=failing + type=transform) */
+    body[data-status="attention"] .card:not(.attention) { display:none; }
+    body[data-status="failing"] .card:not(.failing) { display:none; }
+    body[data-status="quarantined"] .card:not(.quarantined) { display:none; }
+    body[data-type="transform"] .card:not(.group-transform) { display:none; }
+    body[data-type="diverges"] .card:not(.group-diverges) { display:none; }
+    body[data-type="lossy"] .card:not(.group-lossy) { display:none; }
     """
   end
 end

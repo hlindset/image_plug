@@ -191,14 +191,15 @@ defmodule ImagePipe.ImgproxyGenReportTest do
       assert html =~ "extend east offset sign"
     end
 
-    test "counts summary reflects groups, attention, and failing" do
+    test "counts summary reflects groups and status breakdown" do
       html = ReportHtml.render(sample_doc())
       assert html =~ "3 transform"
       assert html =~ "1 lossy"
       # extend (quarantined over-budget) + dims-mismatch are both attention; only the
-      # non-quarantined dims-mismatch is a lane failure.
+      # non-quarantined dims-mismatch is a lane failure; only extend is quarantined.
       assert html =~ "2 attention"
       assert html =~ "1 failing"
+      assert html =~ "1 quarantined"
     end
 
     test "lossy card omits imgproxy panel and heatmaps" do
@@ -207,24 +208,37 @@ defmodule ImagePipe.ImgproxyGenReportTest do
       assert html =~ "data:image/avif;base64,IIII"
     end
 
-    test "heatmap modes (banded/raw/normalized) and filters incl. failing are present" do
+    test "heatmap modes (banded/raw/normalized) present" do
       html = ReportHtml.render(sample_doc())
       assert html =~ ~s(data-heat-set="banded")
       assert html =~ ~s(data-heat-set="raw")
       assert html =~ ~s(data-heat-set="normalized")
-      assert html =~ ~s(data-filter-set="all")
-      assert html =~ ~s(data-filter-set="failing")
       # the normalized heatmap image is inlined on a transform card
       assert html =~ "data:image/png;base64,NNNN"
       assert html =~ "heat-normalized"
     end
 
-    test "failing class marks lane failures but not quarantined cases" do
+    test "status and type filter axes are present and independent" do
       html = ReportHtml.render(sample_doc())
-      # dims-mismatch is a real lane failure → gets the `failing` class
+      assert html =~ ~s(data-status-set="all")
+      assert html =~ ~s(data-status-set="attention")
+      assert html =~ ~s(data-status-set="failing")
+      assert html =~ ~s(data-status-set="quarantined")
+      assert html =~ ~s(data-type-set="all")
+      assert html =~ ~s(data-type-set="transform")
+      assert html =~ ~s(data-type-set="diverges")
+      assert html =~ ~s(data-type-set="lossy")
+      # the body carries both independent axes, defaulting to all/all
+      assert html =~ ~s(data-status="all")
+      assert html =~ ~s(data-type="all")
+    end
+
+    test "status classes distinguish failing, attention, and quarantined" do
+      html = ReportHtml.render(sample_doc())
+      # dims-mismatch is a real lane failure → attention + failing, not quarantined
       assert html =~ "status-dims_mismatch attention failing"
-      # the quarantined over-budget case is attention but NOT failing
-      assert html =~ "status-over_budget attention"
+      # the quarantined over-budget case is attention + quarantined, but NOT failing
+      assert html =~ "status-over_budget attention quarantined"
       refute html =~ "status-over_budget attention failing"
     end
 
