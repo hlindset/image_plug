@@ -49,6 +49,48 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompare do
     end
   end
 
+  @default_thresholds [2, 16, 32]
+
+  @doc """
+  Single-pass triage summary for a live-vs-fixture comparison: dims, band layout,
+  the maximum absolute band-byte delta, and a band-byte count over each threshold.
+
+  Returns a map:
+
+      %{
+        dims: {dims(a), dims(b)},
+        bands: {bands(a), bands(b)},
+        comparable: boolean(),
+        max_delta: non_neg_integer() | nil,
+        over: %{threshold => count}
+      }
+
+  `max_delta` is the key skew-vs-structural signal: a diffuse libvips-version
+  resampling seam stays low (tens of levels), while a placement/crop shift
+  misaligns high-contrast edges toward ~255. When the two images differ in
+  dimensions or band layout they cannot be compared band-for-band (a band-count
+  divergence is itself a finding — see #220), so `comparable` is `false`,
+  `max_delta` is `nil`, and `over` is empty; `dims`/`bands` are still reported.
+  """
+  @spec diagnose(VipsImage.t(), VipsImage.t(), [non_neg_integer()]) :: map()
+  def diagnose(a, b, thresholds \\ @default_thresholds) do
+    da = dims(a)
+    db = dims(b)
+    ba = Image.bands(a)
+    bb = Image.bands(b)
+    comparable = da == db and ba == bb
+    base = %{dims: {da, db}, bands: {ba, bb}, comparable: comparable}
+
+    if comparable do
+      {:ok, abin} = VipsImage.write_to_binary(a)
+      {:ok, bbin} = VipsImage.write_to_binary(b)
+      {max_delta, over} = scan(abin, bbin, thresholds, 0, Map.new(thresholds, &{&1, 0}))
+      Map.merge(base, %{max_delta: max_delta, over: over})
+    else
+      Map.merge(base, %{max_delta: nil, over: %{}})
+    end
+  end
+
   # Counts band-bytes (not pixels) whose absolute delta exceeds the threshold.
   # Band-byte counting upper-bounds pixel outliers — the stricter choice — and
   # avoids needing the band count here.
@@ -57,5 +99,19 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompare do
   defp count_outliers(<<av, arest::binary>>, <<bv, brest::binary>>, t, acc) do
     acc = if abs(av - bv) > t, do: acc + 1, else: acc
     count_outliers(arest, brest, t, acc)
+  end
+
+  # One pass over both raw buffers, tracking the max delta and per-threshold counts.
+  defp scan(<<>>, <<>>, _thresholds, max_delta, counts), do: {max_delta, counts}
+
+  defp scan(<<av, arest::binary>>, <<bv, brest::binary>>, thresholds, max_delta, counts) do
+    delta = abs(av - bv)
+
+    counts =
+      Enum.reduce(thresholds, counts, fn t, acc ->
+        if delta > t, do: Map.update!(acc, t, &(&1 + 1)), else: acc
+      end)
+
+    scan(arest, brest, thresholds, max(max_delta, delta), counts)
   end
 end
