@@ -363,9 +363,10 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
       background:repeating-conic-gradient(var(--checker-square) 0 25%, transparent 0 50%) 50% / 20px 20px;
     }
     figcaption { font-size:11px; color:var(--text-muted); margin-top:4px; }
-    /* slider wrapper is capped to the render width (inline style); the divider/handle
-       use the accent colour so they stay visible over a light, checkered image */
-    .panel.slider { max-width:100%; box-shadow:var(--image-shadow); border-radius:6px; }
+    /* slider wrapper is capped to the render width (inline style); kept flush with the
+       other panels (no shadow). The divider/handle use the accent colour so they stay
+       visible over a light, checkered image */
+    .panel.slider { max-width:100%; }
     .panel.slider img, .panel.slider img-comparison-slider { width:100%; max-width:100%; }
     .panel.slider img-comparison-slider {
       --divider-width:3px; --divider-color:var(--accent);
