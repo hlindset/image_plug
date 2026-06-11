@@ -86,16 +86,17 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
         pipe_dims: dims(pipe)
       }
       |> Map.merge(group_fields(c, entry, pipe, content_type))
-      |> finalize_attention()
+      |> finalize_flags()
 
     attach_images(card, body, content_type, pipe, entry)
   end
 
   # The `:diverges` constellation is stored as `group: :transform, verdict:
   # :diverges` (it IS a fixture pixel comparison). For the report's display
-  # category/filter/counts it's its own bucket; the metric dispatch below still
-  # uses the constellation's real `group`/`verdict`, so this is display-only.
-  defp display_group(%{verdict: :diverges}), do: :diverges
+  # category/filter/counts it's its own `:known_divergence` bucket; the metric
+  # dispatch below still uses the constellation's real `group`/`verdict`, so this
+  # is display-only.
+  defp display_group(%{verdict: :diverges}), do: :known_divergence
   defp display_group(%{group: group}), do: group
 
   # transform / :diverges: compare against the committed fixture image.
@@ -146,16 +147,16 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
     }
   end
 
-  defp finalize_attention(card) do
+  defp finalize_flags(card) do
     failure? =
       card.hash_drift? or
         card.status in [:over_budget, :diverges_below_floor, :dims_mismatch, :contract_mismatch]
 
-    # `failing?` is the stricter "would the default `mix test` lane go red" subset:
-    # a quarantined (`:triage`) case is excluded from the lane, so it counts as
-    # attention (noteworthy) but not failing.
+    # `flagged?` is anything noteworthy (a divergence, quarantined or not). `failing?`
+    # is the stricter "would the default `mix test` lane go red" subset: a quarantined
+    # (`:triage`) case is excluded from the lane, so it is flagged but not failing.
     card
-    |> Map.put(:attention?, failure?)
+    |> Map.put(:flagged?, failure?)
     |> Map.put(:failing?, failure? and is_nil(card.triage))
   end
 

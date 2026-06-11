@@ -86,7 +86,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           url: "/unsafe/rs:fill:240:180/f:png/plain/local:///high_freq.jpg",
           summary: "resize fill 240×180",
           status: :pass,
-          attention?: false,
+          flagged?: false,
           failing?: false,
           hash_drift?: false,
           triage: nil,
@@ -107,8 +107,8 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           url: "/unsafe/rs:fit:400:150/ex:1:ea:20:0/f:png/plain/local:///marker.png",
           summary: "resize fit 400×150; extend (east +20,+0)",
           status: :over_budget,
-          attention?: true,
-          # quarantined → noteworthy (attention) but NOT a lane failure
+          flagged?: true,
+          # quarantined → noteworthy (flagged) but NOT a lane failure
           failing?: false,
           hash_drift?: false,
           triage: %{reason: "extend east offset sign", issue: "#200"},
@@ -129,7 +129,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           url: "/unsafe/rs:fit:100:100/f:png/plain/local:///marker.png",
           summary: "resize fit 100×100",
           status: :dims_mismatch,
-          attention?: true,
+          flagged?: true,
           failing?: true,
           hash_drift?: false,
           triage: nil,
@@ -150,7 +150,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           url: "/unsafe/rs:fill:240:180/f:avif/plain/local:///high_freq.jpg",
           summary: "resize fill 240×180; format avif",
           status: :contract_ok,
-          attention?: false,
+          flagged?: false,
           failing?: false,
           hash_drift?: false,
           triage: nil,
@@ -195,9 +195,9 @@ defmodule ImagePipe.ImgproxyGenReportTest do
       html = ReportHtml.render(sample_doc())
       assert html =~ "3 transform"
       assert html =~ "1 lossy"
-      # extend (quarantined over-budget) + dims-mismatch are both attention; only the
+      # extend (quarantined over-budget) + dims-mismatch are both flagged; only the
       # non-quarantined dims-mismatch is a lane failure; only extend is quarantined.
-      assert html =~ "2 attention"
+      assert html =~ "2 flagged"
       assert html =~ "1 failing"
       assert html =~ "1 quarantined"
     end
@@ -221,25 +221,25 @@ defmodule ImagePipe.ImgproxyGenReportTest do
     test "status and type filter axes are present and independent" do
       html = ReportHtml.render(sample_doc())
       assert html =~ ~s(data-status-set="all")
-      assert html =~ ~s(data-status-set="attention")
+      assert html =~ ~s(data-status-set="flagged")
       assert html =~ ~s(data-status-set="failing")
       assert html =~ ~s(data-status-set="quarantined")
       assert html =~ ~s(data-type-set="all")
       assert html =~ ~s(data-type-set="transform")
-      assert html =~ ~s(data-type-set="diverges")
+      assert html =~ ~s(data-type-set="known_divergence")
       assert html =~ ~s(data-type-set="lossy")
       # the body carries both independent axes, defaulting to all/all
       assert html =~ ~s(data-status="all")
       assert html =~ ~s(data-type="all")
     end
 
-    test "status classes distinguish failing, attention, and quarantined" do
+    test "status classes distinguish failing, flagged, and quarantined" do
       html = ReportHtml.render(sample_doc())
-      # dims-mismatch is a real lane failure → attention + failing, not quarantined
-      assert html =~ "status-dims_mismatch attention failing"
-      # the quarantined over-budget case is attention + quarantined, but NOT failing
-      assert html =~ "status-over_budget attention quarantined"
-      refute html =~ "status-over_budget attention failing"
+      # dims-mismatch is a real lane failure → flagged + failing, not quarantined
+      assert html =~ "status-dims_mismatch flagged failing"
+      # the quarantined over-budget case is flagged + quarantined, but NOT failing
+      assert html =~ "status-over_budget flagged quarantined"
+      refute html =~ "status-over_budget flagged failing"
     end
 
     test "slider wrapper is capped to the render width" do

@@ -17,7 +17,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
 
   @spec render(%{provenance: map(), cards: [map()]}) :: String.t()
   def render(%{provenance: prov, cards: cards}) do
-    ordered = Enum.sort_by(cards, fn c -> if(c.attention?, do: 0, else: 1) end)
+    ordered = Enum.sort_by(cards, fn c -> if(c.flagged?, do: 0, else: 1) end)
 
     """
     <!doctype html>
@@ -67,7 +67,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
         <span class="control-group" role="group" aria-label="status filter">
           status:
           <button data-status-set="all">all</button>
-          <button data-status-set="attention">attention</button>
+          <button data-status-set="flagged">flagged</button>
           <button data-status-set="failing">failing</button>
           <button data-status-set="quarantined">quarantined</button>
         </span>
@@ -75,7 +75,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
           type:
           <button data-type-set="all">all</button>
           <button data-type-set="transform">transform</button>
-          <button data-type-set="diverges">diverges</button>
+          <button data-type-set="known_divergence">known divergence</button>
           <button data-type-set="lossy">lossy</button>
         </span>
       </div>
@@ -85,27 +85,27 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
 
   defp counts(cards) do
     by_group = Enum.frequencies_by(cards, & &1.group)
-    attention = Enum.count(cards, & &1.attention?)
+    flagged = Enum.count(cards, & &1.flagged?)
     failing = Enum.count(cards, & &1.failing?)
     quarantined = Enum.count(cards, &(&1.triage != nil))
     drift = Enum.count(cards, & &1.hash_drift?)
 
     "#{Map.get(by_group, :transform, 0)} transform · " <>
-      "#{Map.get(by_group, :diverges, 0)} diverges · " <>
+      "#{Map.get(by_group, :known_divergence, 0)} known divergence · " <>
       "#{Map.get(by_group, :lossy, 0)} lossy — " <>
-      "#{attention} attention · #{failing} failing · " <>
+      "#{flagged} flagged · #{failing} failing · " <>
       "#{quarantined} quarantined · #{drift} hash-drift"
   end
 
   defp card(c) do
     classes =
       ["card", "group-#{c.group}", "status-#{c.status}"] ++
-        if(c.attention?, do: ["attention"], else: []) ++
+        if(c.flagged?, do: ["flagged"], else: []) ++
         if(c.failing?, do: ["failing"], else: []) ++
         if(c.triage, do: ["quarantined"], else: [])
 
     """
-    <section id="#{esc(c.id)}" class="#{Enum.join(classes, " ")}" data-group="#{c.group}" data-attention="#{c.attention?}">
+    <section id="#{esc(c.id)}" class="#{Enum.join(classes, " ")}" data-group="#{c.group}">
       <div class="card-head">
         <h2>#{esc(c.id)}</h2>
         #{badges(c)}
@@ -266,7 +266,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     .cards { padding:24px; display:flex; flex-direction:column; gap:24px; }
     .card { background:var(--surface-bar); border:1px solid var(--border-subtle);
       border-radius:10px; padding:16px; }
-    .card.attention { border-color:var(--danger); }
+    .card.flagged { border-color:var(--danger); }
     .card-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
     .card-head h2 { margin:0; font-size:15px; }
     .badge { font-size:11px; padding:2px 7px; border-radius:999px;
@@ -297,11 +297,11 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     body[data-heat="normalized"] .heat-banded, body[data-heat="normalized"] .heat-raw { display:none; }
     /* status and type are independent axes — a card hidden by either stays hidden,
        so the two filters intersect (e.g. status=failing + type=transform) */
-    body[data-status="attention"] .card:not(.attention) { display:none; }
+    body[data-status="flagged"] .card:not(.flagged) { display:none; }
     body[data-status="failing"] .card:not(.failing) { display:none; }
     body[data-status="quarantined"] .card:not(.quarantined) { display:none; }
     body[data-type="transform"] .card:not(.group-transform) { display:none; }
-    body[data-type="diverges"] .card:not(.group-diverges) { display:none; }
+    body[data-type="known_divergence"] .card:not(.group-known_divergence) { display:none; }
     body[data-type="lossy"] .card:not(.group-lossy) { display:none; }
     """
   end
