@@ -62,10 +62,12 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
           heatmap:
           <button data-heat-set="banded">banded</button>
           <button data-heat-set="raw">raw</button>
+          <button data-heat-set="normalized">normalized</button>
         </span>
         <span class="control-group" role="group" aria-label="filter">
           show:
           <button data-filter-set="all">all</button>
+          <button data-filter-set="failing">failing</button>
           <button data-filter-set="attention">attention</button>
           <button data-filter-set="transform">transform</button>
           <button data-filter-set="diverges">diverges</button>
@@ -79,18 +81,20 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
   defp counts(cards) do
     by_group = Enum.frequencies_by(cards, & &1.group)
     attention = Enum.count(cards, & &1.attention?)
+    failing = Enum.count(cards, & &1.failing?)
     drift = Enum.count(cards, & &1.hash_drift?)
 
     "#{Map.get(by_group, :transform, 0)} transform · " <>
       "#{Map.get(by_group, :diverges, 0)} diverges · " <>
       "#{Map.get(by_group, :lossy, 0)} lossy — " <>
-      "#{attention} attention · #{drift} hash-drift"
+      "#{attention} attention · #{failing} failing · #{drift} hash-drift"
   end
 
   defp card(c) do
     classes =
       ["card", "group-#{c.group}", "status-#{c.status}"] ++
-        if(c.attention?, do: ["attention"], else: [])
+        if(c.attention?, do: ["attention"], else: []) ++
+        if(c.failing?, do: ["failing"], else: [])
 
     """
     <section id="#{esc(c.id)}" class="#{Enum.join(classes, " ")}" data-group="#{c.group}" data-attention="#{c.attention?}">
@@ -157,7 +161,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
   defp visuals(c) do
     """
     #{side_by_side(c)}
-    <div class="slider">
+    <div class="slider" style="width:#{elem(c.pipe_dims, 0)}px;max-width:100%">
       <img-comparison-slider>
         <img slot="first" src="#{c.imgproxy_img}" alt="imgproxy">
         <img slot="second" src="#{c.pipe_img}" alt="ImagePipe">
@@ -166,6 +170,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     <div class="heatmaps">
       <figure class="heat-banded"><img src="#{c.heat_banded}" alt="banded diff"><figcaption>banded (Δ#{heat_threshold(c)})</figcaption></figure>
       <figure class="heat-raw"><img src="#{c.heat_raw}" alt="raw diff"><figcaption>raw ×8</figcaption></figure>
+      <figure class="heat-normalized"><img src="#{c.heat_normalized}" alt="normalized diff"><figcaption>normalized (per-case)</figcaption></figure>
     </div>
     """
   end
@@ -264,7 +269,9 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     .metric { font-weight:600; }
     .metric.ok { color:var(--accent); }
     .metric.bad { color:var(--danger); }
-    .pair, .heatmaps { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+    .pair { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:12px; }
+    /* one heatmap shows at a time (global toggle), so the panel is single-column */
+    .heatmaps { display:grid; grid-template-columns:1fr; gap:12px; margin-top:12px; max-width:420px; }
     .lossy-only { margin-top:12px; max-width:420px; }
     figure { margin:0; }
     figure img, .slider img, .slider img-comparison-slider {
@@ -272,10 +279,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
       background:repeating-conic-gradient(var(--checker-square) 0 25%, transparent 0 50%) 50% / 20px 20px;
     }
     figcaption { font-size:11px; color:var(--text-muted); margin-top:4px; }
-    .slider { margin-top:12px; max-width:520px; box-shadow:var(--image-shadow); border-radius:6px; }
-    body[data-heat="banded"] .heat-raw { display:none; }
-    body[data-heat="raw"] .heat-banded { display:none; }
-    body[data-heat="banded"] .heatmaps, body[data-heat="raw"] .heatmaps { grid-template-columns:1fr; max-width:420px; }
+    /* slider wrapper is capped to the render's own width (inline style) so the drag
+       divider never extends past the images; it still shrinks on narrow screens */
+    .slider { margin-top:12px; box-shadow:var(--image-shadow); border-radius:6px; }
+    .slider img, .slider img-comparison-slider { width:100%; }
+    body[data-heat="banded"] .heat-raw, body[data-heat="banded"] .heat-normalized { display:none; }
+    body[data-heat="raw"] .heat-banded, body[data-heat="raw"] .heat-normalized { display:none; }
+    body[data-heat="normalized"] .heat-banded, body[data-heat="normalized"] .heat-raw { display:none; }
+    body[data-filter="failing"] .card:not(.failing) { display:none; }
     body[data-filter="attention"] .card:not(.attention) { display:none; }
     body[data-filter="transform"] .card:not(.group-transform) { display:none; }
     body[data-filter="diverges"] .card:not(.group-diverges) { display:none; }

@@ -87,6 +87,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           summary: "resize fill 240×180",
           status: :pass,
           attention?: false,
+          failing?: false,
           hash_drift?: false,
           triage: nil,
           tol: nil,
@@ -95,6 +96,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           pipe_img: "data:image/png;base64,BBBB",
           heat_banded: "data:image/png;base64,CCCC",
           heat_raw: "data:image/png;base64,DDDD",
+          heat_normalized: "data:image/png;base64,NNNN",
           pipe_dims: {240, 180},
           fixture_dims: {240, 180}
         },
@@ -106,6 +108,8 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           summary: "resize fit 400×150; extend (east +20,+0)",
           status: :over_budget,
           attention?: true,
+          # quarantined → noteworthy (attention) but NOT a lane failure
+          failing?: false,
           hash_drift?: false,
           triage: %{reason: "extend east offset sign", issue: "#200"},
           tol: nil,
@@ -114,8 +118,30 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           pipe_img: "data:image/png;base64,FFFF",
           heat_banded: "data:image/png;base64,GGGG",
           heat_raw: "data:image/png;base64,HHHH",
+          heat_normalized: "data:image/png;base64,OOOO",
           pipe_dims: {400, 150},
           fixture_dims: {400, 150}
+        },
+        %{
+          id: "dims_mismatch_marker",
+          group: :transform,
+          verdict: :equal,
+          url: "/unsafe/rs:fit:100:100/f:png/plain/local:///marker.png",
+          summary: "resize fit 100×100",
+          status: :dims_mismatch,
+          attention?: true,
+          failing?: true,
+          hash_drift?: false,
+          triage: nil,
+          tol: nil,
+          metric_text: "dims 101×100 ≠ imgproxy 100×100",
+          imgproxy_img: "data:image/png;base64,MMMM",
+          pipe_img: "data:image/png;base64,PPPP",
+          heat_banded: nil,
+          heat_raw: nil,
+          heat_normalized: nil,
+          pipe_dims: {101, 100},
+          fixture_dims: {100, 100}
         },
         %{
           id: "lossy_avif",
@@ -125,6 +151,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           summary: "resize fill 240×180; format avif",
           status: :contract_ok,
           attention?: false,
+          failing?: false,
           hash_drift?: false,
           triage: nil,
           tol: nil,
@@ -134,6 +161,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
           pipe_img: "data:image/avif;base64,IIII",
           heat_banded: nil,
           heat_raw: nil,
+          heat_normalized: nil,
           pipe_dims: {240, 180},
           fixture_dims: nil
         }
@@ -163,11 +191,14 @@ defmodule ImagePipe.ImgproxyGenReportTest do
       assert html =~ "extend east offset sign"
     end
 
-    test "counts summary reflects groups and attention" do
+    test "counts summary reflects groups, attention, and failing" do
       html = ReportHtml.render(sample_doc())
-      assert html =~ "2 transform"
+      assert html =~ "3 transform"
       assert html =~ "1 lossy"
-      assert html =~ "1 attention"
+      # extend (quarantined over-budget) + dims-mismatch are both attention; only the
+      # non-quarantined dims-mismatch is a lane failure.
+      assert html =~ "2 attention"
+      assert html =~ "1 failing"
     end
 
     test "lossy card omits imgproxy panel and heatmaps" do
@@ -176,10 +207,30 @@ defmodule ImagePipe.ImgproxyGenReportTest do
       assert html =~ "data:image/avif;base64,IIII"
     end
 
-    test "global heatmap toggle + filter controls present" do
+    test "heatmap modes (banded/raw/normalized) and filters incl. failing are present" do
       html = ReportHtml.render(sample_doc())
-      assert html =~ "data-heat"
-      assert html =~ "data-filter"
+      assert html =~ ~s(data-heat-set="banded")
+      assert html =~ ~s(data-heat-set="raw")
+      assert html =~ ~s(data-heat-set="normalized")
+      assert html =~ ~s(data-filter-set="all")
+      assert html =~ ~s(data-filter-set="failing")
+      # the normalized heatmap image is inlined on a transform card
+      assert html =~ "data:image/png;base64,NNNN"
+      assert html =~ "heat-normalized"
+    end
+
+    test "failing class marks lane failures but not quarantined cases" do
+      html = ReportHtml.render(sample_doc())
+      # dims-mismatch is a real lane failure → gets the `failing` class
+      assert html =~ "status-dims_mismatch attention failing"
+      # the quarantined over-budget case is attention but NOT failing
+      assert html =~ "status-over_budget attention"
+      refute html =~ "status-over_budget attention failing"
+    end
+
+    test "slider wrapper is capped to the render width" do
+      html = ReportHtml.render(sample_doc())
+      assert html =~ ~s(class="slider" style="width:240px;max-width:100%")
     end
   end
 

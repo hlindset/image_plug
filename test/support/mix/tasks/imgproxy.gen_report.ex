@@ -147,11 +147,16 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   end
 
   defp finalize_attention(card) do
-    attention? =
+    failure? =
       card.hash_drift? or
         card.status in [:over_budget, :diverges_below_floor, :dims_mismatch, :contract_mismatch]
 
-    Map.put(card, :attention?, attention?)
+    # `failing?` is the stricter "would the default `mix test` lane go red" subset:
+    # a quarantined (`:triage`) case is excluded from the lane, so it counts as
+    # attention (noteworthy) but not failing.
+    card
+    |> Map.put(:attention?, failure?)
+    |> Map.put(:failing?, failure? and is_nil(card.triage))
   end
 
   # Attach base64 data URIs. Images are displayed from ORIGINAL bytes (no
@@ -162,7 +167,8 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
       imgproxy_img: nil,
       pipe_img: data_uri(content_type, body),
       heat_banded: nil,
-      heat_raw: nil
+      heat_raw: nil,
+      heat_normalized: nil
     })
   end
 
@@ -172,7 +178,8 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
         data_uri("image/png", File.read!(Path.join(@fixtures_dir, entry.fixture_filename))),
       pipe_img: data_uri(content_type, body),
       heat_banded: nil,
-      heat_raw: nil
+      heat_raw: nil,
+      heat_normalized: nil
     })
   end
 
@@ -187,7 +194,8 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
         data_uri("image/png", File.read!(Path.join(@fixtures_dir, entry.fixture_filename))),
       pipe_img: data_uri(content_type, body),
       heat_banded: data_uri("image/png", png(banded_heatmap(a, b, threshold))),
-      heat_raw: data_uri("image/png", png(raw_heatmap(a, b)))
+      heat_raw: data_uri("image/png", png(raw_heatmap(a, b))),
+      heat_normalized: data_uri("image/png", png(normalized_heatmap(a, b)))
     })
   end
 
@@ -220,6 +228,18 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
     delta = abs_diff(a, b)
     amped = ok!(Operation.linear(delta, [@raw_amp * 1.0], [0.0]))
     ok!(Operation.cast(amped, :VIPS_FORMAT_UCHAR))
+  end
+
+  # Normalized: per-pixel max |Δ| contrast-stretched to THIS frame's own peak
+  # (`Operation.scale` maps min→0, max→255), so a diffuse, low-magnitude divergence
+  # (e.g. the scp0 colorspace case) fills the dynamic range and is visible where the
+  # banded/raw maps render near-black. Magnitudes are NOT comparable across cards —
+  # each is self-scaled. `scale` is safe on an all-equal frame (no divide-by-zero).
+  defp normalized_heatmap(a, b) do
+    delta = abs_diff(a, b)
+    maxd = band_max(delta)
+    idx = ok!(Operation.cast(ok!(Operation.scale(maxd)), :VIPS_FORMAT_UCHAR))
+    ok!(Operation.maplut(idx, heat_lut(0)))
   end
 
   # subtract promotes uchar→signed short (no wrap); abs makes it non-negative.
