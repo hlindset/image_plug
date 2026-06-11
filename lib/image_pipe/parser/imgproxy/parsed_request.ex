@@ -9,7 +9,8 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
     format_qualities: %{},
     strip_metadata: nil,
     keep_copyright: nil,
-    strip_color_profile: nil
+    strip_color_profile: nil,
+    color_profile: nil
   }
   @default_policy %{expires: 0}
   @default_cache %{cachebuster: nil}
@@ -33,7 +34,8 @@ defmodule ImagePipe.Parser.Imgproxy.ParsedRequest do
           required(:format_qualities) => %{optional(output_format()) => quality()},
           required(:strip_metadata) => boolean() | nil,
           required(:keep_copyright) => boolean() | nil,
-          required(:strip_color_profile) => boolean() | nil
+          required(:strip_color_profile) => boolean() | nil,
+          required(:color_profile) => :srgb | :display_p3 | :adobe_rgb | nil
         }
   @type policy_request() :: %{required(:expires) => non_neg_integer()}
   @type cache_request() :: %{required(:cachebuster) => String.t() | nil}

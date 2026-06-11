@@ -490,6 +490,11 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     parse_strip_color_profile(args, segment)
   end
 
+  defp parse_special_option(name, args, segment)
+       when name in ["color_profile", "cp", "icc"] do
+    parse_color_profile(args, segment)
+  end
+
   defp parse_special_option(name, args, segment) when name in ["gravity", "g"] do
     parse_gravity(args, segment)
   end
@@ -926,6 +931,26 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
 
   defp parse_strip_color_profile(_args, segment),
     do: {:error, {:invalid_option_segment, segment}}
+
+  defp parse_color_profile([value], segment) when value != "" do
+    case color_profile_target(value) do
+      {:ok, target} -> {:ok, [color_profile: target]}
+      :error -> {:error, {:invalid_option_segment, segment}}
+    end
+  end
+
+  defp parse_color_profile(_args, segment),
+    do: {:error, {:invalid_option_segment, segment}}
+
+  # v1 built-in allowlist. `srgb` is the imgproxy-faithful built-in; `p3`/`display-p3`
+  # and `adobe-rgb`/`adobergb` are ImagePipe-specific extensions (Pro reaches these only
+  # via a custom profiles dir). No percent-decoding in v1 — identifiers are ASCII-safe.
+  defp color_profile_target("srgb"), do: {:ok, :srgb}
+  defp color_profile_target("p3"), do: {:ok, :display_p3}
+  defp color_profile_target("display-p3"), do: {:ok, :display_p3}
+  defp color_profile_target("adobe-rgb"), do: {:ok, :adobe_rgb}
+  defp color_profile_target("adobergb"), do: {:ok, :adobe_rgb}
+  defp color_profile_target(_), do: :error
 
   defp parse_rotate([value], _segment) when value != "" do
     case Integer.parse(value) do

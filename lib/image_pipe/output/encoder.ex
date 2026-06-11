@@ -2,6 +2,7 @@ defmodule ImagePipe.Output.Encoder do
   @moduledoc false
 
   alias ImagePipe.Format
+  alias ImagePipe.Output.ColorProfile
   alias ImagePipe.Output.Resolved
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.MutableImage, as: VixMutableImage
@@ -69,6 +70,17 @@ defmodule ImagePipe.Output.Encoder do
   # private carry fields. The read-before-strip order is load-bearing:
   # `minimize_metadata` enumerate-removes every header field, the private ones
   # included.
+  # cp/icc: convert the working-space image (sRGB after the #124 import preamble) to
+  # the chosen built-in target profile and embed it. A dedicated clause: it must NOT
+  # flow through maybe_drop_profile/2, which (keep? == false here) would strip the
+  # profile we just embedded. strip_metadata_and_private preserves the ICC because
+  # color_profile is not :strip, while still stripping EXIF/XMP/IPTC.
+  defp color_result(image, %Resolved{color_profile: {:convert, target}} = resolved) do
+    with {:ok, image} <- convert_to_target(image, target, resolved.format) do
+      {:ok, strip_metadata_and_private(image, resolved)}
+    end
+  end
+
   defp color_result(image, %Resolved{} = resolved) do
     imported = header_value(image, "imagepipe-icc-imported") == 1
     backup = header_value(image, "imagepipe-icc-backup")
@@ -124,6 +136,28 @@ defmodule ImagePipe.Output.Encoder do
           {:ok, image} -> {:ok, image}
           {:error, reason} -> {:error, {:decode, reason}}
         end
+    end
+  end
+
+  # Convert working-space sRGB -> target built-in profile and embed it. Greyscale
+  # (B_W/sGrey, 1-band) is first promoted to sRGB so the 3-band target transform is
+  # valid (N2). Input is declared as the known working space ("sRGB") rather than
+  # embedded: true, because an untagged source has no embedded profile to read (N1).
+  # The working-space image reaching here is 8-bit sRGB-family today: the HDR
+  # working-space path is inactive (`supports_hdr?` is `false`), and `colourspace`
+  # to sRGB collapses to 8-bit UCHAR, so the libvips default depth (8) is correct.
+  # 16-bit/HDR working-space handling for a target convert is deferred to #121.
+  defp convert_to_target(image, target, format) do
+    if Format.supports_color_profile?(format) do
+      with {:ok, srgb} <- Operation.colourspace(image, :VIPS_INTERPRETATION_sRGB),
+           {:ok, converted} <-
+             Operation.icc_transform(srgb, ColorProfile.path!(target), input_profile: "sRGB") do
+        {:ok, converted}
+      else
+        {:error, reason} -> {:error, {:decode, reason}}
+      end
+    else
+      {:ok, image}
     end
   end
 

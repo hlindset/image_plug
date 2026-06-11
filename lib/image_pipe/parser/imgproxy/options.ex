@@ -234,6 +234,9 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
         {:strip_color_profile, value}, pipeline ->
           %{pipeline | strip_color_profile: value, strip_color_profile_requested: true}
 
+        {:color_profile, value}, pipeline ->
+          %{pipeline | color_profile: value}
+
         assignment, pipeline ->
           struct!(pipeline, [assignment])
       end)
@@ -302,10 +305,13 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
     strip_color_profile? =
       effective_strip_color_profile(pipelines, Keyword.get(defaults, :strip_color_profile, true))
 
+    color_profile = effective_color_profile(pipelines)
+
     pipelines =
       pipelines
       |> Enum.map(&consume_auto_rotate_request/1)
       |> Enum.map(&consume_strip_color_profile_request/1)
+      |> Enum.map(&consume_color_profile_request/1)
       |> apply_strip_color_profile_to_first_pipeline(strip_color_profile?)
       |> reject_empty_pipelines()
 
@@ -313,6 +319,7 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
       output
       |> resolve_metadata_defaults(defaults)
       |> Map.put(:strip_color_profile, strip_color_profile?)
+      |> Map.put(:color_profile, color_profile)
 
     options
     |> Map.put(:auto_rotate, auto_rotate?)
@@ -369,6 +376,16 @@ defmodule ImagePipe.Parser.Imgproxy.Options do
 
   defp consume_strip_color_profile_request(%PipelineRequest{} = pipeline),
     do: %{pipeline | strip_color_profile: false, strip_color_profile_requested: false}
+
+  defp effective_color_profile(pipelines) do
+    Enum.reduce(pipelines, nil, fn
+      %PipelineRequest{color_profile: target}, _acc when not is_nil(target) -> target
+      %PipelineRequest{}, acc -> acc
+    end)
+  end
+
+  defp consume_color_profile_request(%PipelineRequest{} = pipeline),
+    do: %{pipeline | color_profile: nil}
 
   defp apply_strip_color_profile_to_first_pipeline(pipelines, false), do: pipelines
 

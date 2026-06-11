@@ -1536,6 +1536,46 @@ describe("demo URL state", () => {
     expect(optionSegments(parsed)).toContain("scp:0");
   });
 
+  it("omits cp for the default (none) color-profile state", () => {
+    expect(optionSegments(defaultDemoState)).not.toContain("cp:none");
+    expect(optionSegments(defaultDemoState).some((seg) => seg.startsWith("cp:"))).toBe(false);
+  });
+
+  it("emits cp:<target> for non-none color profiles", () => {
+    expect(optionSegments({ ...defaultDemoState, colorProfile: "srgb" })).toContain("cp:srgb");
+    expect(optionSegments({ ...defaultDemoState, colorProfile: "display-p3" })).toContain(
+      "cp:display-p3",
+    );
+    expect(optionSegments({ ...defaultDemoState, colorProfile: "adobe-rgb" })).toContain(
+      "cp:adobe-rgb",
+    );
+  });
+
+  it("round-trips cp targets through parse and emit", () => {
+    const parsed = parseDemoPath("/cp:display-p3/plain/local:///images/dog.jpg");
+
+    expect(parsed).toMatchObject({ colorProfile: "display-p3" });
+    expect(optionSegments(parsed)).toContain("cp:display-p3");
+  });
+
+  it("accepts the icc alias and canonicalizes color-profile aliases", () => {
+    expect(parseDemoPath("/icc:srgb/plain/local:///images/dog.jpg")).toMatchObject({
+      colorProfile: "srgb",
+    });
+    expect(parseDemoPath("/cp:p3/plain/local:///images/dog.jpg")).toMatchObject({
+      colorProfile: "display-p3",
+    });
+    expect(parseDemoPath("/cp:adobergb/plain/local:///images/dog.jpg")).toMatchObject({
+      colorProfile: "adobe-rgb",
+    });
+  });
+
+  it("rejects unknown cp values in demo routes", () => {
+    expect(parseDemoPath("/cp:cmyk/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/cp:/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseDemoPath("/cp:srgb:extra/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+  });
+
   it("normalizes keepCopyright to false when sm:0 is parsed without kcr", () => {
     const parsedSmOnly = parseDemoPath("/sm:0/plain/local:///images/dog.jpg");
 

@@ -1,12 +1,14 @@
 defmodule ImagePipe.Output.ColorResultTest do
   use ExUnit.Case, async: true
 
+  alias ImagePipe.Output.ColorProfile
   alias ImagePipe.Output.Encoder
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Transform.InputColorManagement, as: ICM
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.MutableImage
+  alias Vix.Vips.Operation
 
   @sources "test/support/image_pipe/test/imgproxy_differential/sources"
   @p3_fixture "#{@sources}/icc_p3.png"
@@ -101,5 +103,49 @@ defmodule ImagePipe.Output.ColorResultTest do
 
     assert {:ok, difference, _diff_image} = Image.compare(base, out, metric: :ae)
     assert difference == +0.0
+  end
+
+  describe "color_profile {:convert, target}" do
+    test "converts to the target and embeds its profile (untagged sRGB source, N1)" do
+      {:ok, image} = Operation.black(16, 16, bands: 3)
+
+      {:ok, stream, _} = Encoder.stream_output(image, resolved(:png, {:convert, :display_p3}), [])
+
+      assert decode(stream) |> header("icc-profile-data") != nil
+    end
+
+    test "greyscale source converts to a 3-band RGB target (N2)" do
+      {:ok, grey} = Operation.black(16, 16, bands: 1)
+      {:ok, grey} = Operation.colourspace(grey, :VIPS_INTERPRETATION_B_W)
+
+      {:ok, stream, _} = Encoder.stream_output(grey, resolved(:png, {:convert, :display_p3}), [])
+      out = decode(stream)
+
+      assert VixImage.bands(out) == 3
+      assert header(out, "icc-profile-data") != nil
+    end
+
+    test "embedded target survives metadata strip (not dropped by maybe_drop_profile)" do
+      {:ok, image} = Operation.black(16, 16, bands: 3)
+      res = resolved(:jpeg, {:convert, :adobe_rgb}, strip_metadata: true)
+
+      {:ok, stream, _} = Encoder.stream_output(image, res, [])
+
+      assert decode(stream) |> header("icc-profile-data") != nil
+    end
+
+    test "each target embeds its own profile bytes (named-target contract)" do
+      {:ok, image} = Operation.black(16, 16, bands: 3)
+
+      embedded = fn target ->
+        {:ok, stream, _} = Encoder.stream_output(image, resolved(:png, {:convert, target}), [])
+        decode(stream) |> header("icc-profile-data")
+      end
+
+      assert embedded.(:srgb) == File.read!(ColorProfile.path!(:srgb))
+      assert embedded.(:adobe_rgb) == File.read!(ColorProfile.path!(:adobe_rgb))
+      assert embedded.(:display_p3) == File.read!(ColorProfile.path!(:display_p3))
+      refute embedded.(:adobe_rgb) == embedded.(:display_p3)
+    end
   end
 end

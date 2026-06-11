@@ -189,6 +189,94 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              key.("/_/f:jpeg/sm:0/plain/images/cat.jpg")
   end
 
+  describe "color_profile / cp / icc" do
+    test "cp maps each built-in identifier to a convert target" do
+      for {str, atom} <- [
+            {"srgb", :srgb},
+            {"p3", :display_p3},
+            {"display-p3", :display_p3},
+            {"adobe-rgb", :adobe_rgb},
+            {"adobergb", :adobe_rgb}
+          ] do
+        assert {:ok, plan} =
+                 Imgproxy.parse(
+                   conn(:get, "/_/cp:#{str}/plain/images/cat.jpg"),
+                   @no_auto_rotate_opts
+                 )
+
+        assert plan.output.color_profile == {:convert, atom}
+      end
+    end
+
+    test "icc is an alias for cp" do
+      assert {:ok, plan} =
+               Imgproxy.parse(conn(:get, "/_/icc:p3/plain/images/cat.jpg"), @no_auto_rotate_opts)
+
+      assert plan.output.color_profile == {:convert, :display_p3}
+    end
+
+    test "color_profile long-form is an alias for cp" do
+      assert {:ok, plan} =
+               Imgproxy.parse(
+                 conn(:get, "/_/color_profile:p3/plain/images/cat.jpg"),
+                 @no_auto_rotate_opts
+               )
+
+      assert plan.output.color_profile == {:convert, :display_p3}
+    end
+
+    test "unknown identifier is a parse error" do
+      assert {:error, _} =
+               Imgproxy.parse(
+                 conn(:get, "/_/cp:rec2020/plain/images/cat.jpg"),
+                 @no_auto_rotate_opts
+               )
+    end
+
+    test "cp overrides scp regardless of the scp boolean" do
+      assert {:ok, p1} =
+               Imgproxy.parse(
+                 conn(:get, "/_/cp:p3/scp:1/plain/images/cat.jpg"),
+                 @no_auto_rotate_opts
+               )
+
+      assert {:ok, p0} =
+               Imgproxy.parse(
+                 conn(:get, "/_/cp:p3/scp:0/plain/images/cat.jpg"),
+                 @no_auto_rotate_opts
+               )
+
+      assert p1.output.color_profile == {:convert, :display_p3}
+      assert p0.output.color_profile == {:convert, :display_p3}
+    end
+
+    test "cp is not a pipeline operation" do
+      assert {:ok, plan} =
+               Imgproxy.parse(conn(:get, "/_/cp:p3/plain/images/cat.jpg"), @no_auto_rotate_opts)
+
+      assert plan.output.color_profile == {:convert, :display_p3}
+      assert [%Pipeline{operations: []}] = plan.pipelines
+    end
+
+    test "different cp targets produce distinct cache keys" do
+      source_identity = [
+        kind: :path,
+        adapter: :path,
+        root: "default",
+        path: ["images", "cat.jpg"]
+      ]
+
+      key = fn opt ->
+        path = "/_/#{opt}/plain/images/cat.jpg"
+        {:ok, plan} = Imgproxy.parse(conn(:get, path), @no_auto_rotate_opts)
+        CacheKey.build(conn(:get, path), plan, source_identity)
+      end
+
+      assert key.("cp:p3") == key.("cp:display-p3")
+      refute key.("cp:p3") == key.("cp:adobe-rgb")
+    end
+  end
+
   test "parse/2 accepts parser options and keeps no-option parse/1 as a delegating helper" do
     conn = conn(:get, "/_/plain/images/cat.jpg")
 

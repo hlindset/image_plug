@@ -96,7 +96,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
        format_qualities: request.format_qualities,
        strip_metadata: request.strip_metadata,
        keep_copyright: request.keep_copyright,
-       color_profile: color_profile_policy(request.strip_color_profile)
+       color_profile: color_profile_policy(request.color_profile, request.strip_color_profile)
      }}
   end
 
@@ -113,7 +113,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
            format_qualities: request.format_qualities,
            strip_metadata: request.strip_metadata,
            keep_copyright: request.keep_copyright,
-           color_profile: color_profile_policy(request.strip_color_profile)
+           color_profile: color_profile_policy(request.color_profile, request.strip_color_profile)
          }}
 
       false ->
@@ -121,9 +121,13 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
     end
   end
 
-  defp color_profile_policy(true), do: :strip
-  defp color_profile_policy(false), do: :preserve_source
-  defp color_profile_policy(nil), do: :strip
+  # A present cp/icc target wins over scp (imgproxy: cp-embedded profiles are not
+  # stripped by strip_color_profile). scp only decides strip vs preserve when no
+  # target is set.
+  defp color_profile_policy(target, _strip) when not is_nil(target), do: {:convert, target}
+  defp color_profile_policy(nil, true), do: :strip
+  defp color_profile_policy(nil, false), do: :preserve_source
+  defp color_profile_policy(nil, nil), do: :strip
 
   defp expires_plan(%{expires: 0}, _opts), do: {:ok, 0}
 
