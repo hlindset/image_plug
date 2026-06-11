@@ -191,8 +191,22 @@ defmodule ImagePipe.Output.Encoder do
   defp restore_backup(image, nil), do: {:ok, image}
   defp restore_backup(image, backup), do: {:ok, set_icc(image, backup)}
 
+  # The fields imgproxy's `vips_icc_remove` removes when it drops the profile
+  # (imgproxy `vips/vips.c`). Besides the ICC blob it unconditionally strips three EXIF
+  # color-characterization tags — independent of metadata stripping — so they
+  # must go here too, on the `!keep_profile` path, even when `strip_metadata` is
+  # false. imgproxy's internal `imgproxy-icc-profile` carry has no analogue to
+  # remove: ImagePipe's own private carry fields (`@private_color_fields`) are
+  # stripped separately in `strip_metadata_and_private/2`.
+  @icc_remove_fields [
+    "icc-profile-data",
+    "exif-ifd0-WhitePoint",
+    "exif-ifd0-PrimaryChromaticities",
+    "exif-ifd2-ColorSpace"
+  ]
+
   defp maybe_drop_profile(image, true), do: {:ok, image}
-  defp maybe_drop_profile(image, false), do: {:ok, remove_fields(image, ["icc-profile-data"])}
+  defp maybe_drop_profile(image, false), do: {:ok, remove_fields(image, @icc_remove_fields)}
 
   # Strip EXIF/XMP/IPTC (keeping copyright/artist iff kcr) and remove the two
   # private carry fields. `minimize_metadata` enumerates and removes ALL metadata
