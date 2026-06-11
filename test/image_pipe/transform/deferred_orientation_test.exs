@@ -5,6 +5,7 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
   alias ImagePipe.Transform.{Materializer, PlanExecutor, State}
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.PendingOrientation
+  alias Vix.Vips.Operation, as: VipsOperation
 
   # Bare-module detector for the end-to-end ordering gate. PlanExecutor.execute/3
   # resolves its `:detector` opt through ImagePipe.Transform.resolve_detector/1,
@@ -44,12 +45,19 @@ defmodule ImagePipe.Transform.DeferredOrientationTest do
     s.image
   end
 
-  # Orientation-only reference uses the SAME primitives the flush uses.
+  # Orientation-only reference uses the SAME primitives the flush uses — the exact
+  # `vips_rot` for the user rotate, not Image.rotate/2's affine resampler (#211).
   defp orientation_only_reference(image, user_rotate, user_flips) do
     {:ok, {img, _}} = Image.autorotate(image)
-    img = if user_rotate != 0, do: Image.rotate!(img, user_rotate), else: img
+    img = if user_rotate != 0, do: rot_exact!(img, user_rotate), else: img
     Enum.reduce(user_flips, img, fn axis, acc -> Image.flip!(acc, axis) end)
   end
+
+  defp rot_exact!(img, 90), do: ok(VipsOperation.rot(img, :VIPS_ANGLE_D90))
+  defp rot_exact!(img, 180), do: ok(VipsOperation.rot(img, :VIPS_ANGLE_D180))
+  defp rot_exact!(img, 270), do: ok(VipsOperation.rot(img, :VIPS_ANGLE_D270))
+
+  defp ok({:ok, img}), do: img
 
   defp sample_positions(size) do
     last = max(size - 1, 0)
