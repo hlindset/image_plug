@@ -78,6 +78,11 @@ In `test/support/.../constellations.ex`:
 - Re-point the two existing constellations (`rotate_exif`, `strip_exif`) from
   `:exif_jpeg` to `:exif_6` — same source bytes, new atom/filename.
 
+The `@valid_sources` allowlist in
+`test/image_pipe/imgproxy_differential/constellations_test.exs` (which asserts
+every constellation's source is a known atom) must drop `:exif_jpeg` and gain
+`:exif_2`…`:exif_8` in the same change, or that well-formedness test fails.
+
 ### Batch-A shape per orientation
 
 Three base cases on each of the six new orientations, each hitting a distinct
@@ -86,11 +91,20 @@ seam (mirrors the issue's suggested set):
 | opts | seam exercised |
 |---|---|
 | `rs:fill:200:150` | asymmetric cover — per-axis storage↔display dims (landscape target vs portrait display on 5/7/8) |
-| `c:200:120:no` | non-center crop gravity rotated into the storage frame |
-| `rs:fit:200:200/ex:1:so` | extend with non-center (south) gravity applied **after** the orientation flush |
+| `c:200:120/g:no` | non-center crop gravity rotated into the storage frame |
+| `rs:fit:200:300/ex:1:so` | extend with non-center (south) gravity applied **after** the orientation flush |
 
-IDs: `exifN_cover`, `exifN_crop_no`, `exifN_extend_so` for each
+IDs: `exif_N_cover`, `exif_N_crop_no`, `exif_N_extend_so` for each
 `N ∈ {2,3,4,5,7,8}` → 18 base cases.
+
+The extend target is `200:300` (portrait), **not** square `200:200`. A square
+target leaves the south-gravity extend with no vertical play on the
+portrait-display quarter-turns (5/6/7/8 fit height-bound, already filling the
+canvas height), so it would not exercise the post-flush gravity seam exactly
+where it matters most. `200:300` keeps real vertical play for both the
+landscape (2/3/4) and portrait (5/7) orientation classes. The crop uses the
+separated `c:W:H/g:no` form (proven by the existing passing `crop_gravity_marker`
+case), not the inline `c:W:H:no` colon form.
 
 ### 5/7 user-op crosses (deepest #146 compose)
 
@@ -99,29 +113,25 @@ with a user op on one base geometry:
 
 | id | opts |
 |---|---|
-| `exif5_cover_rot90` | `rs:fill:200:150/rot:90` |
-| `exif5_cover_fl` | `rs:fill:200:150/fl:1` |
-| `exif7_cover_rot90` | `rs:fill:200:150/rot:90` |
-| `exif7_cover_fl` | `rs:fill:200:150/fl:1` |
+| `exif_5_cover_rot90` | `rs:fill:200:150/rot:90` |
+| `exif_5_cover_fl` | `rs:fill:200:150/fl:1` |
+| `exif_7_cover_rot90` | `rs:fill:200:150/rot:90` |
+| `exif_7_cover_fl` | `rs:fill:200:150/fl:1` |
 
 → 4 crosses. **Total: 22 new constellations.**
 
 All authored initially as `c(...)` — `:equal` verdict, `:transform` group,
 default tol (Δ2, budget 64).
 
-**Grammar verification (hard gate before bake).** Each opt must parse in
-ImagePipe *and* be accepted by the pinned imgproxy container, or `gen_fixtures`
-produces no fixture for that case. The compatibility reviewer confirms against
-the local imgproxy checkout:
-
-- `c:200:120:no` — inline crop-gravity form. If imgproxy/ImagePipe require the
-  separated form, fall back to `c:200:120/g:no` (as the existing
-  `crop_gravity_marker` uses `g:` separately).
-- `rot:90` — `rotate` option (already baked in #203, e.g. `rot:180`).
-- `fl:1` — user flip. The issue cites it as baked in #203 (T2.16/T2.18); the
-  reviewer confirms the pinned imgproxy build accepts it. If it does **not**,
-  drop the two `*_fl` crosses and replace with a second `rot` axis (`rot:270`),
-  noting the substitution.
+**Grammar — confirmed.** A parallel compatibility review against the local
+imgproxy v4.x source (`/Users/hlindset/src/imgproxy`) confirmed every opt is
+accepted by the OSS `darthsim/imgproxy` build: crop `c:W:H/g:gravity`, gravity
+tokens `no`/`so`, extend `ex:1:gravity`, `rot` (multiple-of-90 enforced), and
+`fl` (flip is OSS, **not** Pro-only — `processing/rotate_and_flip.go`, no build
+tag). All five shapes are also already exercised in the existing suite / #203 on
+the ImagePipe side. A cheap pre-bake parse check (build a `%Plug.Conn{}`, call
+`ImagePipe.Parser.Imgproxy.parse/1`) guards against a typo before the Docker
+bake — but no grammar fallback is expected.
 
 ## Triage branch (post-bake)
 
