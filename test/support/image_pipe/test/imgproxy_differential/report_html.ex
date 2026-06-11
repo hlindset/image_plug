@@ -54,7 +54,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     """
     <header class="report-header">
       <h1>imgproxy differential — visual diff</h1>
-      <p class="provenance">imgproxy <code>#{esc(prov.imgproxy_digest)}</code> · imgproxy libvips <code>#{esc(prov.imgproxy_libvips)}</code> · ImagePipe libvips at gen <code>#{esc(prov.pipe_libvips_at_gen)}</code> · runtime <code>#{esc(prov.runtime_libvips)}</code></p>
+      <p class="provenance">imgproxy <code>#{esc(prov.imgproxy_digest)}</code> · imgproxy libvips <code>#{esc(prov.imgproxy_libvips)}</code> (.so ABI soname) · ImagePipe libvips <code>#{esc(prov.pipe_libvips_at_gen)}</code> (release, at gen) · runtime <code>#{esc(prov.runtime_libvips)}</code> (release)</p>
       #{skew}
       <p class="counts">#{counts(cards)}</p>
       <div class="controls">
@@ -358,7 +358,10 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
        wrapping row at a consistent width so nothing is stranded or stacked */
     .visuals { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-start; margin-top:14px; }
     .panel { margin:0; }
-    .panel img, .panel img-comparison-slider {
+    /* checker lives on ONE layer per panel: the static panels' own img, and the
+       slider HOST (behind both slotted images) — never on the stacked slider images,
+       or a transparent top image would reveal the opaque one beneath as a checker */
+    .panel > img, .panel img-comparison-slider {
       display:block; max-width:280px; border-radius:6px;
       background:repeating-conic-gradient(var(--checker-square) 0 25%, transparent 0 50%) 50% / 20px 20px;
     }
@@ -368,6 +371,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
        visible over a light, checkered image */
     .panel.slider { max-width:100%; }
     .panel.slider img, .panel.slider img-comparison-slider { width:100%; max-width:100%; }
+    .panel.slider img { display:block; border-radius:6px; background:none; }
     .panel.slider img-comparison-slider {
       --divider-width:3px; --divider-color:var(--accent);
       --default-handle-color:var(--accent); --default-handle-opacity:1;
