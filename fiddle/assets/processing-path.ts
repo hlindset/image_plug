@@ -10,6 +10,7 @@ export type CropGravity = "inherit" | Gravity | "sm" | "obj:face" | "obj" | "obj
 export type CropDimensionUnit = "px" | "percent" | "full";
 export type ResizeDimensionUnit = "px" | "auto";
 export type OutputFormat = "webp" | "avif" | "jpeg" | "png";
+export type ColorProfile = "none" | "srgb" | "display-p3" | "adobe-rgb";
 export type Flip = "none" | "horizontal" | "vertical" | "both";
 export type Rotate = 0 | 90 | 180 | 270;
 export type SignatureMode = "unsigned" | "signed";
@@ -196,6 +197,7 @@ export type DemoState = {
   stripMetadata: boolean;
   keepCopyright: boolean;
   stripColorProfile: boolean;
+  colorProfile: ColorProfile;
 };
 
 export type ProcessedImageMetadata = {
@@ -392,6 +394,7 @@ export const defaultDemoState: DemoState = {
   stripMetadata: true,
   keepCopyright: true,
   stripColorProfile: true,
+  colorProfile: "none",
 };
 
 export function optionSegments(currentState: DemoState): string[] {
@@ -550,6 +553,10 @@ export function optionSegments(currentState: DemoState): string[] {
 
   if (!currentState.stripColorProfile) {
     segments.push("scp:0");
+  }
+
+  if (currentState.colorProfile !== "none") {
+    segments.push(`cp:${currentState.colorProfile}`);
   }
 
   return segments;

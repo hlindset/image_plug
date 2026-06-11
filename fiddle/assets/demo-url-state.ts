@@ -3,6 +3,7 @@ import {
   resetCropPixelsToSource,
   sampleImages,
   signedPathForState,
+  type ColorProfile,
   type CropDimensionUnit,
   type CropGravity,
   type DemoState,
@@ -51,6 +52,13 @@ const gravityValues = new Set<string>([
   "sowe",
 ]);
 const outputFormats = new Set<string>(["webp", "avif", "jpeg", "png"]);
+const colorProfileAliases = new Map<string, ColorProfile>([
+  ["srgb", "srgb"],
+  ["p3", "display-p3"],
+  ["display-p3", "display-p3"],
+  ["adobe-rgb", "adobe-rgb"],
+  ["adobergb", "adobe-rgb"],
+]);
 const rotations = new Set<number>([90, 180, 270]);
 
 export function demoPathForState(currentState: DemoState): string {
@@ -277,6 +285,10 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
 
     case "scp":
       return parseStripColorProfile(currentState, args);
+
+    case "cp":
+    case "icc":
+      return parseColorProfile(currentState, args);
 
     default:
       return null;
@@ -966,6 +978,23 @@ function parseStripColorProfile(currentState: DemoState, args: string[]): DemoSt
   return {
     ...currentState,
     stripColorProfile: value,
+  };
+}
+
+function parseColorProfile(currentState: DemoState, args: string[]): DemoState | null {
+  if (args.length !== 1) {
+    return null;
+  }
+
+  const colorProfile = colorProfileAliases.get(args[0] ?? "");
+
+  if (colorProfile === undefined) {
+    return null;
+  }
+
+  return {
+    ...currentState,
+    colorProfile,
   };
 }
 

@@ -228,6 +228,10 @@
       segs.push("scp:0");
     }
 
+    if (currentState.colorProfile !== "none") {
+      segs.push(`cp:${currentState.colorProfile}`);
+    }
+
     return segs;
   }
 
@@ -1521,6 +1525,16 @@
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
           <span>Strip color profile (scp)</span>
+        </label>
+
+        <label class="field">
+          <span>Color profile (cp)</span>
+          <select bind:value={state.colorProfile}>
+            <option value="none">none</option>
+            <option value="srgb">srgb</option>
+            <option value="display-p3">display-p3</option>
+            <option value="adobe-rgb">adobe-rgb</option>
+          </select>
         </label>
       </section>
     </div>
