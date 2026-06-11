@@ -18,6 +18,9 @@ defmodule Mix.Tasks.Imgproxy.Diagnose do
       # the whole suite
       mise exec -- mix imgproxy.diagnose
 
+      # only cases needing attention (over budget / FINDING)
+      mise exec -- mix imgproxy.diagnose --failing
+
   Auto-selects `MIX_ENV=test` via `mix.exs` `preferred_envs`.
   """
   use Mix.Task
@@ -27,45 +30,55 @@ defmodule Mix.Tasks.Imgproxy.Diagnose do
 
   @base "test/support/image_pipe/test/imgproxy_differential"
   @manifest_path "#{@base}/manifest.exs"
-  @default_tol %{threshold: 2, budget: 64}
   @thresholds [2, 16, 32]
 
   @impl Mix.Task
   def run(args) do
+    {opts, ids, _} = OptionParser.parse(args, strict: [failing: :boolean])
+    failing_only? = Keyword.get(opts, :failing, false)
+
     {:ok, _} = Application.ensure_all_started(:image_pipe)
     manifest = Manifest.load!(@manifest_path)
     by_id = Map.new(Constellations.all(), &{&1.id, &1})
 
     selected =
-      case args do
+      case ids do
         [] -> Constellations.all() |> Enum.map(& &1.id)
-        ids -> ids
+        chosen -> chosen
       end
 
     plug_opts = Harness.plug_opts()
 
     Enum.each(selected, fn id ->
-      case Map.fetch(by_id, id) do
-        {:ok, c} -> Mix.shell().info(diagnose_line(c, manifest, plug_opts))
-        :error -> Mix.shell().info("#{pad(id)}unknown constellation id")
-      end
+      {attention?, line} =
+        case Map.fetch(by_id, id) do
+          {:ok, c} -> diagnose_line(c, manifest, plug_opts)
+          :error -> {true, "#{pad(id)}unknown constellation id"}
+        end
+
+      unless failing_only? and not attention?, do: Mix.shell().info(line)
     end)
   end
 
+  # Returns `{attention?, line}` — attention? marks a case worth eyeballing after a bake
+  # (over budget, a band/dim FINDING, or an unknown id); `--failing` prints only those.
   defp diagnose_line(%{group: :lossy} = c, _manifest, plug_opts) do
     {body, content_type} = Harness.render(c, plug_opts)
     img = Image.open!(body, access: :random, fail_on: :error)
-    "#{pad(c.id)}lossy — dims #{Image.width(img)}×#{Image.height(img)}, type #{content_type}"
+
+    {false,
+     "#{pad(c.id)}lossy — dims #{Image.width(img)}×#{Image.height(img)}, type #{content_type}"}
   end
 
   defp diagnose_line(%{group: :transform} = c, manifest, plug_opts) do
     entry = Map.fetch!(manifest.entries, c.id)
     out = Harness.render_image(c, plug_opts)
     fixture = Harness.fixture_image(entry)
-    tol = c.tol || @default_tol
+    tol = c.tol || Constellations.default_tol()
     d = PixelCompare.diagnose(out, fixture, Enum.uniq([tol.threshold | @thresholds]))
+    attention? = not d.comparable or Map.fetch!(d.over, tol.threshold) > tol.budget
 
-    pad(c.id) <> body_for(d, tol)
+    {attention?, pad(c.id) <> body_for(d, tol)}
   end
 
   defp body_for(%{comparable: false} = d, _tol) do

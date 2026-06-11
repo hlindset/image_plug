@@ -4,9 +4,8 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
   alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Harness, Manifest, PixelCompare}
 
   @base "test/support/image_pipe/test/imgproxy_differential"
+  @sources_dir "#{@base}/sources"
   @manifest_path "#{@base}/manifest.exs"
-
-  @default_tol %{threshold: 2, budget: 64}
 
   setup_all do
     unless File.exists?(@manifest_path) do
@@ -46,7 +45,21 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
              "#{@c.id}: authored fields changed since generation — run `mix imgproxy.reauthor` " <>
                "(tol/verdict-only edits) or regenerate fixtures."
 
-      run_constellation(@c, entry)
+      run_constellation(@c, entry, manifest)
+    end
+  end
+
+  # Fixtures are baked against specific source bytes (the manifest records each source's
+  # hash). If a committed source drifts, every fixture comparison silently compares
+  # against stale bytes — so verify the sources match here, with a clear message, rather
+  # than letting it surface as a confusing pixel mismatch.
+  test "committed sources match the manifest's recorded hashes", %{manifest: manifest} do
+    for {filename, recorded_sha256} <- manifest.sources do
+      path = Path.join(@sources_dir, filename)
+
+      assert Manifest.file_sha256(path) == recorded_sha256,
+             "source #{filename} changed since the fixtures were baked — restore it or " <>
+               "regenerate (`mise run diff:bake`)."
     end
   end
 
@@ -62,19 +75,20 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
     end
   end
 
-  defp run_constellation(%{group: :transform} = c, entry) do
+  defp run_constellation(%{group: :transform} = c, entry, manifest) do
     out = Harness.render_image(c)
     fixture = fixture_image(c, entry)
     assert_same_dims!(c, out, fixture)
 
-    tol = c.tol || @default_tol
+    tol = c.tol || Constellations.default_tol()
     outliers = PixelCompare.outliers(out, fixture, tol.threshold)
 
     assert outliers <= tol.budget,
-           "#{c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})"
+           "#{c.id}: #{outliers} band-bytes over Δ#{tol.threshold} (budget #{tol.budget})" <>
+             libvips_drift_hint(manifest)
   end
 
-  defp run_constellation(%{group: :lossy} = c, entry) do
+  defp run_constellation(%{group: :lossy} = c, entry, _manifest) do
     {body, content_type} = Harness.render(c)
     out = Image.open!(body, access: :random, fail_on: :error)
 
@@ -88,6 +102,21 @@ defmodule ImagePipe.ImgproxyDifferentialConformanceTest do
   defp assert_same_dims!(c, out, fixture) do
     assert PixelCompare.same_dims?(out, fixture),
            "#{c.id}: dims #{inspect(PixelCompare.dims(out))} != fixture #{inspect(PixelCompare.dims(fixture))}"
+  end
+
+  # Tolerances are calibrated against the ImagePipe libvips that baked the fixtures
+  # (recorded in the manifest, same release scheme as `Vix.Vips.version/0`). On a
+  # different runtime libvips (CI, another machine, a Vix bump) a pixel diff may be
+  # version skew rather than a regression — surface that right in the failure.
+  defp libvips_drift_hint(manifest) do
+    runtime = Vix.Vips.version()
+
+    if runtime == manifest.pipe_libvips_at_gen do
+      ""
+    else
+      " (runtime libvips #{runtime}; fixtures calibrated at #{manifest.pipe_libvips_at_gen} — " <>
+        "a diff may be version skew, not a regression)"
+    end
   end
 
   defp fixture_image(c, entry) do

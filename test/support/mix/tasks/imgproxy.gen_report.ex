@@ -30,7 +30,6 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   @base "test/support/image_pipe/test/imgproxy_differential"
   @manifest_path "#{@base}/manifest.exs"
   @default_out "#{@base}/report.html"
-  @default_tol %{threshold: 2, budget: 64}
   @raw_amp 8
 
   @impl Mix.Task
@@ -129,7 +128,7 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
   end
 
   defp metric_fields(%{verdict: :equal} = c, pipe, fixture) do
-    tol = c.tol || @default_tol
+    tol = c.tol || Constellations.default_tol()
     outliers = PixelCompare.outliers(pipe, fixture, tol.threshold)
 
     %{
@@ -178,7 +177,7 @@ defmodule Mix.Tasks.Imgproxy.GenReport do
     fixture = Harness.fixture_image(entry)
     a = to_rgb(fixture)
     b = to_rgb(pipe)
-    threshold = (card.tol || @default_tol).threshold
+    threshold = (card.tol || Constellations.default_tol()).threshold
 
     Map.merge(card, %{
       imgproxy_img: data_uri("image/png", File.read!(Harness.fixture_path(entry))),
