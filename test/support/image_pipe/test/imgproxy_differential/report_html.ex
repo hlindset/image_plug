@@ -58,11 +58,12 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
       #{skew}
       <p class="counts">#{counts(cards)}</p>
       <div class="controls">
-        <span class="control-group" role="group" aria-label="heatmap mode">
-          heatmap:
-          <button data-heat-set="banded">banded</button>
-          <button data-heat-set="raw">raw</button>
-          <button data-heat-set="normalized">normalized</button>
+        <span class="control-group" role="group" aria-label="type filter">
+          type:
+          <button data-type-set="all">all <span class="btn-count"></span></button>
+          <button data-type-set="transform">transform <span class="btn-count"></span></button>
+          <button data-type-set="known_divergence">known divergence <span class="btn-count"></span></button>
+          <button data-type-set="lossy">lossy <span class="btn-count"></span></button>
         </span>
         <span class="control-group" role="group" aria-label="status filter">
           status:
@@ -71,12 +72,11 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
           <button data-status-set="failing">failing <span class="btn-count"></span></button>
           <button data-status-set="quarantined">quarantined <span class="btn-count"></span></button>
         </span>
-        <span class="control-group" role="group" aria-label="type filter">
-          type:
-          <button data-type-set="all">all <span class="btn-count"></span></button>
-          <button data-type-set="transform">transform <span class="btn-count"></span></button>
-          <button data-type-set="known_divergence">known divergence <span class="btn-count"></span></button>
-          <button data-type-set="lossy">lossy <span class="btn-count"></span></button>
+        <span class="control-group control-group--right" role="group" aria-label="heatmap mode">
+          heatmap:
+          <button data-heat-set="banded">banded</button>
+          <button data-heat-set="raw">raw</button>
+          <button data-heat-set="normalized">normalized</button>
         </span>
         <span class="control-group" role="group" aria-label="theme">
           <button id="theme-toggle">theme: auto</button>
@@ -333,6 +333,8 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     .banner.drift { background:color-mix(in srgb, var(--danger) 18%, transparent); }
     .controls { display:flex; gap:18px; flex-wrap:wrap; align-items:baseline; margin-top:10px; }
     .control-group { font-size:12px; color:var(--text-muted); }
+    /* filters cluster left, display controls (heatmap, theme) get pushed right */
+    .control-group--right { margin-left:auto; }
     .controls button { margin-left:4px; padding:3px 8px; border:1px solid var(--border-subtle);
       background:var(--surface-control); color:var(--text-primary); border-radius:5px; cursor:pointer; }
     .controls button.active { background:var(--accent); border-color:var(--accent); color:var(--accent-text); font-weight:600; }
