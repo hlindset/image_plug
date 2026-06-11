@@ -79,14 +79,14 @@ MIX_ENV=test mise exec -- mix test test/image_pipe/imgproxy_differential_conform
 ```
 
 `:triage` is not an authored field, so quarantining or un-quarantining alone does not
-require a manifest reauthor. Four constellations across three tracking issues are
-currently quarantined:
+require a manifest reauthor. No constellations are currently quarantined. The cases
+quarantined during earlier triage have all been resolved and now run in the default lane:
 
-| constellation | tracking issue | reason |
+| constellation | surfaced | resolved |
 |---|---|---|
-| `extend_ar_dpr_marker` | [#199](https://github.com/hlindset/image_pipe/issues/199) | stage-6 fit+dpr rounding fold: ImagePipe rounds fit then multiplies by dpr (two rounds) vs imgproxy's single `imath.Scale`, producing a 1px difference on fractional fit dimensions |
-| `extend_offset_east_marker` | [#200](https://github.com/hlindset/image_pipe/issues/200) | stage-10 extend east/south offset sign + clamp: imgproxy moves content away from the edge and clamps the origin; ExtendCanvas adds the offset for those anchors without clamping |
-| `exif_5_cover_rot90` / `exif_7_cover_rot90` | [#211](https://github.com/hlindset/image_pipe/issues/211) | stage-7 EXIF transpose (orientation 5) / transverse (orientation 7) composed with user `rot:90` leaves a 1px uncovered edge seam; isolated to the transpose/transverse ∘ user-quarter-turn path |
+| `extend_ar_dpr_marker` | [#199](https://github.com/hlindset/image_pipe/issues/199) — stage-6 fit+dpr rounding fold (two rounds vs imgproxy's single `imath.Scale`) | [#218](https://github.com/hlindset/image_pipe/pull/218) — fold fit/zoom/dpr into one `imath.Scale` per axis |
+| `extend_offset_east_marker` | [#200](https://github.com/hlindset/image_pipe/issues/200) — stage-10 extend east/south offset sign + clamp | [#218](https://github.com/hlindset/image_pipe/pull/218) — subtract + clamp the offset for right/bottom anchors |
+| `exif_5_cover_rot90` / `exif_7_cover_rot90` | [#211](https://github.com/hlindset/image_pipe/issues/211) — stage-7 transpose/transverse ∘ user `rot:90` 1px edge seam | [#219](https://github.com/hlindset/image_pipe/pull/219) — exact `vips_rot` instead of the affine `vips_rotate` |
 
 ## Resolved bootstrap findings (#194–#197)
 
@@ -100,4 +100,4 @@ discrepancies, all since resolved:
 | `extend_ar_small` | `rs:fit:300:200/exar:1` | ~0.5% over Δ2 | **Bug fixed** ([#196](https://github.com/hlindset/image_pipe/issues/196)): same center-placement root cause as #195. Now `:equal` at 0 over Δ2. |
 | `fill_down_marker` | `rs:fill-down:500:500` | 166 band-bytes over Δ2 (≈0.02%) | **Sub-pixel seam** ([#197](https://github.com/hlindset/image_pipe/issues/197)): localized at one sharp red→dark marker edge (max Δ14, edge not shifted), libvips-version anti-aliasing — not a placement shift. `:equal` with budget widened to 256 (a real crop shift blows far past it). |
 
-All constellations (the 25 ✅ + the `#124` `scp0` divergence) pass on the default lane.
+All constellations pass on the default lane, with none currently quarantined.
