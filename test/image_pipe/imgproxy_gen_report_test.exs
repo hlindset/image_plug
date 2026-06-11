@@ -75,8 +75,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
         imgproxy_digest: "sha256:abc",
         imgproxy_libvips: "42.20.2",
         pipe_libvips_at_gen: "8.18.2",
-        runtime_libvips: "8.18.2",
-        skew?: false
+        runtime_libvips: "8.18.2"
       },
       cards: [
         %{
@@ -176,6 +175,16 @@ defmodule ImagePipe.ImgproxyGenReportTest do
       assert html =~ "fonts.googleapis.com"
       assert html =~ "img-comparison-slider"
       assert html =~ "Geist"
+    end
+
+    test "provenance line labels each version with its scheme and notes incomparability" do
+      html = ReportHtml.render(sample_doc())
+      assert html =~ "(.so ABI soname)"
+      assert html =~ "(release, at gen)"
+
+      # stable fragment only — don't pin the full prose sentence (reword without behavior change)
+      assert html =~ "not directly comparable"
+      refute html =~ ~s(class="banner skew")
     end
 
     test "renders a card anchor and metric per case" do

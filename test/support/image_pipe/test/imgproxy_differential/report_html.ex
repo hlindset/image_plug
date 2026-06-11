@@ -44,21 +44,13 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
   end
 
   defp header(prov, cards) do
-    skew =
-      if prov.skew? do
-        ~s(<div class="banner skew">libvips skew: fixtures baked on #{esc(prov.imgproxy_libvips)}, running #{esc(prov.runtime_libvips)} — compare with care.</div>)
-      else
-        ""
-      end
-
     """
     <header class="report-header">
       <div class="title-row">
         <h1>imgproxy differential — visual diff</h1>
         <button id="theme-toggle">theme: auto</button>
       </div>
-      <p class="provenance">imgproxy <code>#{esc(prov.imgproxy_digest)}</code> · imgproxy libvips <code>#{esc(prov.imgproxy_libvips)}</code> (.so ABI soname) · ImagePipe libvips <code>#{esc(prov.pipe_libvips_at_gen)}</code> (release, at gen) · runtime <code>#{esc(prov.runtime_libvips)}</code> (release)</p>
-      #{skew}
+      <p class="provenance">imgproxy <code>#{esc(prov.imgproxy_digest)}</code> · imgproxy libvips <code>#{esc(prov.imgproxy_libvips)}</code> (.so ABI soname) · ImagePipe libvips <code>#{esc(prov.pipe_libvips_at_gen)}</code> (release, at gen) · runtime <code>#{esc(prov.runtime_libvips)}</code> (release) — schemes differ, not directly comparable</p>
       <p class="counts">#{counts(cards)}</p>
       <div class="controls">
         <span class="control-group" role="group" aria-label="type filter">
@@ -332,7 +324,6 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
     .provenance, .counts { margin:4px 0; color:var(--text-muted); font-size:12px; }
     .counts { color:var(--text-primary); font-weight:600; }
     .banner { margin:8px 0; padding:8px 10px; border-radius:6px; font-size:12px; }
-    .banner.skew { background:color-mix(in srgb, var(--accent) 18%, transparent); }
     .banner.drift { background:color-mix(in srgb, var(--danger) 18%, transparent); }
     .controls { display:flex; gap:18px; flex-wrap:wrap; align-items:baseline; margin-top:10px; }
     .control-group { font-size:12px; color:var(--text-muted); }
