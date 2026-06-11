@@ -3,6 +3,7 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
   alias ImagePipe.Transform.InputColorManagement, as: ICM
   alias ImagePipe.Transform.State
   alias Vix.Vips.Image, as: VixImage
+  alias Vix.Vips.MutableImage
   alias Vix.Vips.Operation
 
   # Minimal 128-byte profile with the given 4-byte tag at offset 20 (PCS field).
@@ -77,7 +78,7 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
 
     test "returns :VIPS_PCS_XYZ for the Display-P3 fixture (its header carries XYZ PCS)" do
       {:ok, img} = Image.open(@p3_fixture)
-      {:ok, p3} = Vix.Vips.Image.header_value(img, "icc-profile-data")
+      {:ok, p3} = VixImage.header_value(img, "icc-profile-data")
       assert ICM.pcs(p3) == :VIPS_PCS_XYZ
     end
   end
@@ -89,7 +90,7 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
 
     test "false for a Display-P3 fixture profile" do
       {:ok, img} = Image.open(@p3_fixture)
-      {:ok, p3} = Vix.Vips.Image.header_value(img, "icc-profile-data")
+      {:ok, p3} = VixImage.header_value(img, "icc-profile-data")
       refute ICM.srgb_iec61966?(p3)
     end
 
@@ -175,7 +176,7 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
 
       {:ok, linear} =
         VixImage.mutate(linear, fn m ->
-          :ok = Vix.Vips.MutableImage.set(m, "icc-profile-data", :VipsBlob, profile)
+          :ok = MutableImage.set(m, "icc-profile-data", :VipsBlob, profile)
         end)
 
       assert {:ok, _} = VixImage.header_value(linear, "icc-profile-data")

@@ -1891,8 +1891,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert "icc-profile-data" in scp0_fields,
              "scp:0 baseline: icc-profile-data must be present; source lost its ICC profile"
 
-      # scp:1: the NormalizeColorProfile transform converts pixels to sRGB and the
-      # encoder drops the icc-profile-data header at finalize.
+      # scp:1 → color_profile: :strip: the finalize colorspace-to-result transforms
+      # pixels to the standard sRGB space and drops the icc-profile-data header.
       scp1_conn =
         call_imgproxy(
           "/_/scp:1/f:png/plain/images/wide.png",
@@ -1907,7 +1907,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
              "scp:1: icc-profile-data must be absent from the response"
 
       assert Image.colorspace(scp1_image) == :srgb,
-             "scp:1: output colorspace must be sRGB (NormalizeColorProfile converted pixels)"
+             "scp:1: output colorspace must be sRGB (colorspace-to-result transformed pixels)"
     end
 
     test "default request (no scp in URL) drops the ICC profile" do

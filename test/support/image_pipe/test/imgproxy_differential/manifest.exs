@@ -185,7 +185,7 @@
       kind: :transform
     },
     "scp0_colorspace_124" => %{
-      authored_sha256: "6056f7753e03c7c91c82dab5945b663b25d6a18900d96d3d5629597ba1f6fb9a",
+      authored_sha256: "6ea97617c9f447d32a2496bae12dbd9a47a727e74f13fd2b06c583bc003f47a7",
       fixture_filename: "scp0_colorspace_124.png",
       fixture_sha256: "c636d669a31d09095e539ee312bd89744b4d6f88064dba9580fe559fb0e8cb4d",
       kind: :transform

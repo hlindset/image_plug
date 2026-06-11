@@ -22,7 +22,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.Duotone, as: PlanDuotone
   alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
   alias ImagePipe.Plan.Operation.Monochrome, as: PlanMonochrome
-  alias ImagePipe.Plan.Operation.NormalizeColorProfile, as: PlanNormalizeColorProfile
   alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
   alias ImagePipe.Plan.Operation.Pixelate, as: PlanPixelate
   alias ImagePipe.Plan.Operation.Resize, as: PlanResize
@@ -33,6 +32,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.Chain
+  alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
   alias ImagePipe.Transform.Operation.Blur
@@ -42,7 +42,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Monochrome
-  alias ImagePipe.Transform.Operation.NormalizeColorProfile
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
   alias ImagePipe.Transform.Operation.Resize
@@ -75,7 +74,25 @@ defmodule ImagePipe.Transform.PlanExecutor do
         state
       end
 
-    execute_pipelines(pipelines, state, opts)
+    with {:ok, state} <- seed_color_management(state, opts) do
+      execute_pipelines(pipelines, state, opts)
+    end
+  end
+
+  # Input color management is a data-determined preamble seeded once on the real-
+  # execution path (the same gate as EXIF orientation), not a Plan operation. It
+  # imports the embedded profile into a working space before any operation. A
+  # failure is a decode failure (corrupt/unsupported profile), surfaced as
+  # {:decode, _} to stay consistent with the materialization contract.
+  defp seed_color_management(%State{} = state, opts) do
+    if Keyword.get(opts, :seed_orientation, false) do
+      case InputColorManagement.condition(state, supports_hdr?: false) do
+        {:ok, %State{} = state} -> {:ok, state}
+        {:error, {InputColorManagement, reason}} -> {:error, {:decode, reason}}
+      end
+    else
+      {:ok, state}
+    end
   end
 
   defp exif_orientation(image) do
@@ -504,9 +521,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp executable_operations(%PlanBackground{} = operation, %State{}, _context) do
     [%Background{color: Color.to_rgba_list(operation.color)}]
   end
-
-  defp executable_operations(%PlanNormalizeColorProfile{}, %State{}, _context),
-    do: [%NormalizeColorProfile{}]
 
   defp executable_operations(%PlanBlur{sigma: sigma}, %State{}, _context),
     do: [%Blur{sigma: sigma}]

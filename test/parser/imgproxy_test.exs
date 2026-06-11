@@ -119,38 +119,24 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              )
   end
 
-  test "strip_color_profile emits NormalizeColorProfile after geometry, before effects" do
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops}]}} =
-             Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), @no_auto_rotate_opts)
+  test "scp sets Plan.Output.color_profile, not a pipeline operation" do
+    assert {:ok,
+            %Plan{
+              output: %Output{color_profile: :strip},
+              pipelines: [%Pipeline{operations: ops1}]
+            }} =
+             Imgproxy.parse(conn(:get, "/_/scp:1/plain/images/cat.jpg"), @no_auto_rotate_opts)
 
-    assert :normalize_color_profile in operation_names(ops)
-
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops0}]}} =
+    assert {:ok,
+            %Plan{
+              output: %Output{color_profile: :preserve_source},
+              pipelines: [%Pipeline{operations: ops0}]
+            }} =
              Imgproxy.parse(conn(:get, "/_/scp:0/plain/images/cat.jpg"), @no_auto_rotate_opts)
 
-    refute :normalize_color_profile in operation_names(ops0)
-
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: ops1}]}} =
-             Imgproxy.parse(
-               conn(:get, "/_/scp:1/plain/images/cat.jpg"),
-               imgproxy: [strip_color_profile: false]
-             )
-
-    assert :normalize_color_profile in operation_names(ops1)
-
-    assert {:ok, %Plan{pipelines: [%Pipeline{operations: pos_ops}]}} =
-             Imgproxy.parse(
-               conn(:get, "/_/w:10/bl:2/plain/images/cat.jpg"),
-               @no_auto_rotate_opts
-             )
-
-    names = operation_names(pos_ops)
-
-    assert Enum.find_index(names, &(&1 == :resize)) <
-             Enum.find_index(names, &(&1 == :normalize_color_profile))
-
-    assert Enum.find_index(names, &(&1 == :normalize_color_profile)) <
-             Enum.find_index(names, &(&1 == :blur))
+    # color management is a fixed pipeline preamble now, never an operation either way.
+    assert ops1 == []
+    assert ops0 == []
   end
 
   test "sm/kcr/scp map to Plan.Output with kcr normalization" do
@@ -1825,7 +1811,6 @@ defmodule ImagePipe.Parser.ImgproxyTest do
   defp operation_name(%Operation.Brightness{}), do: :brightness
   defp operation_name(%Operation.Contrast{}), do: :contrast
   defp operation_name(%Operation.Saturation{}), do: :saturation
-  defp operation_name(%Operation.NormalizeColorProfile{}), do: :normalize_color_profile
 
   defp forbidden_parsed_transform_operations(%Plan{} = plan) do
     plan.pipelines

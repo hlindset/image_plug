@@ -85,9 +85,8 @@ defmodule ImagePipe.Transform.InputColorManagementSequentialTest do
     body = File.read!(path)
 
     with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
-         {:ok, %State{} = state} <- ICM.condition(%State{image: image}, supports_hdr?: false),
-         {:ok, image} <- VixImage.copy_memory(state.image) do
-      {:ok, image}
+         {:ok, %State{} = state} <- ICM.condition(%State{image: image}, supports_hdr?: false) do
+      VixImage.copy_memory(state.image)
     end
   end
 
@@ -96,9 +95,8 @@ defmodule ImagePipe.Transform.InputColorManagementSequentialTest do
 
     with {:ok, image} <- Image.open([body], access: access, fail_on: :error),
          {:ok, %State{} = state} <- ICM.condition(%State{image: image}, supports_hdr?: false),
-         {:ok, rotated} <- Image.rotate(state.image, 90),
-         {:ok, rotated} <- VixImage.copy_memory(rotated) do
-      {:ok, rotated}
+         {:ok, rotated} <- Image.rotate(state.image, 90) do
+      VixImage.copy_memory(rotated)
     end
   end
 

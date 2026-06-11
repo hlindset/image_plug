@@ -672,7 +672,7 @@ defmodule ImagePipe.TelemetryTest do
                                                                          metadata ->
       assert is_list(metadata.operations)
       assert :resize in metadata.operations
-      assert metadata.operation_count == 2
+      assert metadata.operation_count == 1
     end)
   end
 

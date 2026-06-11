@@ -516,7 +516,7 @@ defmodule ImagePipe.Request.ProcessorTest do
 
   test "materialize_for_delivery stamps source profile and imported marker when import ran" do
     {:ok, img} = Image.new(10, 10, color: [255, 0, 0])
-    {:ok, realized} = Vix.Vips.Image.copy_memory(img)
+    {:ok, realized} = VipsImage.copy_memory(img)
 
     state = %State{
       image: realized,
@@ -532,7 +532,7 @@ defmodule ImagePipe.Request.ProcessorTest do
 
   test "materialize_for_delivery does not stamp when no import ran" do
     {:ok, img} = Image.new(10, 10, color: [255, 0, 0])
-    {:ok, realized} = Vix.Vips.Image.copy_memory(img)
+    {:ok, realized} = VipsImage.copy_memory(img)
 
     state = %State{
       image: realized,
