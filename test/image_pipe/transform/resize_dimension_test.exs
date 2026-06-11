@@ -3,6 +3,43 @@ defmodule ImagePipe.Transform.ResizeDimensionTest do
 
   alias ImagePipe.Transform.Operation.Resize
 
+  # #199: imgproxy folds dpr into a single `imath.Scale` (round(source × scale))
+  # rather than rounding the fit dimension and then multiplying by dpr. For
+  # rs:fit:300:200/dpr:2 on 1600×1200 the fit binds height (scale 200/1200); the
+  # derived width is round(1600 × 200/1200 × 2) = round(533.3) = 533, NOT
+  # round(266.67) = 267 then ×2 = 534. The binding axis is round(200 × 2) = 400.
+  test "fit folds dpr into a single round on the derived axis (#199)" do
+    operation = %Resize{
+      mode: :fit,
+      width: {:pixels, 300},
+      height: {:pixels, 200},
+      dpr: 2.0,
+      enlarge: false
+    }
+
+    result = Resize.resolve_dimensions(operation, source_width: 1600, source_height: 1200)
+
+    assert result.requested_width == 533
+    assert result.requested_height == 400
+  end
+
+  # #199 (dpr=1 facet): the single-scale fold also corrects the fit auto-axis at
+  # dpr=1. fit:auto:200 with enlarge on a 100×109 source — verified against imgproxy
+  # calcScale: poWidth=0 makes wshrink=hshrink=109/200, WScale=1/0.545=1.835, so
+  # ScaledWidth=Scale(100,1.835)=183 and ScaledHeight=Scale(109,1.835)=200. The old
+  # double-round (rounding the auto-derived width to 183 first, then re-deriving
+  # height through fit_inside) landed height at 199.
+  test "fit auto-axis single-rounds to the imgproxy-correct derived dimension (#199)" do
+    operation = %Resize{mode: :fit, width: :auto, height: {:pixels, 200}, enlarge: true}
+
+    result = Resize.resolve_dimensions(operation, source_width: 100, source_height: 109)
+
+    assert result.requested_width == 183
+    assert result.requested_height == 200
+    assert result.intermediate_width == 183
+    assert result.intermediate_height == 200
+  end
+
   test "min width interacts with fit without zoom" do
     operation = %Resize{
       mode: :fit,

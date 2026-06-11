@@ -223,11 +223,11 @@ defmodule ImagePipe.Transform.Operation.Resize do
   end
 
   defp requested_box(%__MODULE__{width: :auto, height: height}, source) do
-    %{width: positive_round(height * source.width / source.height), height: height}
+    %{width: height * source.width / source.height, height: height}
   end
 
   defp requested_box(%__MODULE__{width: width, height: :auto}, source) do
-    %{width: width, height: positive_round(width * source.height / source.width)}
+    %{width: width, height: width * source.height / source.width}
   end
 
   defp requested_box(%__MODULE__{width: width, height: height}, _source) do
@@ -239,14 +239,14 @@ defmodule ImagePipe.Transform.Operation.Resize do
     target_ratio = width / height
 
     if source_ratio > target_ratio do
-      %{width: width, height: positive_round(width / source_ratio)}
+      %{width: width, height: width / source_ratio}
     else
-      %{width: positive_round(height * source_ratio), height: height}
+      %{width: height * source_ratio, height: height}
     end
   end
 
   defp apply_zoom(%{width: width, height: height}, %__MODULE__{zoom_x: zoom_x, zoom_y: zoom_y}) do
-    %{width: positive_round(width * zoom_x), height: positive_round(height * zoom_y)}
+    %{width: width * zoom_x, height: height * zoom_y}
   end
 
   defp effective_dpr(%__MODULE__{enlarge: true, dpr: dpr}, _base, _source, _opts), do: dpr

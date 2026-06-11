@@ -72,4 +72,76 @@ defmodule ImagePipe.Transform.Operation.ExtendCanvasTest do
     # inner 4x4 flush to the far edge of an 11x10 canvas: (11-4, 10-4)
     assert content_origin(out) == {7, 6}
   end
+
+  # #200: imgproxy moves the image AWAY from an anchored right/bottom edge by the
+  # offset (`left = outer - inner - offX`, calc_position.go), where ExtendCanvas
+  # previously added (toward/past the edge). East anchor, offset 2 on an inner 4
+  # in an 11-wide canvas: base 11-4=7, away from east edge → 7-2=5.
+  test "east gravity moves the image away from the right edge by the offset (#200)" do
+    op = %ExtendCanvas{
+      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      gravity: {:anchor, :right, :top},
+      x_offset: 2.0,
+      background: :transparent
+    }
+
+    assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
+    assert content_origin(out) == {5, 0}
+  end
+
+  test "south gravity moves the image away from the bottom edge by the offset (#200)" do
+    op = %ExtendCanvas{
+      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      gravity: {:anchor, :left, :bottom},
+      y_offset: 2.0,
+      background: :transparent
+    }
+
+    assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
+    # bottom base 10-4=6, away from south edge → 6-2=4
+    assert content_origin(out) == {0, 4}
+  end
+
+  # #200: imgproxy clamps the resolved origin to [0, outer - inner] (calcPosition,
+  # allowOverflow=false). An east offset larger than the base drives the subtract
+  # negative; it must clamp to 0, not place the image off-canvas.
+  test "east offset beyond the base clamps the origin to zero (#200)" do
+    op = %ExtendCanvas{
+      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      gravity: {:anchor, :right, :top},
+      x_offset: 10.0,
+      background: :transparent
+    }
+
+    assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
+    assert content_origin(out) == {0, 0}
+  end
+
+  test "west offset beyond the far edge clamps the origin to outer - inner (#200)" do
+    op = %ExtendCanvas{
+      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      gravity: {:anchor, :left, :top},
+      x_offset: 20.0,
+      background: :transparent
+    }
+
+    assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
+    # west base 0, add 20, clamp to outer - inner = 11 - 4 = 7
+    assert content_origin(out) == {7, 0}
+  end
+
+  # #200 guard: center keeps ADDing the offset (calcPosition center adds offX/offY);
+  # only right/bottom anchors flip the sign. Center origin of inner 4 in 11 is 4
+  # (ShrinkToEven(11-4+1, 2)); +2 → 6, within [0, 7] so the clamp is a no-op.
+  test "center gravity still adds the offset (#200 fallthrough preserved)" do
+    op = %ExtendCanvas{
+      rule: {:dimensions, {:pixels, 11}, {:pixels, 10}},
+      gravity: {:anchor, :center, :center},
+      x_offset: 2.0,
+      background: :transparent
+    }
+
+    assert {:ok, %State{image: out}} = ExtendCanvas.execute(op, state(white(4, 4)))
+    assert content_origin(out) == {6, 4}
+  end
 end
