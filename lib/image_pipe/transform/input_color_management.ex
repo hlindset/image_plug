@@ -3,8 +3,9 @@ defmodule ImagePipe.Transform.InputColorManagement do
   Fixed, data-determined input-conditioning preamble (NOT a `Plan.Operation`):
   imports the embedded ICC profile into a working space before any processing
   step, mirroring imgproxy's `colorspaceToProcessing`. Seeded once by
-  `ImagePipe.Transform.PlanExecutor`. `supports_hdr?` is hardwired `false`
-  today (the #121 seam).
+  `ImagePipe.Transform.PlanExecutor`, which passes `supports_hdr?` (resolved in
+  the Request/Output boundary from `Plan.Output.hdr` and the output format's HDR
+  capability).
   """
 
   alias ImagePipe.Transform.State

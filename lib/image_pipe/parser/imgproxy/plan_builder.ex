@@ -96,7 +96,8 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
        format_qualities: request.format_qualities,
        strip_metadata: request.strip_metadata,
        keep_copyright: request.keep_copyright,
-       color_profile: color_profile_policy(request.color_profile, request.strip_color_profile)
+       color_profile: color_profile_policy(request.color_profile, request.strip_color_profile),
+       hdr: hdr_policy(request.preserve_hdr)
      }}
   end
 
@@ -113,7 +114,9 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
            format_qualities: request.format_qualities,
            strip_metadata: request.strip_metadata,
            keep_copyright: request.keep_copyright,
-           color_profile: color_profile_policy(request.color_profile, request.strip_color_profile)
+           color_profile:
+             color_profile_policy(request.color_profile, request.strip_color_profile),
+           hdr: hdr_policy(request.preserve_hdr)
          }}
 
       false ->
@@ -128,6 +131,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   defp color_profile_policy(nil, true), do: :strip
   defp color_profile_policy(nil, false), do: :preserve_source
   defp color_profile_policy(nil, nil), do: :strip
+
+  defp hdr_policy(true), do: :preserve
+  defp hdr_policy(false), do: :tone_map
+  defp hdr_policy(nil), do: :tone_map
 
   defp expires_plan(%{expires: 0}, _opts), do: {:ok, 0}
 

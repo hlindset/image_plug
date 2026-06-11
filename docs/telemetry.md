@@ -141,7 +141,9 @@ Stop metadata:
   unsupported embedded ICC profile prevents conditioning (maps to a `415`
   response). The default Logger escalates `:processing_error` to `:warning`.
 - `:working_space` — the VIPS interpretation atom of the resolved working
-  colorspace (e.g. `:VIPS_INTERPRETATION_sRGB`).
+  colorspace (e.g. `:VIPS_INTERPRETATION_sRGB`/`:VIPS_INTERPRETATION_B_W` for
+  tone-mapped SDR, or `:VIPS_INTERPRETATION_RGB16`/`:VIPS_INTERPRETATION_GREY16`
+  when an HDR source is preserved under `preserve_hdr`).
 - `:imported?` — `true` when the source had an importable embedded ICC profile
   that was imported into the working space; `false` otherwise (no profile, or a
   profile that was recognized and skipped — e.g. the canonical sRGB IEC61966

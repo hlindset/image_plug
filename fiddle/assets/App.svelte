@@ -232,6 +232,10 @@
       segs.push(`cp:${currentState.colorProfile}`);
     }
 
+    if (currentState.preserveHdr) {
+      segs.push("ph:1");
+    }
+
     return segs;
   }
 
@@ -1535,6 +1539,13 @@
             <option value="display-p3">display-p3</option>
             <option value="adobe-rgb">adobe-rgb</option>
           </select>
+        </label>
+
+        <label class="switch-field">
+          <Switch.Root class="switch-root" bind:checked={state.preserveHdr}>
+            <Switch.Thumb class="switch-thumb" />
+          </Switch.Root>
+          <span>Preserve HDR (ph)</span>
         </label>
       </section>
     </div>

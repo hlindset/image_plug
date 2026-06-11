@@ -1576,6 +1576,15 @@ describe("demo URL state", () => {
     expect(parseDemoPath("/cp:srgb:extra/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
   });
 
+  it("round-trips ph:1 through the demo path", () => {
+    const state = { ...defaultDemoState, preserveHdr: true };
+
+    expect(optionSegments(state)).toContain("ph:1");
+
+    const parsed = parseDemoPath(demoPathForState(state));
+    expect(parsed).toMatchObject({ preserveHdr: true });
+  });
+
   it("normalizes keepCopyright to false when sm:0 is parsed without kcr", () => {
     const parsedSmOnly = parseDemoPath("/sm:0/plain/local:///images/dog.jpg");
 

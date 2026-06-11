@@ -61,7 +61,9 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
     "strip_metadata" => {:strip_metadata, [:strip_metadata]},
     "sm" => {:strip_metadata, [:strip_metadata]},
     "keep_copyright" => {:keep_copyright, [:keep_copyright]},
-    "kcr" => {:keep_copyright, [:keep_copyright]}
+    "kcr" => {:keep_copyright, [:keep_copyright]},
+    "preserve_hdr" => {:preserve_hdr, [:preserve_hdr]},
+    "ph" => {:preserve_hdr, [:preserve_hdr]}
   }
 
   # Declarative specs for regular fixed-arity pipeline options. Each entry maps
@@ -150,7 +152,14 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   end
 
   defp scoped_assignments(kind, assignments)
-       when kind in [:format, :quality, :format_quality, :strip_metadata, :keep_copyright],
+       when kind in [
+              :format,
+              :quality,
+              :format_quality,
+              :strip_metadata,
+              :keep_copyright,
+              :preserve_hdr
+            ],
        do: {:output, assignments}
 
   defp scoped_assignments(:cachebuster, assignments), do: {:cache, assignments}
@@ -172,7 +181,8 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
               :enlarge,
               :format,
               :strip_metadata,
-              :keep_copyright
+              :keep_copyright,
+              :preserve_hdr
             ] do
     parse_exact_fields(fields, args, segment)
   end
@@ -353,6 +363,7 @@ defmodule ImagePipe.Parser.Imgproxy.OptionGrammar do
   defp parse_field(:extend, value), do: parse_boolean(value)
   defp parse_field(:strip_metadata, value), do: parse_boolean(value)
   defp parse_field(:keep_copyright, value), do: parse_boolean(value)
+  defp parse_field(:preserve_hdr, value), do: parse_boolean(value)
   defp parse_field(:format, value), do: Format.parse(value)
   defp parse_field(:quality, value), do: parse_quality(value)
 

@@ -112,7 +112,8 @@ defmodule ImagePipe.Cache.Key do
        format_qualities: output.format_qualities,
        strip_metadata: output.strip_metadata,
        color_profile: output.color_profile,
-       keep_copyright: output.keep_copyright
+       keep_copyright: output.keep_copyright,
+       hdr: output.hdr
      ]}
   end
 
@@ -125,7 +126,8 @@ defmodule ImagePipe.Cache.Key do
        format_qualities: output.format_qualities,
        strip_metadata: output.strip_metadata,
        color_profile: output.color_profile,
-       keep_copyright: output.keep_copyright
+       keep_copyright: output.keep_copyright,
+       hdr: output.hdr
      ]}
   end
 
@@ -146,7 +148,8 @@ defmodule ImagePipe.Cache.Key do
        format_qualities: output.format_qualities,
        strip_metadata: output.strip_metadata,
        color_profile: output.color_profile,
-       keep_copyright: output.keep_copyright
+       keep_copyright: output.keep_copyright,
+       hdr: output.hdr
      ]}
   end
 

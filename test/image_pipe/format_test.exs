@@ -71,6 +71,15 @@ defmodule ImagePipe.FormatTest do
     assert Format.supports_color_profile?(:avif) == true
   end
 
+  describe "supports_hdr?/1" do
+    test "AVIF and PNG carry HDR; WebP and JPEG do not" do
+      assert Format.supports_hdr?(:avif)
+      assert Format.supports_hdr?(:png)
+      refute Format.supports_hdr?(:webp)
+      refute Format.supports_hdr?(:jpeg)
+    end
+  end
+
   test "maps MIME types to encoder suffixes" do
     assert Format.suffix!("image/avif") == ".avif"
     assert Format.suffix!("image/webp") == ".webp"

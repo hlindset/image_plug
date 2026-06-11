@@ -120,7 +120,19 @@ defmodule ImagePipe.Request.SourceSession.Producer do
                request.opts
              ),
            {:ok, %State{} = final_state} <-
-             Processor.process_decoded_source(decoded, request.plan, request.opts),
+             Processor.process_decoded_source(
+               decoded,
+               request.plan,
+               Keyword.put(
+                 request.opts,
+                 :supports_hdr?,
+                 Policy.supports_hdr?(
+                   request.output_policy,
+                   request.plan.output,
+                   decoded.source_format
+                 )
+               )
+             ),
            {:ok, %Resolved{} = resolved_output} <-
              resolve_output(
                request.output_policy,

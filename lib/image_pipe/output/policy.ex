@@ -96,6 +96,23 @@ defmodule ImagePipe.Output.Policy do
     end
   end
 
+  @doc """
+  Whether the HDR working space should be kept (`Plan.Output.hdr == :preserve`
+  and the output format carries HDR). Computed pre-transform so it can seed the
+  input-color-management stage. In the one branch where the format is only known
+  after the transform (`:needs_final_image_alpha`), returns `false` — the
+  conservative tone-map (see the design doc, decision 2).
+  """
+  @spec supports_hdr?(t(), Output.t(), source_format() | nil) :: boolean()
+  def supports_hdr?(%__MODULE__{} = policy, %Output{hdr: :preserve}, source_format) do
+    case resolve(policy, source_format) do
+      {:ok, %Resolved{format: format}} -> Format.supports_hdr?(format)
+      _other -> false
+    end
+  end
+
+  def supports_hdr?(%__MODULE__{}, %Output{}, _source_format), do: false
+
   @spec ensure_capable(t(), keyword()) :: :ok | {:error, {:unsupported_output_format, format()}}
   def ensure_capable(%__MODULE__{mode: {:explicit, format}}, opts) do
     if Capabilities.supports?(format, opts) do

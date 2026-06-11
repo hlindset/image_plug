@@ -280,6 +280,22 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "VIPS_INTERPRETATION_sRGB"
   end
 
+  test "logs input_color_management preserved HDR working space" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :transform, :input_color_management, :stop],
+          %{duration: 500},
+          %{result: :ok, working_space: :VIPS_INTERPRETATION_RGB16, imported?: false}
+        )
+      end)
+
+    assert log =~ "transform input_color_management: ok"
+    assert log =~ "VIPS_INTERPRETATION_RGB16"
+  end
+
   test "escalates input_color_management processing error to warning" do
     Telemetry.attach_default_logger(level: :info)
 

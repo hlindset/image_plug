@@ -347,6 +347,18 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  defmodule Hdr16OriginImage do
+    @moduledoc false
+    # Serves the committed genuine-16-bit RGB PNG fixture (interpretation RGB16).
+    def call(conn, _opts) do
+      body = File.read!("test/support/image_pipe/test/imgproxy_differential/sources/rgb16.png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
   defmodule LinearLightOriginImage do
     @moduledoc false
     alias Vix.Vips.Operation
@@ -588,6 +600,14 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     parser: ImagePipe.Parser.Imgproxy,
     sources: [
       path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
+    ]
+  ]
+
+  @hdr_opts [
+    parser: ImagePipe.Parser.Imgproxy,
+    sources: [
+      path:
+        {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: Hdr16OriginImage]}
     ]
   ]
 
@@ -3294,6 +3314,39 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
   end
 
+  describe "preserve_hdr (ph)" do
+    # The 512×512 source is downscaled, so the 16-bit working space must survive
+    # the resize/scale (and shrink-on-load) stages, not just decode→encode.
+    test "PNG output preserves 16-bit through resize with ph:1 and tone-maps with ph:0" do
+      preserved =
+        call_imgproxy("/_/rs:fill:200:200/g:ce/ph:1/f:png/plain/images/rgb16.png", @hdr_opts)
+
+      tonemapped =
+        call_imgproxy("/_/rs:fill:200:200/g:ce/ph:0/f:png/plain/images/rgb16.png", @hdr_opts)
+
+      assert preserved.status == 200
+      assert tonemapped.status == 200
+      assert dimensions(preserved) == {200, 200}
+      assert dimensions(tonemapped) == {200, 200}
+      assert band_format(preserved) == :VIPS_FORMAT_USHORT
+      assert band_format(tonemapped) == :VIPS_FORMAT_UCHAR
+    end
+
+    test "ph:1 preserves 16-bit with no geometry option" do
+      conn = call_imgproxy("/_/ph:1/f:png/plain/images/rgb16.png", @hdr_opts)
+
+      assert conn.status == 200
+      assert band_format(conn) == :VIPS_FORMAT_USHORT
+    end
+
+    test "JPEG output tone-maps even with ph:1 (per-format fallback)" do
+      conn = call_imgproxy("/_/ph:1/f:jpeg/plain/images/rgb16.png", @hdr_opts)
+
+      assert conn.status == 200
+      assert band_format(conn) == :VIPS_FORMAT_UCHAR
+    end
+  end
+
   defp effect_origin_opts do
     [
       parser: ImagePipe.Parser.Imgproxy,
@@ -3360,6 +3413,11 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
 
   defp decoded_image(%Plug.Conn{} = conn) do
     Image.open!(conn.resp_body, access: :random, fail_on: :error)
+  end
+
+  defp band_format(%Plug.Conn{} = conn) do
+    {:ok, format} = VipsImage.header_value(decoded_image(conn), "format")
+    format
   end
 
   defp response_metadata(%Plug.Conn{} = conn) do

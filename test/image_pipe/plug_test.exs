@@ -1152,7 +1152,8 @@ defmodule ImagePipe.PlugTest do
              format_qualities: %{},
              strip_metadata: true,
              color_profile: :strip,
-             keep_copyright: true
+             keep_copyright: true,
+             hdr: :tone_map
            ]
 
     refute inspect(key_a.data) =~ "image/webp"
@@ -1466,7 +1467,8 @@ defmodule ImagePipe.PlugTest do
       format_qualities: %{},
       strip_metadata: true,
       color_profile: :strip,
-      keep_copyright: true
+      keep_copyright: true,
+      hdr: :tone_map
     )
 
     refute_received :origin_was_called
@@ -1497,7 +1499,8 @@ defmodule ImagePipe.PlugTest do
           format_qualities: %{},
           strip_metadata: true,
           color_profile: :strip,
-          keep_copyright: true
+          keep_copyright: true,
+          hdr: :tone_map
         ] ->
           {:hit, cached_entry}
 
@@ -1526,7 +1529,8 @@ defmodule ImagePipe.PlugTest do
       format_qualities: %{},
       strip_metadata: true,
       color_profile: :strip,
-      keep_copyright: true
+      keep_copyright: true,
+      hdr: :tone_map
     )
 
     refute_received :origin_was_called
@@ -1557,7 +1561,8 @@ defmodule ImagePipe.PlugTest do
           format_qualities: %{},
           strip_metadata: true,
           color_profile: :strip,
-          keep_copyright: true
+          keep_copyright: true,
+          hdr: :tone_map
         ] ->
           {:hit, cached_entry}
 
@@ -1588,7 +1593,8 @@ defmodule ImagePipe.PlugTest do
       format_qualities: %{},
       strip_metadata: true,
       color_profile: :strip,
-      keep_copyright: true
+      keep_copyright: true,
+      hdr: :tone_map
     )
 
     refute_received :origin_was_called
@@ -1619,7 +1625,8 @@ defmodule ImagePipe.PlugTest do
           format_qualities: %{},
           strip_metadata: true,
           color_profile: :strip,
-          keep_copyright: true
+          keep_copyright: true,
+          hdr: :tone_map
         ] ->
           {:hit, cached_entry}
 
@@ -1650,7 +1657,8 @@ defmodule ImagePipe.PlugTest do
       format_qualities: %{},
       strip_metadata: true,
       color_profile: :strip,
-      keep_copyright: true
+      keep_copyright: true,
+      hdr: :tone_map
     )
 
     refute_received :origin_was_called

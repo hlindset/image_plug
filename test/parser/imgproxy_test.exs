@@ -170,6 +170,45 @@ defmodule ImagePipe.Parser.ImgproxyTest do
              )
   end
 
+  test "preserve_hdr (ph) threads onto Plan.Output.hdr and overrides config both ways" do
+    # default: tone-map
+    assert {:ok, %Plan{output: %Output{hdr: :tone_map}}} =
+             Imgproxy.parse(conn(:get, "/_/plain/images/cat.jpg"), [])
+
+    # ph:1 → preserve
+    assert {:ok, %Plan{output: %Output{hdr: :preserve}}} =
+             Imgproxy.parse(conn(:get, "/_/ph:1/plain/images/cat.jpg"), [])
+
+    # long name preserve_hdr:1 → preserve
+    assert {:ok, %Plan{output: %Output{hdr: :preserve}}} =
+             Imgproxy.parse(conn(:get, "/_/preserve_hdr:1/plain/images/cat.jpg"), [])
+
+    # ph:0 → tone-map
+    assert {:ok, %Plan{output: %Output{hdr: :tone_map}}} =
+             Imgproxy.parse(conn(:get, "/_/ph:0/plain/images/cat.jpg"), [])
+
+    # config default true, URL ph:0 overrides → tone-map
+    assert {:ok, %Plan{output: %Output{hdr: :tone_map}}} =
+             Imgproxy.parse(
+               conn(:get, "/_/ph:0/plain/images/cat.jpg"),
+               imgproxy: [preserve_hdr: true]
+             )
+
+    # config default true, no URL option → preserve
+    assert {:ok, %Plan{output: %Output{hdr: :preserve}}} =
+             Imgproxy.parse(
+               conn(:get, "/_/plain/images/cat.jpg"),
+               imgproxy: [preserve_hdr: true]
+             )
+
+    # invalid boolean rejected — ImagePipe is stricter than imgproxy here, which
+    # warns and treats an unparseable bool as false (200 + tone-map). This is the
+    # house-wide policy for all boolean options (sm/kcr/scp/el/…), not a ph quirk;
+    # the assertion pins ImagePipe's actual behavior, NOT imgproxy parity.
+    assert {:error, _reason} =
+             Imgproxy.parse(conn(:get, "/_/ph:maybe/plain/images/cat.jpg"), [])
+  end
+
   test "sm/kcr/scp produce distinct cache keys" do
     source_identity = [kind: :path, adapter: :path, root: "default", path: ["images", "cat.jpg"]]
 
@@ -184,9 +223,14 @@ defmodule ImagePipe.Parser.ImgproxyTest do
     refute base == key.("/_/sm:1/kcr:0/scp:1/plain/images/cat.jpg")
     refute base == key.("/_/sm:1/kcr:1/scp:0/plain/images/cat.jpg")
 
+    refute base == key.("/_/sm:1/kcr:1/scp:1/ph:1/plain/images/cat.jpg")
+
     # explicit output format keys through the same output material
     refute key.("/_/f:jpeg/sm:1/plain/images/cat.jpg") ==
              key.("/_/f:jpeg/sm:0/plain/images/cat.jpg")
+
+    refute key.("/_/f:png/ph:0/plain/images/cat.jpg") ==
+             key.("/_/f:png/ph:1/plain/images/cat.jpg")
   end
 
   describe "color_profile / cp / icc" do

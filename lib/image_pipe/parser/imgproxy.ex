@@ -48,6 +48,7 @@ defmodule ImagePipe.Parser.Imgproxy do
                      strip_metadata: [type: :boolean, default: true],
                      keep_copyright: [type: :boolean, default: true],
                      strip_color_profile: [type: :boolean, default: true],
+                     preserve_hdr: [type: :boolean, default: false],
                      smart_crop_face_detection: [type: :boolean, default: false]
                    )
 
@@ -180,7 +181,8 @@ defmodule ImagePipe.Parser.Imgproxy do
       auto_rotate: Keyword.get(imgproxy_opts, :auto_rotate, true),
       strip_metadata: Keyword.get(imgproxy_opts, :strip_metadata, true),
       keep_copyright: Keyword.get(imgproxy_opts, :keep_copyright, true),
-      strip_color_profile: Keyword.get(imgproxy_opts, :strip_color_profile, true)
+      strip_color_profile: Keyword.get(imgproxy_opts, :strip_color_profile, true),
+      preserve_hdr: Keyword.get(imgproxy_opts, :preserve_hdr, false)
     ]
   end
 

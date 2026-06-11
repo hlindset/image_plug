@@ -389,7 +389,8 @@ defmodule ImagePipe.CacheTest do
              format_qualities: %{},
              strip_metadata: true,
              color_profile: :strip,
-             keep_copyright: true
+             keep_copyright: true,
+             hdr: :tone_map
            ]
 
     assert_received {:cache_get, ^key, adapter_opts}
