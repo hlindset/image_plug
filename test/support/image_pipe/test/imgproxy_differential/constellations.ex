@@ -14,7 +14,13 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
     marker: "marker.png",
     border: "border.png",
     alpha: "alpha.png",
-    exif_jpeg: "exif.jpg",
+    exif_2: "exif_2.jpg",
+    exif_3: "exif_3.jpg",
+    exif_4: "exif_4.jpg",
+    exif_5: "exif_5.jpg",
+    exif_6: "exif_6.jpg",
+    exif_7: "exif_7.jpg",
+    exif_8: "exif_8.jpg",
     icc_p3: "icc_p3.png",
     small: "small.png"
   }
@@ -33,7 +39,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       c("crop_gravity_marker", :marker, "c:120:90/g:nowe"),
       c("trim_border_equal", :border, "t:10"),
       c("alpha_resize", :alpha, "rs:fit:64:64"),
-      c("rotate_exif", :exif_jpeg, "rs:fit:120:120"),
+      c("rotate_exif", :exif_6, "rs:fit:120:120"),
       c("enlarge_small", :small, "rs:fit:400:400/el:1"),
       # #194: imgproxy runs a universal cropToResult — scale into the requested box,
       # then crop back to it (gravity center). ImagePipe's fit path lacked it, so the
@@ -66,7 +72,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       c("background_alpha", :alpha, "rs:fit:64:64/bg:255:0:0"),
       c("blur_zone", :high_freq, "rs:fit:240:240/bl:3"),
       c("sharpen_zone", :high_freq, "rs:fit:240:240/sh:2"),
-      c("strip_exif", :exif_jpeg, "rs:fit:120:120/sm:1"),
+      c("strip_exif", :exif_6, "rs:fit:120:120/sm:1"),
 
       # icc_p3 trim agrees with imgproxy in stored pixels; the trim-detection
       # colorspace difference is behavioral-only (not observable here), so this is
@@ -172,7 +178,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       lossy("lossy_webp", :high_freq_webp, "rs:fill:240:180/f:webp"),
       lossy("lossy_jpeg_q40", :high_freq, "rs:fill:240:180/q:40/f:jpg"),
       lossy("lossy_avif", :high_freq, "rs:fill:240:180/f:avif")
-    ]
+    ] ++ exif_orientation_constellations()
   end
 
   @doc """
@@ -183,6 +189,46 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
   def imgproxy_path(%{group: group, opts: opts, source: source}) do
     opts_segment = if group == :transform, do: "#{opts}/f:png", else: opts
     "/unsafe/#{opts_segment}/plain/local:///#{Map.fetch!(@source_files, source)}"
+  end
+
+  # --- #204: EXIF orientation source fixtures (2/3/4/5/7/8) ---
+  #
+  # Each orientation is the same 400×300 corner-block base retagged with a
+  # different EXIF Orientation. The Batch-A shape (cover / non-center crop /
+  # extend-with-gravity) hits the per-axis storage↔display dims, the crop-gravity
+  # rotate-into-storage, and the post-flush gravity seams respectively. The extend
+  # target is 200:300 (not square) so south gravity keeps real vertical play on the
+  # portrait-display quarter-turns. 5/7 (transpose/transverse) additionally cross
+  # with a user op (rot/flip) — the deepest #146 compose, flip ∘ quarter-turn ∘
+  # user-op. Orientation 6 is omitted from the sweep — it is already covered by
+  # the `rotate_exif`/`strip_exif` cases above (its source `:exif_6` lives in
+  # `@source_files` for them).
+  @exif_orientations [2, 3, 4, 5, 7, 8]
+
+  defp exif_orientation_constellations do
+    base =
+      for o <- @exif_orientations, {suffix, opts} <- exif_base_seams() do
+        c("exif_#{o}_#{suffix}", :"exif_#{o}", opts)
+      end
+
+    base ++ exif_transpose_crosses()
+  end
+
+  defp exif_base_seams do
+    [
+      {"cover", "rs:fill:200:150"},
+      {"crop_no", "c:200:120/g:no"},
+      {"extend_so", "rs:fit:200:300/ex:1:so"}
+    ]
+  end
+
+  defp exif_transpose_crosses do
+    [
+      c("exif_5_cover_rot90", :exif_5, "rs:fill:200:150/rot:90"),
+      c("exif_5_cover_fl", :exif_5, "rs:fill:200:150/fl:1"),
+      c("exif_7_cover_rot90", :exif_7, "rs:fill:200:150/rot:90"),
+      c("exif_7_cover_fl", :exif_7, "rs:fill:200:150/fl:1")
+    ]
   end
 
   # `triage: nil` is a non-authored field (see Manifest.@authored_keys): a truthy

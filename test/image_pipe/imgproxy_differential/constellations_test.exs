@@ -9,7 +9,13 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ConstellationsTest do
     :marker,
     :border,
     :alpha,
-    :exif_jpeg,
+    :exif_2,
+    :exif_3,
+    :exif_4,
+    :exif_5,
+    :exif_6,
+    :exif_7,
+    :exif_8,
     :icc_p3,
     :small
   ]
