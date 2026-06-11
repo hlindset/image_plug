@@ -102,4 +102,34 @@ defmodule ImagePipe.Output.ColorResultTest do
     assert {:ok, difference, _diff_image} = Image.compare(base, out, metric: :ae)
     assert difference == +0.0
   end
+
+  describe "color_profile {:convert, target}" do
+    test "converts to the target and embeds its profile (untagged sRGB source, N1)" do
+      {:ok, image} = Vix.Vips.Operation.black(16, 16, bands: 3)
+
+      {:ok, stream, _} = Encoder.stream_output(image, resolved(:png, {:convert, :display_p3}), [])
+
+      assert decode(stream) |> header("icc-profile-data") != nil
+    end
+
+    test "greyscale source converts to a 3-band RGB target (N2)" do
+      {:ok, grey} = Vix.Vips.Operation.black(16, 16, bands: 1)
+      {:ok, grey} = Vix.Vips.Operation.colourspace(grey, :VIPS_INTERPRETATION_B_W)
+
+      {:ok, stream, _} = Encoder.stream_output(grey, resolved(:png, {:convert, :display_p3}), [])
+      out = decode(stream)
+
+      assert VixImage.bands(out) == 3
+      assert header(out, "icc-profile-data") != nil
+    end
+
+    test "embedded target survives metadata strip (not dropped by maybe_drop_profile)" do
+      {:ok, image} = Vix.Vips.Operation.black(16, 16, bands: 3)
+      res = resolved(:jpeg, {:convert, :adobe_rgb}, strip_metadata: true)
+
+      {:ok, stream, _} = Encoder.stream_output(image, res, [])
+
+      assert decode(stream) |> header("icc-profile-data") != nil
+    end
+  end
 end
