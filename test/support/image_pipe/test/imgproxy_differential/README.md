@@ -79,8 +79,14 @@ MIX_ENV=test mise exec -- mix test test/image_pipe/imgproxy_differential_conform
 ```
 
 `:triage` is not an authored field, so quarantining or un-quarantining alone does not
-require a manifest reauthor. There are currently **no quarantined constellations** —
-the bootstrap's four findings are all resolved (see below).
+require a manifest reauthor. Four constellations across three tracking issues are
+currently quarantined:
+
+| constellation | tracking issue | reason |
+|---|---|---|
+| `extend_ar_dpr_marker` | [#199](https://github.com/hlindset/image_pipe/issues/199) | stage-6 fit+dpr rounding fold: ImagePipe rounds fit then multiplies by dpr (two rounds) vs imgproxy's single `imath.Scale`, producing a 1px difference on fractional fit dimensions |
+| `extend_offset_east_marker` | [#200](https://github.com/hlindset/image_pipe/issues/200) | stage-10 extend east/south offset sign + clamp: imgproxy moves content away from the edge and clamps the origin; ExtendCanvas adds the offset for those anchors without clamping |
+| `exif_5_cover_rot90` / `exif_7_cover_rot90` | [#211](https://github.com/hlindset/image_pipe/issues/211) | stage-7 EXIF transpose (orientation 5) / transverse (orientation 7) composed with user `rot:90` leaves a 1px uncovered edge seam; isolated to the transpose/transverse ∘ user-quarter-turn path |
 
 ## Resolved bootstrap findings (#194–#197)
 
