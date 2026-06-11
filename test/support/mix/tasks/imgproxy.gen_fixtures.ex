@@ -11,6 +11,8 @@ if Code.ensure_loaded?(Testcontainers) do
     use Mix.Task
     use Boundary, top_level?: true, check: [out: false]
 
+    import Plug.Test, only: [conn: 2]
+
     alias ImagePipe.Test.ImgproxyDifferential.{Constellations, Manifest}
 
     @image "darthsim/imgproxy@sha256:9ed8f87b34d55c7844951ff65bcf6605de54ba6670f64951c7215f9b125a482e"
@@ -22,8 +24,13 @@ if Code.ensure_loaded?(Testcontainers) do
 
     @impl Mix.Task
     def run(_args) do
-      {:ok, _} = Application.ensure_all_started(:image)
+      {:ok, _} = Application.ensure_all_started(:image_pipe)
       {:ok, _} = Application.ensure_all_started(:req)
+
+      # Fail fast: a constellation whose opts don't parse must abort before the
+      # (expensive) container start, not after baking a wrong/missing fixture.
+      validate_parses!()
+
       # Start testcontainers' app deps (hackney/tesla) AND its GenServer (which the
       # app does not auto-start).
       {:ok, _} = Application.ensure_all_started(:testcontainers)
@@ -78,6 +85,27 @@ if Code.ensure_loaded?(Testcontainers) do
       Manifest.write!(@manifest_path, manifest)
       write_report!(manifest)
       Mix.shell().info("Wrote #{map_size(entries)} fixtures + manifest + report under #{@base}")
+    end
+
+    # Parse every constellation's path through the real parser before baking, so a
+    # typo'd or unsupported option aborts the run (with the offending ids) instead of
+    # spinning the container and producing a wrong/absent fixture.
+    defp validate_parses! do
+      failures =
+        Enum.flat_map(Constellations.all(), fn c ->
+          case ImagePipe.Parser.Imgproxy.parse(conn(:get, Constellations.imgproxy_path(c))) do
+            {:ok, _plan} -> []
+            other -> [{c.id, other}]
+          end
+        end)
+
+      unless failures == [] do
+        detail = Enum.map_join(failures, "\n", fn {id, err} -> "  #{id}: #{inspect(err)}" end)
+
+        Mix.raise(
+          "gen_fixtures: #{length(failures)} constellation(s) failed to parse before bake:\n#{detail}"
+        )
+      end
     end
 
     defp generate_entry(c, base_url) do
