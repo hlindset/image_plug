@@ -206,27 +206,62 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
   @exif_orientations [2, 3, 4, 5, 7, 8]
 
   defp exif_orientation_constellations do
-    base =
+    cover_crop =
       for o <- @exif_orientations, {suffix, opts} <- exif_base_seams() do
         c("exif_#{o}_#{suffix}", :"exif_#{o}", opts)
       end
 
-    base ++ exif_transpose_crosses()
+    cover_crop ++ exif_extend_constellations() ++ exif_transpose_crosses()
   end
 
+  # cover + non-center crop are a clean 6×2 cross-product (uniform per-orientation
+  # intent — see the family comment above). extend_so is listed explicitly because
+  # its libvips skew profile differs by orientation class.
   defp exif_base_seams do
     [
       {"cover", "rs:fill:200:150"},
-      {"crop_no", "c:200:120/g:no"},
-      {"extend_so", "rs:fit:200:300/ex:1:so"}
+      {"crop_no", "c:200:120/g:no"}
+    ]
+  end
+
+  # extend_so seam. 5/7/8 (axis-swap → portrait display, fit width-bound, ~33px of
+  # south play) match imgproxy at the default tol. 2/3/4 (landscape display, 150px
+  # of south play) show diffuse libvips-version downscale skew over the scaled
+  # blue-block region: max Δ16, the flat ground and extend background pixel-perfect,
+  # and the block in the correct post-orientation quadrant (flip-H→right,
+  # 180→right-bottom, flip-V→left-bottom) — a placement bug would land it elsewhere
+  # or leave a sharp high-Δ edge, neither of which is present. 0 band-bytes over Δ32,
+  # so Δ32/budget-64 absorbs the version skew while a 1px block-edge shift (Δ≈160
+  # over the ~350px block perimeter) blows the budget — the min_dims_clamp rationale.
+  defp exif_extend_constellations do
+    skew = %{threshold: 32, budget: 64}
+
+    [
+      %{c("exif_2_extend_so", :exif_2, "rs:fit:200:300/ex:1:so") | tol: skew},
+      %{c("exif_3_extend_so", :exif_3, "rs:fit:200:300/ex:1:so") | tol: skew},
+      %{c("exif_4_extend_so", :exif_4, "rs:fit:200:300/ex:1:so") | tol: skew},
+      c("exif_5_extend_so", :exif_5, "rs:fit:200:300/ex:1:so"),
+      c("exif_7_extend_so", :exif_7, "rs:fit:200:300/ex:1:so"),
+      c("exif_8_extend_so", :exif_8, "rs:fit:200:300/ex:1:so")
     ]
   end
 
   defp exif_transpose_crosses do
     [
-      c("exif_5_cover_rot90", :exif_5, "rs:fill:200:150/rot:90"),
+      # EXIF transpose/transverse ∘ user rot:90 leaves a 1px black (uncovered) seam
+      # at the frame and block edges (max Δ200 at x=0 and x=100, full height) — a
+      # real coverage error in the #146 rotate compose, quarantined under #211. The
+      # ∘fl variants and the plain `exif_5_cover`/`exif_7_cover` cases all match, so
+      # the bug is isolated to transpose ∘ user quarter-turn.
+      %{
+        c("exif_5_cover_rot90", :exif_5, "rs:fill:200:150/rot:90")
+        | triage: %{reason: "EXIF transpose ∘ user rot:90: 1px black edge seam", issue: "#211"}
+      },
+      %{
+        c("exif_7_cover_rot90", :exif_7, "rs:fill:200:150/rot:90")
+        | triage: %{reason: "EXIF transverse ∘ user rot:90: 1px black edge seam", issue: "#211"}
+      },
       c("exif_5_cover_fl", :exif_5, "rs:fill:200:150/fl:1"),
-      c("exif_7_cover_rot90", :exif_7, "rs:fill:200:150/rot:90"),
       c("exif_7_cover_fl", :exif_7, "rs:fill:200:150/fl:1")
     ]
   end

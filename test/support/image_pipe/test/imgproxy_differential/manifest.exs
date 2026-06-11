@@ -74,7 +74,7 @@
       kind: :transform
     },
     "exif_2_extend_so" => %{
-      authored_sha256: "78a78ce3b2e74c50c3e8f1e04b59033961d03b326ef4020b190b180e05b50746",
+      authored_sha256: "965745f07b4616ba65b70c6c273dd2660304b190631646ebee1233cc5fe39802",
       fixture_filename: "exif_2_extend_so.png",
       fixture_sha256: "ef29ecd2a6a9aca14bd72650ede278c87f530c6b97cdef6b6935ab52f5d70369",
       kind: :transform
@@ -92,7 +92,7 @@
       kind: :transform
     },
     "exif_3_extend_so" => %{
-      authored_sha256: "9851c0a753653ad60c9f41964007469fb40d49bfd83eaffe6c60771193955518",
+      authored_sha256: "e598e5cd2bcaa9e925ecc304f89d41dedfa03d4df7f0fb3a5671d2dc71a93a51",
       fixture_filename: "exif_3_extend_so.png",
       fixture_sha256: "2f0389acb56d7c26683ddd6e00f0a240a45d97a2adb465d6773e927d123b0ed8",
       kind: :transform
@@ -110,7 +110,7 @@
       kind: :transform
     },
     "exif_4_extend_so" => %{
-      authored_sha256: "acf9708abb634c9dad2568b6bc8dd781cc5930a0b3183f1178f76e238ae03a44",
+      authored_sha256: "9dc2e89e5ff41418e74738917f5fff28b0bb2be877c05b1d57cca1e34c6a940e",
       fixture_filename: "exif_4_extend_so.png",
       fixture_sha256: "f0faef7ede4bbe5e4f7593bf8127b2cc336a4df88752c4f50efc77826dfccf19",
       kind: :transform
