@@ -443,7 +443,7 @@ ImagePipe validates a map of preset names to option strings during
 
 ### Preset loading and preset-only modes
 
-ImagePipe has no environment/file loader, presets-only mode, or info endpoint.
+ImagePipe has no environment/file loader or presets-only mode.
 
 - ⭕ `IMGPROXY_PRESETS_SEPARATOR`
 - ⭕ `IMGPROXY_PRESETS_PATH`
@@ -451,6 +451,8 @@ ImagePipe has no environment/file loader, presets-only mode, or info endpoint.
 - ⭕ `IMGPROXY_INFO_PRESETS`
 - ⭕ `IMGPROXY_INFO_PRESETS_PATH`
 - ⭕ `IMGPROXY_INFO_ONLY_PRESETS`
+
+`IMGPROXY_INFO_PRESETS*` remain unsupported (Phase 1 info endpoint does not support named info presets).
 
 ### Output format detection
 
@@ -899,5 +901,55 @@ transforms or output encoding.
 | Presets referencing presets | Supported | Presets may use `preset`/`pr`. ImagePipe skips recursive re-entry to match Imgproxy behavior. |
 | Preset chained pipelines | Partial | Supports documented Pro merge semantics for preset values containing `-` when the referenced options are otherwise supported by ImagePipe. |
 | Presets-only mode | Missing | Excluded from this slice. |
-| Info endpoint presets | Missing | ImagePipe doesn't currently expose Imgproxy info endpoints. |
+| Info endpoint presets | Missing | The `/info` endpoint is partially supported (Phase 1 field set; see [Info endpoint](#info-endpoint)), but `IMGPROXY_INFO_PRESETS*` and named info presets are not. |
 | Preset env/file loading | Missing | ImagePipe doesn't parse `IMGPROXY_PRESETS` strings or `IMGPROXY_PRESETS_PATH` files. Pass already-materialized presets through config instead. |
+
+## Info endpoint
+
+ImagePipe serves imgproxy's `/info` endpoint (Phase 1). The URL shape mirrors the processing URL — `/info/{sig}/{options}/plain/{source}` — with the same HMAC signature requirements, `expires`/`cachebuster` support, and source-translation conventions. The `/info` prefix is excluded from the signed path (matching imgproxy). Display info-options are parsed (so signatures that include them remain valid) but are otherwise ignored; the response always contains the Phase 1 field set.
+
+The endpoint runs as a request-layer render: the transform pipeline is empty (no decode, no image processing), and the JSON body is built directly from source metadata. It bypasses the streaming image encode/deliver path and returns a complete JSON body.
+
+### Info response fields
+
+| Field | imgproxy default | Status | Notes |
+| --- | --- | --- | --- |
+| `format` | ON | ✅ Supported | ImagePipe format name (e.g. `jpeg`, `png`, `webp`, `avif`, `heic`, `jxl`, `jp2`). **Diverges** — see format/mime_type notes below. |
+| `mime_type` | ON | ✅ Supported | MIME type corresponding to the detected format. **Diverges** — derived from the decoded format, not from response `Content-Type`/extension/magic bytes as imgproxy does. |
+| `width` | ON | ✅ Supported | Display-frame width (accounts for EXIF orientation, matching imgproxy's documented behavior). |
+| `height` | ON | ✅ Supported | Display-frame height (accounts for EXIF orientation). |
+| `orientation` | ON | ✅ Supported | EXIF orientation value (`1`–`8`); `1` when no EXIF orientation is present. |
+| `exif` | ON | ⭕ Deferred | Part of imgproxy's default response. ImagePipe's default `/info` response omits `exif` (Phase 1). |
+| `iptc` | ON | ⭕ Deferred | Part of imgproxy's default response. ImagePipe's default `/info` response omits `iptc` and `photoshop` (Phase 1). |
+| `xmp` | ON | ⭕ Deferred | Part of imgproxy's default response. ImagePipe's default `/info` response omits `xmp` (Phase 1). |
+| `size` | ON | ⭕ Deferred | imgproxy reads `size` from the source `Content-Length` header. ImagePipe omits `size` in Phase 1 (it does not download to compute it). |
+| `colorspace` | OFF (slow) | ⭕ Missing | Requires full download. |
+| `bands` | OFF (slow) | ⭕ Missing | Requires full download. |
+| `sample_format` | OFF (slow) | ⭕ Missing | Requires full download. |
+| `alpha` | OFF (slow) | ⭕ Missing | Requires full download and processing. |
+| `pages_number` | OFF (slow) | ⭕ Missing | Requires full download. |
+| `detect_objects` | OFF (slow) | ⭕ Deferred | Requires full download and object detection. |
+| `classify` | OFF (slow) | ⭕ Deferred | Requires full download and classification. |
+| `crop` | OFF (slow) | ⭕ Deferred | Requires full download and processing. |
+| `palette` | OFF (slow) | ⭕ Deferred | Requires full download and processing. |
+| `average` | OFF (slow) | ⭕ Deferred | Requires full download and processing. |
+| `dominant_colors` | OFF (slow) | ⭕ Deferred | Requires full download and processing. |
+| `blurhash` | OFF (slow) | ⭕ Deferred | Requires full download and processing. |
+| `thumb_hash` | OFF (slow) | ⭕ Deferred | Requires full download and processing. |
+| `perceptual_hash` | OFF (slow) | ⭕ Deferred | Requires full download and processing. |
+| `hashsums` | OFF (slow) | ⭕ Deferred | Requires full download. |
+| Info-option grammar (per-field toggles) | — | ⚠️ Partial | Options are parsed for signature validity but ignored; the response always contains the Phase 1 field set regardless of which per-field toggles are present. |
+
+### Divergences
+
+**Default response is a strict subset.** imgproxy's default `/info` response includes `format`, `mime_type`, `width`, `height`, `orientation`, `exif`, `iptc`/`photoshop`, and `xmp`. ImagePipe's Phase 1 response returns only `format`, `mime_type`, `width`, `height`, and `orientation` — a strict subset of imgproxy's defaults. Clients that expect `exif`/`iptc`/`xmp` in the default response will see those blocks missing.
+
+**`size` omitted.** imgproxy reads the file size from the source response `Content-Length` header without downloading the full body. ImagePipe does not emit `size` in Phase 1; it does not download the source to compute it.
+
+**`format`/`mime_type` spellings and detection.** ImagePipe matches imgproxy's format name spellings (`heic`/`image/heif`, `jxl`/`image/jxl`, etc.) but classifies HEIC vs. AVIF by interrogating the libvips loader and the `heif-compression` image header, whereas imgproxy uses magic-byte brand detection — they can disagree on edge-case HEIF files. JPEG 2000 is a deliberate divergence: ImagePipe reports `jp2`/`image/jp2`, which imgproxy has no equivalent type for and would report as unknown.
+
+**`mime_type` derivation.** imgproxy derives the MIME type from the source response `Content-Type` header, the file extension, or magic bytes. ImagePipe derives `mime_type` from the decoded format (the same source that `format` comes from), so both fields are always consistent with each other but may differ from what a `Content-Type`-based approach would produce for misidentified or extension-mislabeled sources.
+
+**Expired URL status.** An expired `/info` URL (past its `expires` timestamp) returns **400** in ImagePipe, using the same imgproxy error-mapping path as processing URLs. imgproxy's `/info` documentation specifies **404** for expired requests. This is a known divergence.
+
+**Non-image / video source.** ImagePipe returns 415 or 422 for sources it cannot decode as an image. imgproxy's `/info` endpoint returns a comma-joined format list for video sources.
