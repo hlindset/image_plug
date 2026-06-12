@@ -11,6 +11,7 @@ defmodule ImagePipe.Request do
       ImagePipe.Source,
       ImagePipe.Output,
       ImagePipe.Response,
+      ImagePipe.Renderer,
       ImagePipe.Telemetry,
       ImagePipe.Transform
     ],

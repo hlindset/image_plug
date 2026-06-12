@@ -131,6 +131,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Cache,
+      ImagePipe.Renderer,
       ImagePipe.Source,
       ImagePipe.Output,
       ImagePipe.Response,
