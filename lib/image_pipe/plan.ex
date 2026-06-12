@@ -10,6 +10,7 @@ defmodule ImagePipe.Plan do
       Pipeline,
       Output,
       Render,
+      RenderContext,
       Response,
       SourceInfo,
       Color,

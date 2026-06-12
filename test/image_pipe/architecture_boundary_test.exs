@@ -497,6 +497,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Pipeline,
       ImagePipe.Plan.Output,
       ImagePipe.Plan.Render,
+      ImagePipe.Plan.RenderContext,
       ImagePipe.Plan.Response,
       ImagePipe.Plan.SourceInfo,
       ImagePipe.Plan.Color,
