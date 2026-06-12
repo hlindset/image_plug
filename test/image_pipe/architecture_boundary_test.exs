@@ -200,6 +200,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_exports(response, [
       ImagePipe.Response.CacheHeaders,
+      ImagePipe.Response.Json,
       ImagePipe.Response.PreparedStream,
       ImagePipe.Response.Sender
     ])
