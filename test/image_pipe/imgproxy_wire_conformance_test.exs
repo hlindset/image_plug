@@ -3637,7 +3637,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     end
 
     test "reports orientation-adjusted (swapped) dimensions for a quarter-turn EXIF source" do
-      conn = call_imgproxy("/info/unsafe/plain/images/oriented.jpg", exif_orientation_origin_opts())
+      conn =
+        call_imgproxy("/info/unsafe/plain/images/oriented.jpg", exif_orientation_origin_opts())
+
       json = JSON.decode!(conn.resp_body)
       # ExifOrientationOriginImage creates a 40x80 image with EXIF orientation 6
       # (90-degree clockwise). /info reports the display (swapped) dimensions.
@@ -3651,7 +3653,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
         Keyword.merge(@default_opts,
           imgproxy: [signature: [keys: ["746573742d6b6579"], salts: ["746573742d73616c74"]]],
           sources: [
-            path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+            path:
+              {RootHTTPAdapter,
+               root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
           ]
         )
 
@@ -3668,7 +3672,9 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     test "a non-image source returns 415" do
       opts =
         Keyword.put(@default_opts, :sources,
-          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: CorruptSourceOriginImage]}
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: CorruptSourceOriginImage]}
         )
 
       conn = call_imgproxy("/info/unsafe/plain/images/whatever.jpg", opts)

@@ -165,11 +165,19 @@ defmodule ImagePipe.Response.Sender do
   defp handle_processing_error(conn, {:render, {:source, _} = inner}, response_headers),
     do: handle_processing_error(conn, inner, response_headers)
 
-  defp handle_processing_error(conn, {:render, {:unsupported_source_format, _} = inner}, response_headers),
-    do: handle_processing_error(conn, inner, response_headers)
+  defp handle_processing_error(
+         conn,
+         {:render, {:unsupported_source_format, _} = inner},
+         response_headers
+       ),
+       do: handle_processing_error(conn, inner, response_headers)
 
-  defp handle_processing_error(conn, {:render, :source_format_required = inner}, response_headers),
-    do: handle_processing_error(conn, inner, response_headers)
+  defp handle_processing_error(
+         conn,
+         {:render, :source_format_required = inner},
+         response_headers
+       ),
+       do: handle_processing_error(conn, inner, response_headers)
 
   defp handle_processing_error(conn, {:render, {:input_limit, _} = inner}, response_headers),
     do: handle_processing_error(conn, inner, response_headers)

@@ -164,7 +164,11 @@ defmodule ImagePipe.Parser.Imgproxy do
              request_defaults(imgproxy_opts)
            ),
          {:ok, source_path, _source_format} <-
-           Path.parse_source_no_extension(source_kind, raw_source_path, source_parsing_config(opts)) do
+           Path.parse_source_no_extension(
+             source_kind,
+             raw_source_path,
+             source_parsing_config(opts)
+           ) do
       {:ok,
        %ParsedRequest{
          signature: signature,

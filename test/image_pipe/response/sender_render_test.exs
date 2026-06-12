@@ -14,7 +14,9 @@ defmodule ImagePipe.Response.SenderRenderTest do
     }
 
     conn = conn(:get, "/info/x")
-    sent = Sender.send_result(conn, {:ok, {:rendered, "application/json", ~s({"a":1}), prepared}}, [])
+
+    sent =
+      Sender.send_result(conn, {:ok, {:rendered, "application/json", ~s({"a":1}), prepared}}, [])
 
     assert sent.status == 200
     assert sent.resp_body == ~s({"a":1})
