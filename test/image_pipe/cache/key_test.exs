@@ -344,13 +344,13 @@ defmodule ImagePipe.Cache.KeyTest do
     encrypted_conn = conn(:get, "/_/enc/#{encrypted}/puppy.jpg")
     alternate_encrypted_conn = conn(:get, "/_/enc/#{alternate_encrypted}/kitten.jpg")
 
-    opts = [
-      imgproxy:
-        Imgproxy.validate_options!(
+    opts =
+      Imgproxy.validate_options!(
+        imgproxy: [
           source_url_encryption_key: source_url_encryption_key(),
           base64_url_includes_filename: true
-        )
-    ]
+        ]
+      )
 
     assert {:ok, plain_plan} = Imgproxy.parse(plain_conn, opts)
     assert {:ok, encoded_plan} = Imgproxy.parse(encoded_conn, opts)
@@ -487,7 +487,7 @@ defmodule ImagePipe.Cache.KeyTest do
                  min_height: nil,
                  zoom_x: 1.0,
                  zoom_y: 1.0,
-                 rule: :imgproxy_orientation_match_v1
+                 rule: :auto_orientation_match_v1
                ]
              ]
            ]
@@ -576,7 +576,7 @@ defmodule ImagePipe.Cache.KeyTest do
              min_height: nil,
              zoom_x: 1.0,
              zoom_y: 1.0,
-             rule: :imgproxy_orientation_match_v1
+             rule: :auto_orientation_match_v1
            ]
 
     serialized = Key.serialize_key_data(key_a.data)
@@ -1156,9 +1156,8 @@ defmodule ImagePipe.Cache.KeyTest do
     conn = conn(:get, "/_/pr:thumb/plain/images/cat.jpg")
     expanded_conn = conn(:get, "/_/rt:fill/w:120/h:90/q:82/plain/images/cat.jpg")
 
-    opts = [
-      imgproxy: Imgproxy.validate_options!(presets: %{"thumb" => "rt:fill/w:120/h:90/q:82"})
-    ]
+    opts =
+      Imgproxy.validate_options!(imgproxy: [presets: %{"thumb" => "rt:fill/w:120/h:90/q:82"}])
 
     assert {:ok, preset_plan} = Imgproxy.parse(conn, opts)
     assert {:ok, expanded_plan} = Imgproxy.parse(expanded_conn, [])

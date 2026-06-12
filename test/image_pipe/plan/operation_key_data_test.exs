@@ -98,7 +98,7 @@ defmodule ImagePipe.Plan.OperationKeyDataTest do
                min_height: nil,
                zoom_x: 1.0,
                zoom_y: 1.0,
-               rule: :imgproxy_orientation_match_v1
+               rule: :auto_orientation_match_v1
              ]
 
       refute Keyword.has_key?(data, :selected_branch)

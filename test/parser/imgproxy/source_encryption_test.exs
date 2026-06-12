@@ -22,7 +22,10 @@ defmodule ImagePipe.Parser.Imgproxy.SourceEncryptionTest do
   @docs_segment "p5VjorNdhs7mRRw8gA9TWoRlGci3l1kuzqN43UQlRaRIQ0qtBKW3qFABIsx-ZRz_cVc8iVTYbhsNsxNBL1BHaQ"
 
   test "validates and stores decoded encryption key material" do
-    imgproxy_opts = Imgproxy.validate_options!(source_url_encryption_key: @aes128_key)
+    imgproxy_opts =
+      [imgproxy: [source_url_encryption_key: @aes128_key]]
+      |> Imgproxy.validate_options!()
+      |> Keyword.fetch!(:imgproxy)
 
     assert %SourceEncryption{key: decoded_key} =
              Keyword.fetch!(imgproxy_opts, :source_url_encryption)
@@ -35,11 +38,11 @@ defmodule ImagePipe.Parser.Imgproxy.SourceEncryptionTest do
   test "rejects malformed encryption keys without echoing the key value" do
     for key <- ["", "not-hex", String.duplicate("00", 15), String.duplicate("00", 33)] do
       assert_raise ArgumentError, ~r/invalid imgproxy config/, fn ->
-        Imgproxy.validate_options!(source_url_encryption_key: key)
+        Imgproxy.validate_options!(imgproxy: [source_url_encryption_key: key])
       end
 
       try do
-        Imgproxy.validate_options!(source_url_encryption_key: key)
+        Imgproxy.validate_options!(imgproxy: [source_url_encryption_key: key])
       rescue
         error in ArgumentError ->
           if key != "" do
@@ -143,7 +146,7 @@ defmodule ImagePipe.Parser.Imgproxy.SourceEncryptionTest do
   end
 
   defp parser_opts(imgproxy_opts) do
-    [imgproxy: Imgproxy.validate_options!(imgproxy_opts)]
+    Imgproxy.validate_options!(imgproxy: imgproxy_opts)
   end
 
   defp encrypted_segment(source, key, iv) do

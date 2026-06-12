@@ -24,6 +24,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/plan/**/*.ex"
   ]
   @parser_forbidden_globs [
+    "lib/image_pipe/plug.ex",
     "lib/image_pipe/request.ex",
     "lib/image_pipe/request/**/*.ex",
     "lib/image_pipe/source.ex",
@@ -33,7 +34,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     "lib/image_pipe/cache.ex",
     "lib/image_pipe/cache/**/*.ex",
     "lib/image_pipe/output.ex",
-    "lib/image_pipe/output/**/*.ex"
+    "lib/image_pipe/output/**/*.ex",
+    "lib/image_pipe/plan.ex",
+    "lib/image_pipe/plan/**/*.ex"
   ]
   @parser_globs [
     "lib/image_pipe/parser.ex",
@@ -95,7 +98,10 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     imgproxy = boundary_declaration(ImagePipe.Parser.Imgproxy)
 
     assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan])
-    assert_boundary_exports(parser, [ImagePipe.Parser.Imgproxy])
+    # The Parser behaviour boundary must not export any concrete adapter: the core
+    # never names a specific parser, so an adapter (imgproxy/…) can be ripped out
+    # without editing the behaviour boundary.
+    assert_boundary_exports(parser, [])
 
     assert_boundary_deps(imgproxy, [
       ImagePipe.Format,
@@ -389,11 +395,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "request, source, response, cache, and output code does not depend on imgproxy parser structs" do
+  test "core code (plug, request, source, response, cache, output, plan) does not name the imgproxy parser" do
     violations =
       for file <- parser_forbidden_files(),
           violation <- imgproxy_parser_references(file) do
-        "#{file}:#{violation.line} must not name #{violation.module}; keep Imgproxy parser dependencies out of request, source, response, cache, and output code"
+        "#{file}:#{violation.line} must not name #{violation.module}; an adapter must be removable without changing the core — keep Imgproxy out of plug, request, source, response, cache, output, and plan code"
       end
 
     assert violations == []

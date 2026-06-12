@@ -76,8 +76,17 @@ defmodule ImagePipe.Parser.Imgproxy do
     SourceEncryption.encrypt_source_url(source_url, hex_key, opts)
   end
 
-  @doc false
-  def validate_options!(imgproxy_opts) when is_list(imgproxy_opts) do
+  @impl ImagePipe.Parser
+  def validate_options!(opts) when is_list(opts) do
+    imgproxy_opts =
+      opts
+      |> Keyword.get(:imgproxy, [])
+      |> validate_imgproxy_options!()
+
+    Keyword.put(opts, :imgproxy, imgproxy_opts)
+  end
+
+  defp validate_imgproxy_options!(imgproxy_opts) when is_list(imgproxy_opts) do
     case NimbleOptions.validate(imgproxy_opts, @imgproxy_schema) do
       {:ok, validated} ->
         validated
@@ -89,7 +98,7 @@ defmodule ImagePipe.Parser.Imgproxy do
     end
   end
 
-  def validate_options!(_imgproxy_opts),
+  defp validate_imgproxy_options!(_imgproxy_opts),
     do: raise(ArgumentError, "invalid imgproxy options: expected a keyword list")
 
   @doc false

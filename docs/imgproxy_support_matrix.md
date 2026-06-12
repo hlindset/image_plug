@@ -404,7 +404,10 @@ application-owned source adapters.
 ImagePipe supports Base64 encoded source URLs. It also supports encrypted source
 URLs when callers configure `source_url_encryption_key` through
 `ImagePipe.Plug.init/1`. Direct `ImagePipe.Parser.Imgproxy.parse/2` callers should
-pass `imgproxy: ImagePipe.Parser.Imgproxy.validate_options!(...)`.
+validate the host options first with
+`ImagePipe.Parser.Imgproxy.validate_options!(imgproxy: [...])` (which normalizes
+the `:imgproxy` namespace in place and returns the full option list) and pass the
+result as `parse/2`'s options.
 
 - ✅ Base64 encoded source URLs
 - ✅ Encrypted source URLs
