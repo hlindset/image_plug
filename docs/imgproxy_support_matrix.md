@@ -70,6 +70,41 @@ flowchart TD
 boundary (clamp / encoder finalize) · ⬜ not realized.
 **Emoji = conformance:** ✅ matches · ⚠️ diverges · ⭕ missing (in scope, not built).
 
+### Input format detection (source preamble)
+
+Before the per-frame pipeline, ImagePipe detects the source format from a bounded
+≤32KB header peek (magic bytes + a lightweight SVG structural scan), mirroring
+imgproxy's `imagetype` package. This is input conditioning, not a `Plan`
+operation — like decode access mode and shrink-on-load planning, it is sourced
+from the bytes, which no operation struct can see. It gates unsupported formats
+(gif/bmp/ico/svg) before libvips opens the bytes and is authoritative for the
+format where magic is confident.
+
+**Diverges from imgproxy's `imagetype`:**
+
+- **`:unknown` → libvips fallback.** imgproxy hard-rejects `Unknown`; ImagePipe
+  falls back to its existing libvips classification, staying as capable as the
+  libvips build. Detection is an authoritative-where-confident gate, not a hard
+  allowlist.
+- **No ct/ext hints → no RAW-vs-TIFF skip.** imgproxy's TIFF detector skips
+  itself when the (content-type/extension) hint is in its RAW list — so on its
+  real download path, which always passes those hints, a RAW file sharing TIFF
+  magic yields `Unknown` (→ reject). ImagePipe does not wire content-type/extension,
+  so the same RAW file detects as `:tiff` (its current behavior). Deferred with
+  the dimension-sniffing follow-on (#264).
+- **SVG: root-only vs match-anywhere.** imgproxy's XML tokenizer classifies SVG
+  when an `<svg>` start element appears *anywhere* in the prolog-led token stream;
+  ImagePipe's lightweight scan matches only the **root** element. A non-root
+  `<svg>` (e.g. wrapped in another root element) that imgproxy would call `svg`
+  falls to `:unknown` here → libvips `svgload`, which still rejects it — so no
+  wrong-accept, only a label difference on an already-rejected input.
+- **JP2 detection added.** ImagePipe detects JPEG 2000 (signature box + J2K
+  codestream); imgproxy's `imagetype` has no JP2 detector. Unmatched JP2 variants
+  fall to `:unknown` → libvips `jp2kload`.
+- **Vocabulary maps to ImagePipe atoms** (`:heif` not `heic`, `:jpeg_xl` not
+  `jxl`, `:jpeg2000`); the avif-vs-heif codec split is taken from libvips, which
+  is more precise than `ftyp`-brand sniffing for generic-brand AVIF.
+
 ### Main pipeline
 
 imgproxy's `mainPipeline` (`processing/processing.go`), applied per frame:

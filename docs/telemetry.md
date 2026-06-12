@@ -113,6 +113,10 @@ Failure stop metadata (one of two shapes, by failure mode):
 - Decode / input-validation failure — `:result` is `:processing_error`; `:error`
   is a stable category atom (e.g. `:input_limit` when the decoded image exceeds
   `:max_input_pixels`, `:decode` for an undecodable body).
+- Unsupported-format reject — a sub-case of `:processing_error` (before the
+  libvips open): also carries `:detected_source_format` set to the rejected family
+  atom (e.g. `:gif`, `:svg`), so an observer can distinguish a format gate from a
+  corrupt-body decode failure without parsing `:error`.
 
 ### Transform execute span (`[:transform, :execute]`)
 
