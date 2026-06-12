@@ -19,11 +19,11 @@ defmodule ImagePipe.Request.RenderRunner do
   @spec run(Plan.t(), Source.Resolved.t(), keyword()) ::
           {:ok, {content_type :: String.t(), body :: iodata()}} | {:error, term()}
   def run(
-        %Plan{render: {:custom, _module, _params}} = plan,
+        %Plan{render: {:custom, module, _params}} = plan,
         %Source.Resolved{} = resolved_source,
         opts
       ) do
-    Telemetry.span(Telemetry.telemetry_opts(opts), [:render], %{representation: :json}, fn ->
+    Telemetry.span(Telemetry.telemetry_opts(opts), [:render], %{renderer: module}, fn ->
       result = do_run(plan, resolved_source, opts)
       {result, render_stop_metadata(result)}
     end)

@@ -256,20 +256,23 @@ Stop metadata:
 ### Render span (`[:render]`)
 
 The `[:image_pipe, :render]` span wraps alternative (non-image) response
-rendering — for example, JSON representation responses emitted by
-`ImagePipe.Request.RenderRunner`. It is emitted as a sibling of `[:encode]`
-when the request produces a rendered response rather than an encoded image.
+rendering — for example the JSON `/info` document, or a future blurhash / lqip
+body — emitted by `ImagePipe.Request.RenderRunner`. It is emitted as a sibling
+of `[:encode]` when the request produces a rendered response rather than an
+encoded image.
 
 Start metadata:
 
-- `:representation` — the representation kind, e.g. `:json`.
+- `:renderer` — the renderer module (e.g. `ImagePipe.Parser.Imgproxy.InfoRenderer`).
+  The response content-type is not known until the renderer runs; it is reported
+  in the stop metadata.
 
 Stop metadata:
 
 - `:result` — `:ok` on success, or `:render_error` on failure. The default
   Logger escalates `:render_error` to `:warning`.
 - `:content_type` — the response content-type string on success (e.g.
-  `"application/json"`).
+  `"application/json"`, `"text/plain"` for blurhash).
 - `:error` — a stable error category atom on failure.
 
 The default Logger renders it as:
