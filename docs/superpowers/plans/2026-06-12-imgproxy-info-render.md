@@ -40,6 +40,80 @@
 
 ---
 
+## AMENDMENT — rippable Renderer model (HIGHEST PRIORITY; supersedes conflicting task text)
+
+**Principle:** the core must not name any dialect. imgproxy/iiif/twicpics are
+adapters selected by host config; ripping out `Parser.Imgproxy.*` must leave the
+core compiling with zero references to it — exactly like `Parser`/`Source`/`Cache`
+behaviours work today. This **replaces** the tag-registry dispatch in Tasks 4/5/9/11.
+
+**New topology:**
+
+- **`ImagePipe.Renderer`** — a new neutral boundary (deps `[Plan]`). It is *both* the
+  behaviour and the dispatch facade:
+  ```elixir
+  defmodule ImagePipe.Renderer do
+    @type need :: :header
+    @type body :: {content_type :: String.t(), iodata()}
+    @callback requires(params :: map()) :: [need()]
+    @callback render(ImagePipe.Plan.RenderContext.t(), params :: map(), keyword()) ::
+                {:ok, body()} | {:error, term()}
+
+    alias ImagePipe.Plan.Render
+    def requires(%Render{module: m, params: p}), do: m.requires(p)
+    def run(%Render{module: m, params: p}, context, opts), do: m.render(context, p, opts)
+  end
+  ```
+  **No `@renderers` map. No tag→module registry.** The core never enumerates adapters.
+- **`%ImagePipe.Plan.Render{module: module(), params: map()}`** — carries the renderer
+  **module**, not a tag. (Task 2: the field is `module`, not `renderer`.)
+- **`ImagePipe.Parser.Imgproxy.InfoRenderer`** (in the imgproxy adapter, **not** under
+  `Output.*`) — `@behaviour ImagePipe.Renderer`, owns the imgproxy JSON schema + wire
+  spellings. The imgproxy parser emits `%Plan.Render{module:
+  ImagePipe.Parser.Imgproxy.InfoRenderer, params: %{}}`. (Tasks 5 + 11.)
+- **`Output.*` is unchanged** — image encoding only. There is **no** `Output.Render`.
+  (Skip the Task 4/5 edits to `output.ex` and its boundary test.)
+- **Neutral renderers stay in core** under `ImagePipe.Renderer.*` (e.g. future
+  `Renderer.Blurhash`) — they are product-neutral, not dialect schema.
+- **`Plan.SourceInfo` / `Plan.RenderContext` stay under `Plan.*`** (Tasks 1, 3 as
+  written) — they are neutral, core-owned, and the imgproxy adapter (which already
+  deps on `Plan`) formats over them.
+
+**Per-task deltas from the amendment:**
+
+- **Task 2:** `%Plan.Render{}` field is **`module: module()`** (not `renderer`/tag).
+  `validate_render(%Plan.Render{module: m}) when is_atom(m), do: :ok`.
+- **Task 4 → becomes "create `ImagePipe.Renderer` boundary":** the behaviour + `run/2`
+  + `requires/1` facade above. Add `Renderer` as a new top-level `Boundary`
+  (deps `[Plan]`) and to the architecture test. **Do not** touch `Output`.
+  Test: `Renderer.run(%Plan.Render{module: StubRenderer, params: %{}}, ctx, [])`
+  dispatches to a stub module implementing the behaviour (define a tiny stub in the
+  test). No registry to test.
+- **Task 5 → `ImagePipe.Parser.Imgproxy.InfoRenderer`** at
+  `lib/image_pipe/parser/imgproxy/info_renderer.ex` (test under
+  `test/image_pipe/parser/imgproxy/info_renderer_test.exs`). `@behaviour
+  ImagePipe.Renderer`. Same body as the plan's ImgproxyInfo (wire table with the
+  corrections: drop `:gif`, add `:jpeg2000 → {"jp2","image/jp2"}`). The
+  `Parser.Imgproxy` boundary gains a dep on `Renderer` — add it to that boundary's
+  `deps:` and the architecture test's allowed set for imgproxy
+  (`[Format, Parser, Plan, Renderer]`).
+- **Task 9:** `RenderRunner` calls `ImagePipe.Renderer.requires(plan.render)` and
+  `ImagePipe.Renderer.run(plan.render, context, opts)` — **not** any
+  `Output.Render.fetch_module`. Drop the `Render.fetch_module` step entirely.
+- **Task 11:** emit `%Plan.Render{module: ImagePipe.Parser.Imgproxy.InfoRenderer,
+  params: %{}}`.
+- **Task 7:** the cache fold uses `plan.render` (which now holds `module`); fold the
+  module atom into `representation_data/1`. The core cache never names imgproxy — it
+  stores the opaque module atom.
+- **Add to Task 4 (or Task 15):** an architecture test asserting the core boundaries
+  (`Plug`, `Plan`, `Output`, `Request`, `Cache`, `Renderer`) contain **no** reference
+  to `ImagePipe.Parser.Imgproxy.*` (the rip-out test). Mirror the existing
+  `architecture_boundary_test.exs` source-scan pattern.
+
+Everything else in the tasks/corrections below stands.
+
+---
+
 ## Plan-review corrections (READ FIRST — applies on top of the tasks below)
 
 A three-reviewer pass found these code-verified issues. Apply each within the named

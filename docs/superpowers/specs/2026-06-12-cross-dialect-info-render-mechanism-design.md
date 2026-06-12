@@ -86,6 +86,35 @@ is a service-capability advertisement; blurhash/lqip are representations of the
 processed image. Each dialect/representation owns its serializer; the core knows
 only "a non-image terminal renderer produces a complete body."
 
+## Amendment (rippable adapters) — supersedes the dispatch details below
+
+The core must contain **no reference to any dialect** (imgproxy/iiif/twicpics).
+Adapters are selected by host config and depend on the core; ripping out
+`Parser.Imgproxy.*` must leave the core compiling — exactly like the `Parser`/
+`Source`/`Cache` behaviours already work. This changes the dispatch model wherever
+the text below says "`Output.Render` behaviour", a "renderer tag", or a tag→module
+registry:
+
+- The renderer behaviour is a **neutral core extension point, `ImagePipe.Renderer`**
+  (its own boundary, deps `[Plan]`), not under `Output.*`. It also hosts the dispatch
+  facade `Renderer.run(plan.render, context, opts)` and `Renderer.requires(plan.render)`
+  — the only place the behaviour is invoked. There is **no `@renderers` registry** and
+  the core never enumerates adapters.
+- `%Plan.Render{module: module(), params: map()}` carries the renderer **module**
+  itself (the parser emits its own module), not a tag the core resolves.
+- The imgproxy renderer is **`ImagePipe.Parser.Imgproxy.InfoRenderer`** (in the
+  adapter, implementing `ImagePipe.Renderer`), not `Output.Render.ImgproxyInfo`.
+  `Output.*` stays image-encode-only.
+- Product-**neutral** renderers (`Renderer.Blurhash`/`Renderer.Lqip`) live in core
+  `ImagePipe.Renderer.*`; a parser selects one by emitting that core module.
+- `Plan.SourceInfo` / `Plan.RenderContext` remain under `Plan.*` (neutral, core-owned;
+  the adapter already deps on `Plan`).
+- A core-vs-adapter rip-out architecture test asserts the core boundaries reference no
+  `ImagePipe.Parser.Imgproxy.*`.
+
+(The pre-existing symmetric leak in `ImagePipe.Plug`'s parser-option validation is
+tracked separately as a follow-up, out of this issue's scope.)
+
 ## Architecture: a non-image render path in the request layer
 
 The producer (`lib/image_pipe/request/source_session/producer.ex`) is the
