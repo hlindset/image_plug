@@ -12,6 +12,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
     high_freq: "high_freq.jpg",
     high_freq_webp: "high_freq.webp",
     marker: "marker.png",
+    placement: "placement.png",
     border: "border.png",
     alpha: "alpha.png",
     exif_2: "exif_2.jpg",
@@ -48,7 +49,12 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       c("rs_fit_zone", :high_freq, "rs:fit:300:300"),
       c("rs_fill_zone_q4", :high_freq, "rs:fill:200:150"),
       c("rs_fill_webp_residual", :high_freq_webp, "rs:fill:233:151"),
-      c("crop_gravity_marker", :marker, "c:120:90/g:nowe"),
+      # Inline-crop placement cases use the aperiodic `:placement` grid, not `:marker`
+      # (#239): a no-resize crop of the near-uniform marker field had zero discriminating
+      # power (a placement bug moved the window within flat gray → identical pixels). The
+      # placement grid's sharp per-cell edges make any 1px window misplacement a maxΔ≈255
+      # divergence while the crop stays lossless (maxΔ=0 when correct).
+      c("crop_gravity_placement", :placement, "c:120:90/g:nowe"),
       c("trim_border_equal", :border, "t:10"),
       c("alpha_resize", :alpha, "rs:fit:64:64"),
       c("rotate_exif", :exif_6, "rs:fit:120:120"),
@@ -238,19 +244,19 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # but driven by the user rotate input (crop.go adjusts CropGravity for user
       # rotate/flip too). Rotation-primitive seam excluded by #219, so any divergence is
       # genuine CropGravity user-rotate compensation.
-      c("rot90_crop_north_marker", :marker, "rot:90/c:200:120:no"),
+      c("rot90_crop_north_placement", :placement, "rot:90/c:200:120:no"),
 
       # --- #203 Tier 2: coverage completeness (mostly PASS-confirmations) ---
       #
       # T2.1: inline crop EAST offset — confirms #200 does NOT generalize to the crop
       # path (imgproxy feeds calcPosition→Crop directly with the correct sign).
-      c("crop_east_offset_marker", :marker, "c:300:200:ea:20:0"),
+      c("crop_east_offset_placement", :placement, "c:300:200:ea:20:0"),
       # T2.2: cover result-crop SOUTH offset — same #200-non-generalization confirmation
       # for the cropToResult path.
       c("cover_gravity_south_offset_marker", :marker, "rs:fill:300:200/g:so:0:20"),
       # T2.3: focal-point INLINE crop gravity (fp on the crop path, untested in the
       # suite). calc_position ScaleToEven vs crop.ex round-ties-to-even.
-      c("crop_focal_marker", :marker, "c:200:200:fp:0.3:0.7"),
+      c("crop_focal_placement", :placement, "c:200:200:fp:0.3:0.7"),
       # T2.4: odd-gap center origin in the cover result-crop. marker 1600×1200 fill
       # 300×200 cover-scales to 300×225 (gap 25 on height — ODD), center gravity; checks
       # ShrinkToEven(outer−inner+1,2) is wired into result-crop, generalizing #195/#196
@@ -312,7 +318,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       c("auto_resize_square_source_icc", :icc_p3, "rs:auto:300:200/scp:0"),
       # T2.14: inline pre-resize crop corner, no resize — the genuine c:W:H:TYPE corner
       # form on the crop path.
-      c("crop_corner_marker", :marker, "c:600:600:soea"),
+      c("crop_corner_placement", :placement, "c:600:600:soea"),
       # T2.15: user rot:180 half-turn baseline (no axis swap). De-risked by #211/#219 —
       # the affine primitive seamed even at 180°, now fixed (vips_rot).
       c("user_rot180_marker", :marker, "rot:180"),
@@ -336,12 +342,13 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # anchor/site is exercised somewhere, so a divergence here is a genuine
       # site-specific calcPosition bug, not yield.
       #
-      # West on the pre-resize crop site (c:W:H:TYPE). marker 1600×1200, a 300×200
+      # West on the pre-resize crop site (c:W:H:TYPE). placement 1600×1200, a 300×200
       # window anchored west → left=0, vertically centered (top=500). West has 1300px of
-      # horizontal play here, so a left/center confusion shifts the window across sharp
-      # marker edges (maxΔ→~255) — unlike the cover/extend sites whose box aspect can
-      # leave the west anchor inert.
-      c("crop_west_marker", :marker, "c:300:200:we"),
+      # horizontal play here, so a left/center confusion shifts the window across the
+      # placement grid's sharp per-cell edges (maxΔ→~255) — unlike the cover/extend sites
+      # whose box aspect can leave the west anchor inert. (On the old `:marker` source
+      # this window sat in the flat gray field and discriminated nothing — #239.)
+      c("crop_west_placement", :placement, "c:300:200:we"),
       # West on the cover result-crop site (rs:fill/g:TYPE). The box is PORTRAIT (200×300)
       # so the cover surplus is horizontal: marker 4:3 covers 200×300 at scale 0.25 →
       # 400×300, and the 200-wide result-crop has 200px of horizontal play. West → left=0
@@ -370,17 +377,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # pixelate}; brightness/contrast/saturation/monochrome/duotone are imgproxy-Pro
       # (absent from the OSS `darthsim/imgproxy` container's option keys), so they are
       # not differential gaps and stay out of this suite, like `cp`/`icc`. `pix:8` on
-      # the sharp-edged marker is a plain libvips block-average both sides also call.
-      # The block boundaries align (maxΔ=14, ≪ the ~210 a 1px-misaligned block would
-      # show as it straddles a sharp marker edge); the residual is diffuse
-      # block-average rounding/libvips-version skew, every delta in (Δ2, Δ16] over
-      # ~23k band-bytes, 0 over Δ16. Threshold set just above the 14 skew ceiling with
-      # a tight budget — the heavy-downscale convention — so a real block-offset (which
-      # pushes bytes past Δ16 at the edges) blows it.
-      %{
-        c("pixelate_marker", :marker, "pix:8")
-        | tol: %{threshold: 16, budget: 64}
-      },
+      # the sharp-edged marker is the same vips_shrink (box mean) + vips_zoom (nearest)
+      # both sides run — ImagePipe matches imgproxy's `vips.c` `apply_filters` exactly
+      # (#238), so the output is byte-identical (maxΔ=0). A box mean is bounded by the
+      # source range and cannot ring, so the former (Δ2, Δ16] residual — wrongly blamed
+      # on block-average rounding / libvips skew — was entirely the prior Lanczos
+      # down-step overshooting the marker edge. Default Δ2/64; a real block-offset
+      # (~210 at the sharp edge) blows it.
+      c("pixelate_marker", :marker, "pix:8"),
       # The OSS-valid effects-chain ORDER pin. The issue's pix→br→co→sa form is Pro
       # (br/co/sa), but the three OSS filters stack in a fixed stage-9 order both
       # sides share — imgproxy `apply_filters.go`/`vips.c` runs blur → sharpen →
@@ -388,14 +392,10 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # pixelate (URL option order is inert; the plan fixes it). Stacking all three on
       # the zone-plate source pins that ordering end-to-end: a reordered chain (e.g.
       # pixelate before blur/sharpen) would composite a grossly different image (maxΔ
-      # into the 100s across the frame), where the measured residual is diffuse
-      # zone-plate block/resample skew (maxΔ=36, ≪255). Threshold set just above that
-      # skew ceiling with a tight budget — the zone-plate convention — so the order is
-      # held while libvips-version skew is absorbed.
-      %{
-        c("effects_chain_order_high_freq", :high_freq, "rs:fit:240:240/bl:2/sh:2/pix:8")
-        | tol: %{threshold: 40, budget: 64}
-      },
+      # into the 100s across the frame). With the box-mean pixelate (#238) the chain is
+      # byte-identical to imgproxy (maxΔ=0) — the former Δ36 residual was the Lanczos
+      # pixelate ringing on the zone plate, not blur/sharpen skew. Default Δ2/64.
+      c("effects_chain_order_high_freq", :high_freq, "rs:fit:240:240/bl:2/sh:2/pix:8"),
 
       # --- #224 Part 2: the three zero-fixture committed sources ---
       #
@@ -405,10 +405,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # resampling confound. The import is unconditional (support-matrix stage 4), and
       # distinct from `cp:cmyk` CMYK *output* targeting (#214).
       c("cmyk_import", :cmyk, "rs:fit:200:200"),
-      # rgb16/rgba16 are 512×512 16-bit PNGs. `ph:1` preserves the high bit-depth
-      # through to the PNG output (the #121 preserve-HDR path), `ph:0` tone-maps to
-      # 8-bit — the two halves of the HDR pipeline, neither covered before. The
-      # 512→200 fit genuinely downscales, so each is import + 16-bit (or tone-mapped)
+      # rgb16/rgba16 are 512×512 16-bit PNGs whose content spans the FULL 16-bit range
+      # (white corner + saturated highlight block in the high bits, #240); the prior
+      # sources held 8-bit values in a 16-bit buffer (~0.4% intensity), so they rendered
+      # near-black and the preserve-vs-tonemap split was barely exercised. `ph:1`
+      # preserves the high bit-depth through to the PNG output (the #121 preserve-HDR
+      # path), `ph:0` tone-maps to 8-bit — the two halves of the HDR pipeline. The
+      # 512→200 fit genuinely downscales (averaging full-range neighbors produces real
+      # full-precision 16-bit low-byte data), so each is import + 16-bit (or tone-mapped)
       # resample + PNG round-trip. The alpha source additionally exercises the 16-bit
       # RGBA path.
       c("rgb16_preserve_hdr", :rgb16, "ph:1/rs:fit:200:200"),
@@ -416,19 +420,23 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # rgba16_preserve_hdr DIVERGES (quarantined → #229). The source alpha is
       # uniformly fully opaque (min=max=65535); ImagePipe preserves it pristine
       # (live alpha a constant 65535), while imgproxy's ph:1 16-bit RGBA path
-      # perturbs it (fixture alpha avg 65435, down to ~65311 — maxΔ 224/65535 ≈
-      # 0.34%). The RGB bands match to Δ1, so the visible image agrees; only the
-      # alpha band differs, and ImagePipe is the more-correct side. The conformance
+      # perturbs it (fixture alpha down to 65311 — maxΔ 224/65535 ≈ 0.34%). imgproxy
+      # premultiplies the RGB by that perturbed alpha before the resize, so with the
+      # full-range source (#240) the RGB bands now also shift (maxΔ ~2240/65535 ≈
+      # 3.4%) — a downstream consequence of the same alpha quirk, not an independent
+      # divergence (the rgb16 no-alpha preserve case above is byte-identical, so the
+      # RGB resample itself matches imgproxy; the prior near-black source merely hid
+      # this because the premultiplied RGB stayed near zero). ImagePipe is the
+      # more-correct side (it leaves a fully-opaque alpha untouched). The conformance
       # tol model can't fairly judge it either: it decomposes the 16-bit USHORT band
-      # into hi/lo bytes, so a 0.34% real alpha delta surfaces as Δ224 in the LOW
-      # byte across the whole band — an 8-bit Δ-threshold/budget can't express a
-      # 16-bit tolerance (a harness limitation independent of the alpha quirk).
-      # Tracked under #229; imgproxy still bakes the fixture so the gap stays
-      # measured — distinct from #222 (a metadata/band-LAYOUT contract layer, blind
-      # to pixel values) and #220 (a spurious alpha CHANNEL). The rgb16 (no
-      # alpha) preserve case above is a clean PASS, covering the core 16-bit PNG
-      # round-trip; the rgba16 TONEMAP case below also PASSES (8-bit, alpha 255 both
-      # sides).
+      # into hi/lo bytes, so the real deltas surface as large LOW-byte deltas across
+      # the band — an 8-bit Δ-threshold/budget can't express a 16-bit tolerance (a
+      # harness limitation independent of the alpha quirk). Tracked under #229;
+      # imgproxy still bakes the fixture so the gap stays measured — distinct from
+      # #222 (a metadata/band-LAYOUT contract layer, blind to pixel values) and #220
+      # (a spurious alpha CHANNEL). The rgb16 (no alpha) preserve case above is a
+      # clean PASS, covering the core 16-bit PNG round-trip; the rgba16 TONEMAP case
+      # below also PASSES (8-bit, alpha 255 both sides).
       %{
         c("rgba16_preserve_hdr", :rgba16, "ph:1/rs:fit:200:200")
         | verdict: :diverges,
@@ -471,9 +479,9 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # P3: absolute offset × dpr on the cover and inline-crop sites. Offset-scales-by-
       # dpr (ScaleToEven) is baked ONLY on the extend site (extend_offset_dpr_marker);
       # the cover result-crop and inline-crop offsets are baked without dpr
-      # (cover_gravity_south_offset_marker, crop_east_offset_marker).
+      # (cover_gravity_south_offset_marker, crop_east_offset_placement).
       c("cover_offset_dpr_marker", :marker, "rs:fill:300:200/g:so:0:20/dpr:2"),
-      c("crop_offset_dpr_marker", :marker, "c:300:200:ea:20:0/dpr:2"),
+      c("crop_offset_dpr_placement", :placement, "c:300:200:ea:20:0/dpr:2"),
       # P4: #233 square sign-bucket × #182 display-frame classification. rt:auto buckets
       # fill-vs-fit by sign(W−H) (square in the landscape bucket), classified on
       # DISPLAY-frame source dims. exif_6 is storage 400×300 (landscape bucket → fill)
@@ -509,26 +517,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # frame; each half is baked alone (exif_182_trim_smart, exif_5_cover) but never the
       # handoff with a real resize between them.
       c("trim_exif_cover_crop", :exif_5, "t:10/rs:fill:200:150/g:no"),
-      # P7: fill-down × min-dims — DIVERGES (quarantined → #236). The probe crossed
-      # mw/mh ABOVE the requested box for the first time on the cover path: imgproxy
-      # scales to the 400×400 intermediate (honoring mw/mh) then cropToResult-crops
-      # back to the requested 200×200, while ImagePipe's cover result-crop uses the
-      # min-EXPANDED target as its crop box (plan_executor cover_resize_and_crop crops
-      # to target_*, not result_box_*) and leaves the output at 400×400 — the #194
-      # cropToResult fix never reached the cover path. A dims mismatch (400×400 vs
-      # 200×200), so not pixel-comparable; imgproxy still bakes the fixture to keep the
-      # gap measured. The existing cover_min_dims_marker has mw/mh < target (inert), so
-      # it could not surface this. Affects plain `fill` too (shared cover path).
-      %{
-        c("fill_down_min_dims_marker", :marker, "rs:fill-down:200:200/mw:400/mh:400")
-        | triage: %{
-            reason:
-              "cover/fill result-crop uses the min-expanded target as the crop box, not " <>
-                "the requested box; mw/mh > target leaves the output uncropped (#194 fit " <>
-                "fix never reached the cover path)",
-            issue: "#236"
-          }
-      },
+      # P7: fill-down × min-dims (#236). mw/mh ABOVE the requested box on the cover
+      # path: imgproxy scales to the cover intermediate (honoring mw/mh) then
+      # cropToResult-crops back to the requested 200×200. ImagePipe's cover
+      # result-crop now crops to result_box_* (the literal requested box) like the fit
+      # path, so it matches at 200×200. The existing cover_min_dims_marker has mw/mh <
+      # target (inert), so it could not surface this; the plain-fill sibling
+      # fill_mw_mh_above_target pins the same gap on `fill`.
+      c("fill_down_min_dims_marker", :marker, "rs:fill-down:200:200/mw:400/mh:400"),
 
       # --- oracle-branch boundary probes: each flips a specific imgproxy conditional
       # (prepare.go / gravity.go / trim) to its MINORITY side, the regime no existing
@@ -536,20 +532,11 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # a triage prior, not arithmetic. ---
       #
       # B1: #236 on PLAIN fill (not just fill-down). mw/mh ABOVE the target on the
-      # shared cover path: the result-crop crops to the min-expanded target_* instead of
-      # result_box_*, so it never trims back (ImagePipe 400×400 vs imgproxy 200×200).
-      # The fill-down sibling [[fill_down_min_dims_marker]] already pins this; this pins
-      # that the gap is the cover path itself, not fill-down-specific. Quarantined → #236.
-      %{
-        c("fill_mw_mh_above_target", :marker, "rs:fill:200:200/mw:400/mh:400")
-        | triage: %{
-            reason:
-              "plain-fill arm of the #236 cover result-crop gap: mw/mh > target leaves " <>
-                "the output uncropped (cover_resize_and_crop crops to target_*, not " <>
-                "result_box_*)",
-            issue: "#236"
-          }
-      },
+      # shared cover path: the result-crop crops to result_box_* (the literal requested
+      # box), so it trims back to 200×200 like imgproxy. The fill-down sibling
+      # [[fill_down_min_dims_marker]] pins the same fix; this pins that it is the cover
+      # path itself, not fill-down-specific.
+      c("fill_mw_mh_above_target", :marker, "rs:fill:200:200/mw:400/mh:400"),
       # B2/B3: the enlarge-off DprScale compensation branch (prepare.go calcScale,
       # `!Enlarge() && minShrink<1`). small (120×90) is smaller than the 400×400 box, so
       # with enlarge off (default) and dpr:2 the `DprScale /= minShrink` compensation
@@ -600,26 +587,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # --- coverage tier: realization paths never differentially checked (expected
       # PASS — cheap insurance against an invisible mis-port). ---
       #
-      # C1: asymmetric padding × dpr × deferred-flush display frame — DIVERGES
-      # (quarantined → #237). Filed in the coverage tier as an expected PASS; the bake
-      # refuted it. With NO resize, imgproxy caps DprScale to 1 (prepare.go: wshrink=
-      # hshrink=1 → DprScale=min(DPR, 1)=1) so padding is UNSCALED (312×412), but
-      # ImagePipe's no-enlarge padding cap lives in the resize handler, so the resize-
-      # less path falls back to the RAW dpr=2 and doubles the padding (324×424). Same
-      # blind-spot shape as #236: a cap one path computes and the no-resize sibling
-      # skips. exif_182_auto_pad_dpr_cap verifies the cap WITH a resize (PASS); this is
-      # the resize-less arm. Dims mismatch → not pixel-comparable; imgproxy still bakes
-      # the fixture to keep the gap measured.
-      %{
-        c("padding_asym_dpr_exif", :exif_6, "pd:10:4:2:8/dpr:2")
-        | triage: %{
-            reason:
-              "no-enlarge effective-DPR padding cap is computed only in the resize " <>
-                "handler; a no-resize request falls back to the raw dpr and doubles the " <>
-                "padding (imgproxy caps DprScale to 1 with no resize)",
-            issue: "#237"
-          }
-      },
+      # C1: asymmetric padding × dpr × deferred-flush display frame (#237). With NO
+      # resize geometry, imgproxy caps DprScale to 1 (prepare.go: wshrink=hshrink=1 →
+      # min(DPR, 1)=1) so padding is UNSCALED (312×412). ImagePipe now caps the
+      # auto/auto (geometry-less) padding scale to 1 too — the no-enlarge cap is no
+      # longer skipped on the resize-less path — so it matches at 312×412.
+      # exif_182_auto_pad_dpr_cap covers the cap WITH a resize; this is the
+      # resize-less arm.
+      c("padding_asym_dpr_exif", :exif_6, "pd:10:4:2:8/dpr:2"),
       # C2: absolute offset on a CORNER anchor of the cover result-crop. Offsets are
       # baked on cardinal/edge anchors (south, east) but never on a corner — calcPosition
       # composes both axes of the offset against the corner placement.
@@ -627,7 +602,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # C3: focal fraction at the 0/1 boundary. fp:1:0 anchors the focus point at the
       # image's right-top edge; checks the focus-window clamp at the extreme fraction
       # (interior fp is baked, the edge is not).
-      c("crop_focal_edge_marker", :marker, "c:200:200:fp:1:0"),
+      c("crop_focal_edge_placement", :placement, "c:200:200:fp:1:0"),
 
       # --- lossy group: contract-only (dims/content-type/decode), no pixel claim ---
       lossy("lossy_webp", :high_freq_webp, "rs:fill:240:180/f:webp"),
@@ -701,15 +676,13 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # Pixelate block grid aligns to the display edges (size 7 divides neither
       # 300 nor 400, so partial edge blocks are placed by frame). The 300×400
       # output confirms the display frame; a storage-frame grid would diverge
-      # grossly (every block edge at near-full contrast). The residual is
-      # pixelate's diffuse block-average rounding skew — larger than the clean
-      # `pixelate_marker` (Δ16) because exif_6's sharp blue/gold quadrant edge
-      # falls mid-block, so the block average is more libvips-version-sensitive
-      # (maxΔ=23, >Δ32=0). Δ32 absorbs that skew; a 1px grid shift would not fit.
-      %{
-        c("exif_182_pixelate", :exif_6, "pix:7")
-        | tol: %{threshold: 32, budget: 64}
-      },
+      # grossly (every block edge at near-full contrast). With the box-mean
+      # pixelate (#238) the block average matches imgproxy's vips_shrink exactly,
+      # including across exif_6's sharp blue/gold quadrant edge, so the output is
+      # byte-identical (maxΔ=0) — the former Δ23 residual was the Lanczos overshoot
+      # at that mid-block edge, not block-average skew. Default Δ2/64; a 1px grid
+      # shift would not fit.
+      c("exif_182_pixelate", :exif_6, "pix:7"),
       # Smart trim samples the STORAGE top-left corner (blue), trimming the
       # storage-frame box before the orientation flush — not the display top-left
       # (gold).
