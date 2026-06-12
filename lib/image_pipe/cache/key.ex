@@ -69,7 +69,7 @@ defmodule ImagePipe.Cache.Key do
        detector: Keyword.get(opts, :detector_identity),
        output: output,
        auto_rotate: plan.auto_rotate,
-       representation: representation_data(),
+       representation: representation_data(plan.render),
        cache: cache_data(plan.cachebuster)
      ]}
   end
@@ -86,7 +86,10 @@ defmodule ImagePipe.Cache.Key do
 
   defp transform_data, do: [key_data_version: @transform_key_data_version]
 
-  defp representation_data, do: [version: @representation_version]
+  defp representation_data(:image_encode), do: [version: @representation_version]
+
+  defp representation_data(%ImagePipe.Plan.Render{module: module, params: params}),
+    do: [version: @representation_version, render: module, params: params]
 
   defp output_plan_data(%Output{mode: :automatic} = output, opts) do
     {:ok,
