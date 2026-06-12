@@ -52,6 +52,12 @@ dims-mismatch, a `:diverges` case that now matches, or authored-hash drift) sort
 top, and a top-of-page counts line summarizes them. The slider and Geist fonts load from
 a CDN; with no network the side-by-side panels remain the source of truth.
 
+The end-to-end smoke test that renders the report across every constellation
+(`ImagePipeGenReportTest`'s full-render case) is tagged `:imgproxy_report` and excluded by
+default in `test/test_helper.exs` (it bakes every constellation + inlines PNGs — slow, and
+not unit coverage). The `mix imgproxy.gen_report` task above is unaffected; to run the test
+itself: `mise exec -- mix test test/image_pipe/imgproxy_gen_report_test.exs --include imgproxy_report`.
+
 ## Triage a bake (no Docker)
 
 When a freshly baked case fails the conformance lane, `mix imgproxy.diagnose` prints a
