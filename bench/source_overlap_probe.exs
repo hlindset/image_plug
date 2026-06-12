@@ -23,15 +23,33 @@
 #   # more samples, custom rates (Mbps; "unlimited" allowed):
 #   mise exec -- mix run bench/source_overlap_probe.exs 5 unlimited,40,8,2
 #
+#   # conservative full-res decode instead of the real shrink-on-load path:
+#   mise exec -- mix run bench/source_overlap_probe.exs full
+#
 #   # machine-readable rows for collation (suppresses the human tables):
 #   mise exec -- mix run bench/source_overlap_probe.exs --csv
 #
 #   # force regeneration of the cached fixtures:
 #   mise exec -- mix run bench/source_overlap_probe.exs --regen
 #
+# SINK — what work the decode does (the operation that consumes the source):
+#   * shrink (default) — models the REAL pipeline: open `access: :sequential` and
+#     shrink-on-load to ~1024px where the format supports it (JPEG `shrink:`),
+#     then read every (shrunk) pixel. Seek-heavy formats (HEIF/AVIF, TIFF) have NO
+#     shrink-on-load, so they decode full-res either way — exactly what the real
+#     pipeline pays for them.
+#   * full — conservative: sequential full-res decode, no shrink-on-load. A LARGER
+#     decode is the win-favorable choice for hunting overlap (more work that could
+#     hide under the download), so a NO-GO under `full` is the stronger result.
+#   Overlap is destroyed by the loader having to BUFFER THE WHOLE INPUT before it can
+#   produce output (seek-heavy via :pipe) or by a MONOLITHIC decode (AV1), NOT by
+#   "needing all pixels": a sequential forward decode overlaps fine (it is the
+#   positive control here).
+#
 # METHODOLOGY (overlap measured without a fragile decode-start hook):
-#   For each (fixture, rate) we time, around wall-clock, a forced FULL decode
-#   (`Operation.avg/1` reads every pixel) reached three ways, plus two references:
+#   For each (fixture, rate) we time, around wall-clock, the chosen decode sink
+#   (`Operation.avg/1` reads every pixel of the sequential/shrunk load) reached
+#   three ways, plus two references:
 #     * download_only  — drain the throttled enum, no decode      → the download floor
 #     * decode_cold    — new_from_buffer + avg from an in-RAM copy → pure decode cost
 #                        (rate-independent; measured once per fixture)
@@ -59,6 +77,8 @@ defmodule SourceOverlapProbe do
 
   @default_samples 3
   @default_rates [:unlimited, 100, 16, 4]
+  # Realistic downscale target (long side, px) for the shrink-on-load sink.
+  @target_long 1024
   # Aim for ~15 ms per throttle tick: small enough for a smooth rate, large enough
   # that BEAM timer jitter (~1 ms) is a minor fraction.
   @chunk_target_ms 15
@@ -72,7 +92,7 @@ defmodule SourceOverlapProbe do
   def main(argv) do
     {csv?, argv} = pop_flag(argv, "--csv")
     {regen?, argv} = pop_flag(argv, "--regen")
-    {samples, rates} = parse(argv)
+    {samples, rates, sink} = parse(argv)
 
     # Remove cross-iteration noise from the libvips operation cache.
     Vix.Vips.cache_set_max(0)
@@ -80,15 +100,21 @@ defmodule SourceOverlapProbe do
 
     assert_vix_fork!()
 
-    fixtures = ensure_fixtures(regen?, samples)
+    fixtures = ensure_fixtures(regen?, samples, sink)
     results = for fx <- fixtures, rate <- rates, do: measure_cell(fx, rate, samples)
 
+    unless csv?, do: IO.puts("\nsink = #{sink} (#{sink_desc(sink)})")
     checks = self_checks(fixtures, results)
     unless csv?, do: print_self_checks(checks)
     abort_on_hard_failures(checks)
 
-    if csv?, do: emit_csv(results), else: report(fixtures, results, rates)
+    if csv?, do: emit_csv(results, sink), else: report(fixtures, results, rates)
   end
+
+  defp sink_desc(:shrink),
+    do: "real path: sequential + shrink-on-load to ~#{@target_long}px where supported"
+
+  defp sink_desc(:full), do: "conservative: sequential, full-res decode (no shrink-on-load)"
 
   # ── fork capability gate ──────────────────────────────────────────────────
 
@@ -106,7 +132,7 @@ defmodule SourceOverlapProbe do
 
   # ── fixtures (cached, gitignored) ─────────────────────────────────────────
 
-  defp ensure_fixtures(regen?, samples) do
+  defp ensure_fixtures(regen?, samples, sink) do
     File.mkdir_p!(@cache_dir)
     if regen?, do: Enum.each(@fixtures, fn {_, _, f} -> File.rm(Path.join(@cache_dir, f)) end)
 
@@ -118,9 +144,14 @@ defmodule SourceOverlapProbe do
     Enum.map(@fixtures, fn {class, fmt, file} ->
       path = Path.join(@cache_dir, file)
       bin = File.read!(path)
+      dims = dims(bin)
+      opts = decode_opts(sink, fmt, dims)
       # decode_cold / header-open are rate-independent: measure once per fixture.
-      decode_cold = median(for _ <- 1..(samples + 1), do: time_us(fn -> decode_buffer(bin) end))
-      header_open = median(for _ <- 1..(samples + 1), do: time_us(fn -> open_buffer(bin) end))
+      decode_cold =
+        median(for _ <- 1..(samples + 1), do: time_us(fn -> decode_buffer(bin, opts) end))
+
+      header_open =
+        median(for _ <- 1..(samples + 1), do: time_us(fn -> open_buffer(bin, opts) end))
 
       %{
         class: class,
@@ -128,10 +159,17 @@ defmodule SourceOverlapProbe do
         path: path,
         bin: bin,
         size: byte_size(bin),
+        dims: dims,
+        decode_opts: opts,
         decode_cold: decode_cold,
         header_open: header_open
       }
     end)
+  end
+
+  defp dims(bin) do
+    img = open_buffer(bin, access: :VIPS_ACCESS_SEQUENTIAL)
+    {Vix.Vips.Image.width(img), Vix.Vips.Image.height(img)}
   end
 
   # One materialized source -> three encodings of the SAME pixels. JPEG is forward
@@ -189,51 +227,71 @@ defmodule SourceOverlapProbe do
   end
 
   # ── the four timed operations ─────────────────────────────────────────────
+  #
+  # `decode_opts` are the loader options the real pipeline opens with: always
+  # `access: :sequential` (Processor opens sequential; random access is per-op and
+  # lazy), plus shrink-on-load where the format supports it (DecodePlanner). avg/1
+  # then reads every (possibly shrunk) pixel — the work the request must do before
+  # it can transform/encode. The `:full` sink drops shrink (a conservative, larger
+  # decode); seek-heavy formats have no shrink-on-load, so both sinks decode them
+  # identically — exactly what the real pipeline pays.
 
   defp download_only(bin, rate_bps) do
     throttled(bin, rate_bps) |> Enum.reduce(0, fn c, acc -> acc + byte_size(c) end)
   end
 
-  defp baseline(bin, rate_bps) do
+  defp baseline(bin, rate_bps, decode_opts) do
     data = throttled(bin, rate_bps) |> Enum.to_list() |> IO.iodata_to_binary()
-    decode_buffer(data)
+    decode_buffer(data, decode_opts)
   end
 
-  defp overlap(bin, rate_bps, :pipe) do
-    {:ok, img} = Vix.Vips.Image.new_from_enum(throttled(bin, rate_bps), mode: :pipe)
-    sink(img)
-  end
-
-  defp overlap(bin, rate_bps, :spool) do
-    size = byte_size(bin)
-
+  defp overlap(bin, rate_bps, :pipe, decode_opts) do
     {:ok, img} =
-      Vix.Vips.Image.new_from_enum(throttled(bin, rate_bps),
-        mode: :spool,
-        content_length: size,
-        max_bytes: size * 2
-      )
+      Vix.Vips.Image.new_from_enum(throttled(bin, rate_bps), [mode: :pipe] ++ decode_opts)
 
     sink(img)
   end
 
-  defp decode_buffer(bin), do: bin |> open_buffer() |> sink()
-  defp open_buffer(bin), do: with({:ok, img} <- Vix.Vips.Image.new_from_buffer(bin, []), do: img)
+  defp overlap(bin, rate_bps, :spool, decode_opts) do
+    size = byte_size(bin)
+    spool_opts = [mode: :spool, content_length: size, max_bytes: size * 2]
+    {:ok, img} = Vix.Vips.Image.new_from_enum(throttled(bin, rate_bps), spool_opts ++ decode_opts)
+    sink(img)
+  end
+
+  defp decode_buffer(bin, decode_opts), do: bin |> open_buffer(decode_opts) |> sink()
+
+  defp open_buffer(bin, decode_opts),
+    do: with({:ok, img} <- Vix.Vips.Image.new_from_buffer(bin, decode_opts), do: img)
+
   # avg/1 reads every pixel — forces the full decode the lazy image defers.
   defp sink(img), do: Vix.Vips.Operation.avg!(img)
+
+  # The real-pipeline loader options for this sink/format. Always sequential.
+  defp decode_opts(:shrink, :jpg, {w, h}),
+    do: [access: :VIPS_ACCESS_SEQUENTIAL, shrink: jpeg_shrink(max(w, h))]
+
+  defp decode_opts(_sink, _fmt, _dims), do: [access: :VIPS_ACCESS_SEQUENTIAL]
+
+  # Largest power-of-two DCT shrink that keeps the long side ≥ the target (the coarse
+  # step DecodePlanner uses before the residual resize).
+  defp jpeg_shrink(long), do: Enum.find([8, 4, 2, 1], 1, &(long / &1 >= @target_long))
 
   # ── measurement ───────────────────────────────────────────────────────────
 
   # samples + 1: the first run is a discarded warmup.
   defp measure_cell(fx, rate, samples) do
     bps = rate_bps(rate)
+    opts = fx.decode_opts
     dl = median(for _ <- 1..(samples + 1), do: time_us(fn -> download_only(fx.bin, bps) end))
-    base = median(for _ <- 1..(samples + 1), do: time_us(fn -> baseline(fx.bin, bps) end))
+    base = median(for _ <- 1..(samples + 1), do: time_us(fn -> baseline(fx.bin, bps, opts) end))
 
     modes =
       for mode <- [:pipe, :spool], into: %{} do
         total =
-          median(for _ <- 1..(samples + 1), do: time_us(fn -> overlap(fx.bin, bps, mode) end))
+          median(
+            for _ <- 1..(samples + 1), do: time_us(fn -> overlap(fx.bin, bps, mode, opts) end)
+          )
 
         tail = total - dl
         overlap_pct = pct_clamped(fx.decode_cold - tail, fx.decode_cold)
@@ -453,11 +511,12 @@ defmodule SourceOverlapProbe do
   defp material?(m),
     do: m.saving >= @material_saving_ms * 1000 and m.saving_pct >= @material_saving_pct
 
-  defp emit_csv(results) do
+  defp emit_csv(results, sink) do
     for r <- results, {mode, m} <- r.modes do
       IO.puts(
         Enum.join(
           [
+            sink,
             r.class,
             r.fmt,
             rate_label(r.rate),
@@ -527,7 +586,9 @@ defmodule SourceOverlapProbe do
         spec -> spec |> String.split(",", trim: true) |> Enum.map(&to_rate/1)
       end
 
-    {samples, rates}
+    sink = if "full" in argv, do: :full, else: :shrink
+
+    {samples, rates, sink}
   end
 
   defp rate_token?(s), do: s == "unlimited"
