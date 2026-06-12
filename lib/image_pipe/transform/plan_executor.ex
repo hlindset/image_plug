@@ -659,6 +659,14 @@ defmodule ImagePipe.Transform.PlanExecutor do
     fit_resize_and_result_crop(resize, operation, state)
   end
 
+  # A cover resize scales the whole image to cover the box (the intermediate
+  # always overflows it), then crops back. Like the fit path's cropToResult, the
+  # crop box is the literal requested dimensions (result_box_*), NOT the
+  # min-expanded target: when mw/mh drive the cover scale past the requested box,
+  # the min-dimension guarantee survives on the short axis while the long axis is
+  # trimmed back to what was asked for (imgproxy prepare.go TargetWidth + crop.go
+  # cropToResult, #236). The intermediate covers result_box on both axes, so the
+  # crop always fires.
   defp cover_resize_and_crop(%Resize{} = resize, %State{} = state, gravity, {x_offset, y_offset}) do
     {src_w, src_h} = State.effective_source_dims(state)
 
@@ -671,8 +679,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
     [
       resize,
       %Crop{
-        width: dimensions.target_width,
-        height: dimensions.target_height,
+        width: result_box_crop_dimension(dimensions.result_box_width),
+        height: result_box_crop_dimension(dimensions.result_box_height),
         crop_from: :gravity,
         gravity: gravity,
         x_offset: x_offset,
@@ -742,7 +750,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
   # executable resize is a forcing resize onto the storage-frame intermediate so
   # Resize.execute reproduces those exact dims rather than re-deriving (and
   # re-coupling) them in the storage frame. The result-crop carries the
-  # display-frame target dims and is swapped + remapped by compensate_crop.
+  # display-frame result-box dims (the literal requested box, #236) and is
+  # swapped + remapped by compensate_crop.
   defp cover_resize_and_crop_display_frame(%PlanResize{} = operation, %State{} = state) do
     {src_w, src_h} = State.effective_source_dims(state)
     resize = resize_from(operation, :cover)
@@ -761,8 +770,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
         enlarge: true
       },
       %Crop{
-        width: {:pixels, display.target_width},
-        height: {:pixels, display.target_height},
+        width: result_box_crop_dimension(display.result_box_width),
+        height: result_box_crop_dimension(display.result_box_height),
         crop_from: :gravity,
         gravity: tagged_executable_gravity(operation.guide),
         x_offset: operation.x_offset,
@@ -947,11 +956,18 @@ defmodule ImagePipe.Transform.PlanExecutor do
     clamp_padding_scale(compensated, max_without_enlarge)
   end
 
+  # No explicit geometry (auto/auto, no zoom): imgproxy's calcScale leaves
+  # dstW=srcW, dstH=srcH, so wshrink=hshrink=1 and the no-enlarge cap is
+  # min(wshrink,hshrink)=1.0. A no-enlarge request is ALWAYS capped — imgproxy's
+  # `!Enlarge()` block unconditionally runs `DprScale = min(DPR, min(wshrink,
+  # hshrink))` — so a geometry-less dpr (`pd:…/dpr:N` with no `w`/`h`) caps to 1
+  # rather than scaling padding by the raw dpr (#237). A zoom folds into the
+  # requested box upstream, so a zoomed request never reaches this auto/auto clause.
   defp max_padding_scale_without_enlarge(
          %{requested_width: :auto, requested_height: :auto},
          %State{}
        ),
-       do: :unbounded
+       do: 1.0
 
   defp max_padding_scale_without_enlarge(
          %{requested_width: width, requested_height: height},
@@ -965,9 +981,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
     {src_w, src_h} = display_source_dims(state)
     min(src_w / width, src_h / height)
   end
-
-  defp compensate_no_enlarge_padding_scale(requested_scale, :unbounded, _mode),
-    do: requested_scale
 
   # Canvas-preserving composition keeps padding tied to the clamped resize scale
   # instead of compensating DPR upward when enlargement is disabled.
@@ -985,8 +998,6 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp compensate_no_enlarge_padding_scale(requested_scale, _max_without_enlarge, _mode),
     do: requested_scale
-
-  defp clamp_padding_scale(scale, :unbounded), do: scale
 
   defp clamp_padding_scale(scale, max_without_enlarge),
     do: min(scale, max(max_without_enlarge, 1.0))

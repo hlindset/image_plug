@@ -30,9 +30,38 @@ refresh the manifest's authored hashes: `mix imgproxy.reauthor`. Rebuild the sou
 images only deliberately (a libvips bump must not silently change inputs):
 `mix imgproxy.gen_sources`.
 
+> **`gen_sources` rewrites EVERY source file**, not just the one you changed — so a
+> libvips bump on your machine can silently alter `marker.png`, the `exif_*` set, etc.
+> After running it, **`git status sources/` and confirm only the files you intended
+> changed**; revert any incidental drift (`git checkout -- sources/<file>`). Then
+> **re-bake** (changed source bytes ⇒ stale fixtures + a stale manifest source-hash).
+
 (`imgproxy.reauthor`, `imgproxy.gen_sources`, `imgproxy.gen_report`, and
 `imgproxy.diagnose` auto-select `MIX_ENV=test` via `mix.exs` `preferred_envs` — no prefix
 needed; the Docker bake goes through `mise run diff:bake`.)
+
+## Source inventory (keep it in sync)
+
+Every committed source in `sources/` is catalogued in
+[`source_inventory.ex`](source_inventory.ex)
+(`ImagePipe.Test.ImgproxyDifferential.SourceInventory`) — its dims, bands, format,
+interpretation, embedded-profile presence, **how it's produced, who consumes it, and
+the invariant it must preserve**. That module is the single source of truth; there is
+no separate Markdown table to drift.
+
+- **It is drift-checked.** `test/image_pipe/imgproxy_source_inventory_test.exs` decodes
+  every file and fails if the inventory and the bytes disagree, if a source is
+  added/removed without an entry, or if a `Constellations` source isn't inventoried.
+  **Adding, removing, or regenerating a source means updating its entry** — the test
+  enforces it. (Byte-level drift of an *unchanged* source is separately caught by the
+  conformance test's "committed sources match the manifest's recorded hashes" check.)
+- **Sources are shared beyond the bake.** Several sources are also consumed by unit
+  tests — above all the color-management suite, which depends on a source carrying an
+  embedded ICC profile (`cmyk.jpg`, `icc_p3.png`) or a specific bit depth / alpha
+  (`rgb16`/`rgba16`). The `consumers` field flags these; **a source change can break a
+  test outside the differential suite**, so check the consumers before regenerating.
+- **All sources are now produced by `mix imgproxy.gen_sources`** — none are
+  hand-committed. If you add one, add it to the task *and* the inventory.
 
 ## Visual-diff report (no Docker)
 

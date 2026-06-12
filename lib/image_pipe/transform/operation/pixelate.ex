@@ -9,6 +9,7 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
   import ImagePipe.Transform.State
 
   alias ImagePipe.Transform.State
+  alias Vix.Vips.Operation
 
   @enforce_keys [:size]
   defstruct [:size]
@@ -35,8 +36,20 @@ defmodule ImagePipe.Transform.Operation.Pixelate do
     target_height = ceil(height / size) * size
 
     with {:ok, image} <- mirror_embed(image, width, height, target_width, target_height),
-         {:ok, image} <- Image.pixelate(image, 1 / size) do
+         {:ok, image} <- box_pixelate(image, size) do
       crop_to_original_dimensions(image, width, height, target_width, target_height)
+    end
+  end
+
+  # imgproxy pixelates with vips_shrink (a pure box mean) then vips_zoom (nearest
+  # enlarge) — `vips.c` `apply_filters`. The mirror-embed preamble already padded
+  # to an exact integer multiple of `size`, which is vips_shrink's domain, so the
+  # shrink is an exact integer factor. A box mean is bounded by [min_in, max_in]
+  # per band, so it cannot overshoot the way libvips' default Lanczos resize kernel
+  # rings at sharp edges (the #238 halo).
+  defp box_pixelate(image, size) do
+    with {:ok, shrunk} <- Operation.shrink(image, size * 1.0, size * 1.0) do
+      Operation.zoom(shrunk, size, size)
     end
   end
 

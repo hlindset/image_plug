@@ -32,6 +32,24 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
       end
     end
 
+    test "resize cover crops to the literal requested box when mw/mh exceed the target (#236)" do
+      assert {:ok, operation} =
+               Operation.resize(:cover, {:px, 200}, {:px, 200},
+                 min_width: {:px, 400},
+                 min_height: {:px, 400},
+                 enlargement: :deny
+               )
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(
+                 plan([operation]),
+                 state_with_image({1600, 1200}),
+                 []
+               )
+
+      assert dimensions(state.image) == {200, 200}
+    end
+
     test "resize cover applies offsets to the result crop" do
       assert {:ok, operation} =
                Operation.resize(:cover, {:px, 100}, {:px, 100},
@@ -49,6 +67,38 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
 
       assert dimensions(state.image) == {100, 100}
       assert Image.get_pixel!(state.image, 50, 50) == [0, 0, 255]
+    end
+  end
+
+  # Structural guardrail against this codebase's recurring bug shape: a result-crop
+  # box (or a resize-derived cap) computed correctly on one mode/path and silently
+  # skipped on its siblings — #236 was exactly "#194's result_box_* crop wired for
+  # :fit, never :cover". A table over EVERY box-cropping mode catches the next
+  # sibling at authoring time instead of months later via a differential probe.
+  describe "cross-mode result-crop invariants (regression guardrails)" do
+    # imgproxy's universal cropToResult crops to TargetWidth/Height = the LITERAL
+    # requested box (Scale(po.Width, DprScale·Zoom)), NOT the min-expanded target.
+    # So when mw/mh drive the scale past the requested box on both axes, every mode
+    # that crops to a box trims back to that box. A mode that regressed to cropping
+    # at the min-expanded target would land at 400×400 (or its cover intermediate).
+    # :stretch is excluded — force has no cropToResult; it resizes straight to the
+    # (min-expanded) target. A new box-cropping mode must be added to this list.
+    test "mw/mh above the requested box trims to that box across box-cropping modes (#194/#236)" do
+      for mode <- [:fit, :cover, :auto] do
+        assert {:ok, operation} =
+                 Operation.resize(mode, {:px, 200}, {:px, 200},
+                   min_width: {:px, 400},
+                   min_height: {:px, 400},
+                   enlargement: :deny
+                 )
+
+        assert {:ok, %State{} = state} =
+                 Transform.execute_plan(plan([operation]), state_with_image({1600, 1200}), [])
+
+        assert dimensions(state.image) == {200, 200},
+               "#{mode}: result-crop should trim to the requested 200×200, " <>
+                 "got #{inspect(dimensions(state.image))}"
+      end
     end
   end
 
@@ -223,6 +273,24 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
                Transform.execute_plan(plan([resize, padding]), state_with_image(100, 50), [])
 
       assert dimensions(state.image) == {100, 60}
+    end
+
+    test "effective padding with a geometry-less dpr resize caps the DPR scale to 1 (#237)" do
+      # No w/h — only dpr. imgproxy's calcScale gives wshrink=hshrink=1, so the
+      # no-enlarge cap is DprScale=min(dpr,1)=1 and the padding stays unscaled,
+      # even though a (no-op) auto/auto resize op is present.
+      assert {:ok, resize} = Operation.resize(:fit, :auto, :auto, dpr: 2.0, enlargement: :deny)
+
+      assert {:ok, padding} =
+               Operation.padding({:px, 10}, {:px, 4}, {:px, 2}, {:px, 8},
+                 pixel_ratio: {:effective, {:ratio, 2, 1}, :resize}
+               )
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([resize, padding]), state_with_image(300, 400), [])
+
+      # Cap 1.0 → padding unscaled: width +8+4=12 → 312, height +10+2=12 → 412.
+      assert dimensions(state.image) == {312, 412}
     end
 
     test "canvas-preserving effective padding skips no-enlarge DPR compensation" do
@@ -443,6 +511,35 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
                Transform.execute_plan(plan([oversized]), state_with_image(10, 10), [])
 
       assert dimensions(state.image) == {10, 10}
+    end
+
+    test "pixelate uses a box mean that cannot overshoot the source range (#238)" do
+      # Sharp blue/gold vertical edge. imgproxy pixelates with vips_shrink (a pure
+      # box mean) + vips_zoom (nearest), so every block value is bounded by the
+      # source's [min_in, max_in] per band. libvips' default Lanczos resize kernel
+      # has negative lobes that ring at the edge and overshoot outside that range
+      # (the #238 halo) — values darker than the blue and brighter than the gold.
+      blue = [40, 40, 200]
+      gold = [200, 180, 60]
+      lo = [40, 40, 60]
+      hi = [200, 180, 200]
+
+      image =
+        20
+        |> Image.new!(10, color: gold)
+        |> Image.Draw.rect!(0, 0, 10, 10, color: blue)
+
+      assert {:ok, pixelate} = Operation.pixelate(7)
+
+      assert {:ok, %State{} = state} =
+               Transform.execute_plan(plan([pixelate]), %State{image: image}, [])
+
+      for x <- 0..(Image.width(state.image) - 1),
+          y <- 0..(Image.height(state.image) - 1),
+          {value, band} <- Enum.with_index(rgb_pixel(state.image, x, y)) do
+        assert value >= Enum.at(lo, band) and value <= Enum.at(hi, band),
+               "(#{x},#{y}) band #{band}=#{value} outside [#{Enum.at(lo, band)}, #{Enum.at(hi, band)}]"
+      end
     end
 
     test "brightness contrast and saturation preserve dimensions and change pixels" do

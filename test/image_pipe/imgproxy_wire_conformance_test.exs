@@ -876,7 +876,11 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     cases = [
       "/_/bl:4/f:png/plain/images/effects.png",
       "/_/sh:10/f:png/plain/images/effects.png",
-      "/_/pix:8/f:png/plain/images/effects.png",
+      # pix:7 (not a divisor of the 16px stripes) so a block straddles each stripe
+      # edge and the box mean visibly shifts those pixels. A block-aligned size (e.g.
+      # pix:8) would be a true no-op on this striped source — imgproxy's box-mean
+      # pixelate cannot change a block that lies within a single uniform stripe (#238).
+      "/_/pix:7/f:png/plain/images/effects.png",
       "/_/mc:1:ffcc00/f:png/plain/images/effects.png",
       "/_/dt:1:112233:ffeecc/f:png/plain/images/effects.png",
       "/_/br:25/f:png/plain/images/effects.png",
@@ -1038,8 +1042,10 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
   # #146 Bug 2 regression: cover + min-dimension under a quarter turn. The
   # cross-axis min-dim coupling (prepare.go:146-158) must close over the DISPLAY
   # axes, so this is resolved in the display frame and the resolved dims swapped
-  # back to storage. Before the fix EXIF-6 yielded 157×94 (coupling ran on the
-  # storage axes after a request-only swap); the orientation-1 twin pins 140×94.
+  # back to storage. The mw:140 min-dimension drives the cover scale past the
+  # requested box, and the universal cropToResult trims back to the literal
+  # requested 91×61 (#236); a coupling bug would shift which pixels land in that
+  # window, which the twin pixel match still catches.
   test "cover + min-dimension under a quarter turn matches the twin (display-frame resolve)" do
     path = "/_/rs:fill:91:61/mw:140/f:png/plain/images/x.jpg"
 
@@ -1047,7 +1053,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     twin = call_imgproxy(path, orientation1_twin_opts(6))
 
     assert oriented.status == 200 and twin.status == 200
-    assert dimensions(oriented) == {140, 94}
+    assert dimensions(oriented) == {91, 61}
     assert_twin_oracle_match(decoded_image(oriented), decoded_image(twin), "EXIF-6 #{path}")
   end
 

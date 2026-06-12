@@ -159,8 +159,19 @@ defmodule ImagePipe.Transform.InputColorManagementTest do
     test "16-bit RGB with alpha imports via band split/rejoin and keeps the alpha band", %{
       open: open
     } do
+      # The differential rgba16 source carries no embedded profile — it is full-range
+      # HDR content (#240), not a color-managed image. Attach a profile here (the same
+      # mutate pattern as the scRGB test) so the 16-bit-with-alpha import path — which
+      # needs an embedded profile to import — is genuinely exercised.
+      {:ok, profile} = VixImage.header_value(open.(@p3_fixture), "icc-profile-data")
       img = open.(@rgba16_fixture)
       assert VixImage.bands(img) == 4
+
+      {:ok, img} =
+        VixImage.mutate(img, fn m ->
+          :ok = MutableImage.set(m, "icc-profile-data", :VipsBlob, profile)
+        end)
+
       {:ok, out} = ICM.condition(%State{image: img}, supports_hdr?: false)
       assert out.color_imported? == true
       assert VixImage.interpretation(out.image) == :VIPS_INTERPRETATION_sRGB
