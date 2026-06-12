@@ -50,6 +50,7 @@ mise.local.toml
 
 # Generated benchmark output
 bench/results/
+bench/.cache/
 tmp/
 
 # Generated imgproxy differential visual-diff report (regenerate on demand)
