@@ -50,9 +50,22 @@ defmodule ImagePipe.Parser do
   @spec validate_options!(module(), keyword()) :: keyword()
   def validate_options!(parser, opts) when is_atom(parser) and is_list(opts) do
     if Code.ensure_loaded?(parser) and function_exported?(parser, :validate_options!, 1) do
-      parser.validate_options!(opts)
+      validate_returned_options!(parser, parser.validate_options!(opts))
     else
       opts
     end
+  end
+
+  defp validate_returned_options!(parser, opts) when is_list(opts) do
+    if Keyword.keyword?(opts),
+      do: opts,
+      else: raise(ArgumentError, keyword_return_error(parser, opts))
+  end
+
+  defp validate_returned_options!(parser, opts),
+    do: raise(ArgumentError, keyword_return_error(parser, opts))
+
+  defp keyword_return_error(parser, returned) do
+    "#{inspect(parser)}.validate_options!/1 must return a keyword list, got: #{inspect(returned)}"
   end
 end
