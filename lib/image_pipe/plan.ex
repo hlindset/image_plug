@@ -9,7 +9,9 @@ defmodule ImagePipe.Plan do
     exports: [
       Pipeline,
       Output,
+      RenderContext,
       Response,
+      SourceInfo,
       Color,
       KeyData,
       Source,
@@ -50,17 +52,19 @@ defmodule ImagePipe.Plan do
                 expires: 0,
                 cachebuster: nil,
                 response: %Response{},
-                auto_rotate: false
+                auto_rotate: false,
+                render: :image
               ]
 
   @type t :: %__MODULE__{
           source: ImagePipe.Plan.Source.t(),
           pipelines: [ImagePipe.Plan.Pipeline.t()],
-          output: ImagePipe.Plan.Output.t(),
+          output: ImagePipe.Plan.Output.t() | nil,
           expires: non_neg_integer(),
           cachebuster: String.t() | nil,
           response: Response.t(),
-          auto_rotate: boolean()
+          auto_rotate: boolean(),
+          render: :image | {:custom, module(), map()}
         }
 
   @type pipeline_error() ::
@@ -75,11 +79,12 @@ defmodule ImagePipe.Plan do
           | {:invalid_cachebuster, term()}
           | {:invalid_response_plan, term()}
           | {:invalid_auto_rotate, term()}
+          | {:invalid_render_plan, term()}
 
   @spec validate_shape(t()) :: {:ok, t()} | {:error, shape_error()}
   def validate_shape(%__MODULE__{} = plan) do
     with :ok <- validate_source(plan.source),
-         :ok <- validate_output(plan.output),
+         :ok <- validate_terminal(plan.render, plan.output),
          :ok <- validate_expires(plan.expires),
          :ok <- validate_cachebuster(plan.cachebuster),
          :ok <- validate_response(plan.response),
@@ -303,4 +308,21 @@ defmodule ImagePipe.Plan do
 
   defp validate_auto_rotate(value) when is_boolean(value), do: :ok
   defp validate_auto_rotate(value), do: {:error, {:invalid_auto_rotate, value}}
+
+  # The terminal pairs the render selector with the output config: only the
+  # built-in `:image` terminal carries an image `%Output{}`; a custom renderer
+  # produces its own body and carries no image output (`nil`). Validating them
+  # together keeps the two in lockstep — an `:image` plan with no output, or a
+  # custom render smuggling an image output, is malformed.
+  defp validate_terminal(:image, output), do: validate_output(output)
+
+  defp validate_terminal({:custom, module, params}, nil)
+       when is_atom(module) and is_map(params),
+       do: :ok
+
+  defp validate_terminal({:custom, module, params} = render, _output)
+       when is_atom(module) and is_map(params),
+       do: {:error, {:invalid_render_plan, render}}
+
+  defp validate_terminal(render, _output), do: {:error, {:invalid_render_plan, render}}
 end

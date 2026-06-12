@@ -4,6 +4,14 @@ defmodule ImagePipe.Parser.Imgproxy.Path do
   alias ImagePipe.Parser.Imgproxy.Format
   alias ImagePipe.Parser.Imgproxy.SourceEncryption
 
+  def split_endpoint(%Plug.Conn{} = conn) do
+    case parser_request_path(conn) do
+      "/info/" <> rest -> {:info, %{conn | request_path: "/" <> rest}}
+      "/info" -> {:info, %{conn | request_path: "/"}}
+      _ -> :image
+    end
+  end
+
   def extract(%Plug.Conn{} = conn) do
     case parser_request_path(conn) do
       "/" ->
@@ -27,6 +35,31 @@ defmodule ImagePipe.Parser.Imgproxy.Path do
   def parse_source(:plain, source_path, _opts), do: parse_plain_source(source_path)
   def parse_source(:encoded, source_path, opts), do: parse_encoded_source(source_path, opts)
   def parse_source(:encrypted, source_path, opts), do: parse_encrypted_source(source_path, opts)
+
+  def parse_source_no_extension(:plain, source_path, _opts) do
+    encoded = Enum.join(source_path, "/")
+
+    case encoded do
+      "" -> {:error, {:missing_source_identifier, "plain"}}
+      source -> decode_source_path(source, nil)
+    end
+  end
+
+  def parse_source_no_extension(:encoded, source_path, opts) do
+    case encoded_source_value(source_path, opts) do
+      "" -> {:error, {:missing_source_identifier, "encoded"}}
+      value -> decode_encoded_source(value, nil)
+    end
+  end
+
+  def parse_source_no_extension(:encrypted, source_path, opts) do
+    source_encryption = Keyword.get(opts, :source_url_encryption)
+
+    case encoded_source_value(source_path, opts) do
+      "" -> {:error, {:missing_source_identifier, "encrypted"}}
+      value -> decode_encrypted_source(value, nil, source_encryption)
+    end
+  end
 
   def parse_plain_source(source_path) do
     encoded = Enum.join(source_path, "/")

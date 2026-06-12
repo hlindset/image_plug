@@ -12,6 +12,7 @@ defmodule ImagePipe.Response do
     ],
     exports: [
       CacheHeaders,
+      Json,
       PreparedStream,
       Sender
     ]

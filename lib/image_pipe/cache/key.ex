@@ -69,7 +69,7 @@ defmodule ImagePipe.Cache.Key do
        detector: Keyword.get(opts, :detector_identity),
        output: output,
        auto_rotate: plan.auto_rotate,
-       representation: representation_data(),
+       representation: representation_data(plan.render),
        cache: cache_data(plan.cachebuster)
      ]}
   end
@@ -86,7 +86,14 @@ defmodule ImagePipe.Cache.Key do
 
   defp transform_data, do: [key_data_version: @transform_key_data_version]
 
-  defp representation_data, do: [version: @representation_version]
+  defp representation_data(:image), do: [version: @representation_version]
+
+  defp representation_data({:custom, module, params}),
+    do: [version: @representation_version, render: module, params: params]
+
+  # A custom render carries no image output; it contributes no output key data
+  # (the render identity is carried by `representation_data/1` instead).
+  defp output_plan_data(nil, _opts), do: {:ok, []}
 
   defp output_plan_data(%Output{mode: :automatic} = output, opts) do
     {:ok,
@@ -138,6 +145,8 @@ defmodule ImagePipe.Cache.Key do
        hdr: output.hdr
      ]}
   end
+
+  defp output_data(_conn, nil, opts), do: output_plan_data(nil, opts)
 
   defp output_data(_conn, %Output{} = output, opts), do: output_plan_data(output, opts)
 

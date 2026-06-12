@@ -210,6 +210,8 @@ defmodule ImagePipe.Request.HTTPCache do
 
   defp accept_material(_conn, %Output{}, _opts), do: []
 
+  defp accept_material(_conn, nil, _opts), do: []
+
   defp representation_headers(conn, %Plan{output: %Output{mode: :automatic}}),
     do: merge_vary(conn, "Accept")
 

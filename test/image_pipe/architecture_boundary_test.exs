@@ -52,6 +52,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Plan => "lib/image_pipe/plan.ex",
     ImagePipe.Parser => "lib/image_pipe/parser.ex",
     ImagePipe.Parser.Imgproxy => "lib/image_pipe/parser/imgproxy.ex",
+    ImagePipe.Renderer => "lib/image_pipe/renderer.ex",
     ImagePipe.Request => "lib/image_pipe/request.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
@@ -93,11 +94,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :execute_plan
   ]
 
-  test "parser boundary declarations stay limited to format, parser, and plan APIs" do
+  test "parser boundary declarations stay limited to format, plan, renderer, and parser APIs" do
     parser = boundary_declaration(ImagePipe.Parser)
     imgproxy = boundary_declaration(ImagePipe.Parser.Imgproxy)
 
-    assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan])
+    assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
     # The Parser behaviour boundary must not export any concrete adapter: the core
     # never names a specific parser, so an adapter (imgproxy/…) can be ripped out
     # without editing the behaviour boundary.
@@ -106,17 +107,19 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(imgproxy, [
       ImagePipe.Format,
       ImagePipe.Parser,
-      ImagePipe.Plan
+      ImagePipe.Plan,
+      ImagePipe.Renderer
     ])
 
     assert_boundary_exports(imgproxy, [ImagePipe.Parser.Imgproxy.SourceScheme])
 
-    assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan])
+    assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
 
     assert_allowed_deps(imgproxy, [
       ImagePipe.Format,
       ImagePipe.Parser,
-      ImagePipe.Plan
+      ImagePipe.Plan,
+      ImagePipe.Renderer
     ])
   end
 
@@ -128,6 +131,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Format,
       ImagePipe.Plan,
       ImagePipe.Cache,
+      ImagePipe.Renderer,
       ImagePipe.Source,
       ImagePipe.Output,
       ImagePipe.Response,
@@ -197,6 +201,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_exports(response, [
       ImagePipe.Response.CacheHeaders,
+      ImagePipe.Response.Json,
       ImagePipe.Response.PreparedStream,
       ImagePipe.Response.Sender
     ])
@@ -343,6 +348,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache,
       ImagePipe.Transform
     ])
+  end
+
+  test "renderer boundary depends only on the plan" do
+    renderer = boundary_declaration(ImagePipe.Renderer)
+    assert_boundary_deps(renderer, [ImagePipe.Plan])
   end
 
   test "request, source, and response code does not depend on concrete transform modules" do
@@ -496,7 +506,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(plan, [
       ImagePipe.Plan.Pipeline,
       ImagePipe.Plan.Output,
+      ImagePipe.Plan.RenderContext,
       ImagePipe.Plan.Response,
+      ImagePipe.Plan.SourceInfo,
       ImagePipe.Plan.Color,
       ImagePipe.Plan.KeyData,
       ImagePipe.Plan.Source,

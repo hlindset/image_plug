@@ -10,7 +10,7 @@ defmodule ImagePipe.MixProject do
       version: @version,
       description: description(),
       package: package(),
-      elixir: "~> 1.17",
+      elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       compilers: extra_compilers(Mix.env()) ++ Mix.compilers(),
       start_permanent: Mix.env() == :prod,

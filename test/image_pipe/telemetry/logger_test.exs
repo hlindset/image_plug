@@ -312,6 +312,41 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "transform input_color_management: processing_error"
   end
 
+  test "renders the render span with its content type on success" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :render, :stop],
+          %{duration: System.convert_time_unit(2, :millisecond, :native)},
+          %{result: :ok, content_type: "application/json"}
+        )
+      end)
+
+    assert log =~ "render"
+    assert log =~ "ok"
+    assert log =~ "application/json"
+    refute log =~ "[warning]"
+  end
+
+  test "escalates a render_error to warning" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :render, :stop],
+          %{duration: 1000},
+          %{result: :render_error, error: :boom}
+        )
+      end)
+
+    assert log =~ "[warning]"
+    assert log =~ "render"
+    assert log =~ "render_error"
+  end
+
   test "rejects an invalid log level" do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(level: :nope) end
   end
