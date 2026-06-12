@@ -347,6 +347,40 @@ defmodule ImagePipe.Telemetry.LoggerTest do
     assert log =~ "render_error"
   end
 
+  test "renders the detected source format and resolution on the fetch_decode span" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :fetch_decode, :stop],
+          %{duration: System.convert_time_unit(3, :millisecond, :native)},
+          %{result: :ok, detected_source_format: :jpeg, source_format_resolution: :detected}
+        )
+      end)
+
+    assert log =~ "source fetch_decode: ok (detected jpeg via detected)"
+  end
+
+  test "renders the detected format on an unsupported-format reject" do
+    Telemetry.attach_default_logger(level: :info)
+
+    log =
+      capture_log(fn ->
+        :telemetry.execute(
+          [:image_pipe, :source, :fetch_decode, :stop],
+          %{duration: System.convert_time_unit(1, :millisecond, :native)},
+          %{
+            result: :processing_error,
+            error: :unsupported_source_format,
+            detected_source_format: :svg
+          }
+        )
+      end)
+
+    assert log =~ "source fetch_decode: processing_error (detected svg)"
+  end
+
   test "rejects an invalid log level" do
     assert_raise ArgumentError, fn -> Telemetry.attach_default_logger(level: :nope) end
   end
