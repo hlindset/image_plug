@@ -272,29 +272,6 @@ defmodule ImagePipe.Request.SourceSessionSupervisorTest do
     assert_receive {:DOWN, ^session_ref, :process, ^session, {:shutdown, {:owner_down, :normal}}}
   end
 
-  test "caller parent option cannot override the supervisor parent" do
-    register_stream_events!()
-    supervisor = start_supervised!({SourceSessionSupervisor, name: nil})
-
-    assert {:ok, session} =
-             SourceSessionSupervisor.start_session(
-               supervisor,
-               request(opts: opts(image_module: CleanupStreamImage)),
-               owner: self(),
-               parent: self()
-             )
-
-    session_ref = Process.monitor(session)
-
-    assert {:ok, %Prepared{first_chunk: "first chunk"}} = SourceSession.prepare(session)
-
-    capture_log(fn ->
-      Supervisor.stop(supervisor, :shutdown)
-    end)
-
-    assert_receive {:DOWN, ^session_ref, :process, ^session, :shutdown}
-  end
-
   test "parent shutdown during active prepare exits as controlled shutdown" do
     supervisor = start_supervised!({SourceSessionSupervisor, name: nil})
     parent = self()

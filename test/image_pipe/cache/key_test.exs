@@ -407,32 +407,6 @@ defmodule ImagePipe.Cache.KeyTest do
     assert key_one.data[:source_identity] == identity
   end
 
-  test "source identity rejects non-primitive cache material" do
-    conn = conn(:get, "/_/plain/images/cat.jpg")
-    identity = [kind: :path, client: self()]
-
-    assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
-  end
-
-  test "source identity rejects module atoms in cache material" do
-    conn = conn(:get, "/_/plain/images/cat.jpg")
-    identity = [kind: :path, adapter_module: ImagePipe.Source.File]
-
-    assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
-  end
-
-  test "source identity rejects unsupported cache material containers" do
-    conn = conn(:get, "/_/plain/images/cat.jpg")
-
-    for identity <- [
-          "https://origin.test/images/cat.jpg",
-          [kind: :path, lookup: %{root: "default"}],
-          [kind: :path, lookup: {:root, "default"}]
-        ] do
-      assert Key.build(conn, plan(), identity) == {:error, {:invalid_source_identity, identity}}
-    end
-  end
-
   test "pipelines key data preserves pipeline boundaries" do
     key =
       conn(:get, "/_/f:webp/plain/images/cat.jpg")

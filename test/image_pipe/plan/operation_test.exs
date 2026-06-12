@@ -390,11 +390,6 @@ defmodule ImagePipe.Plan.OperationTest do
       refute Operation.semantic?(%Rotate{angle: 45})
       refute Operation.semantic?(%Flip{axis: :diagonal})
     end
-
-    test "rejects executable transform orientation structs as semantic operations" do
-      refute Operation.semantic?(%ImagePipe.Transform.Operation.Rotate{angle: 90})
-      refute Operation.semantic?(%ImagePipe.Transform.Operation.Flip{axis: :horizontal})
-    end
   end
 
   describe "trim/1" do

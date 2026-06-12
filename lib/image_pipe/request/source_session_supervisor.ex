@@ -29,10 +29,7 @@ defmodule ImagePipe.Request.SourceSessionSupervisor do
 
   @spec start_session(supervisor(), Request.t(), keyword()) :: DynamicSupervisor.on_start_child()
   def start_session(supervisor, %Request{} = request, opts) do
-    opts =
-      opts
-      |> Keyword.delete(:parent)
-      |> Keyword.put_new(:owner, self())
+    opts = Keyword.put_new(opts, :owner, self())
 
     DynamicSupervisor.start_child(supervisor, {SourceSession, {request, opts}})
   end

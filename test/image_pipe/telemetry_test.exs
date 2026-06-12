@@ -549,6 +549,8 @@ defmodule ImagePipe.TelemetryTest do
       assert_event(events, [:image_pipe, :request, :stop], fn _measurements, metadata ->
         assert metadata.result == result
         assert metadata.status == status
+        # Every error branch (parser included) tags the top-level span.
+        assert is_atom(metadata.error)
       end)
 
       refute_event(events, [:image_pipe, :request, :exception],

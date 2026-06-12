@@ -54,26 +54,25 @@ defmodule ImagePipe.Request.HTTPCache do
   def generated_cache_control, do: @generated_cache_control
 
   @doc false
-  @spec etag_material(Plug.Conn.t(), Plan.t(), term(), keyword()) ::
-          {:ok, keyword()} | {:error, term()}
+  @spec etag_material(Plug.Conn.t(), Plan.t(), term(), keyword()) :: {:ok, keyword()}
   def etag_material(conn, %Plan{} = plan, source_seed, opts) do
-    with {:ok, plan_material} <- Key.plan_material(plan, opts) do
-      # The ETag is a strong byte-identity validator derived only from request
-      # inputs (source seed + canonical plan + negotiated Accept), never from the
-      # encoded bytes — that is what lets a conditional GET 304 before any fetch,
-      # decode, encode, or cache read. Drop the cachebuster (:cache): it busts
-      # storage but yields byte-identical output, so it must not move the ETag (a
-      # change would force clients to re-download identical content). Vary
-      # headers/cookies, which partition the cache key, are absent here for the
-      # same reason. Keep this input-derived; do not make it a hash of the body.
-      {:ok,
-       [
-         etag_schema: @etag_schema,
-         source: source_seed,
-         plan: Keyword.drop(plan_material, [:cache]),
-         accept: accept_material(conn, plan.output, opts)
-       ]}
-    end
+    {:ok, plan_material} = Key.plan_material(plan, opts)
+
+    # The ETag is a strong byte-identity validator derived only from request
+    # inputs (source seed + canonical plan + negotiated Accept), never from the
+    # encoded bytes — that is what lets a conditional GET 304 before any fetch,
+    # decode, encode, or cache read. Drop the cachebuster (:cache): it busts
+    # storage but yields byte-identical output, so it must not move the ETag (a
+    # change would force clients to re-download identical content). Vary
+    # headers/cookies, which partition the cache key, are absent here for the
+    # same reason. Keep this input-derived; do not make it a hash of the body.
+    {:ok,
+     [
+       etag_schema: @etag_schema,
+       source: source_seed,
+       plan: Keyword.drop(plan_material, [:cache]),
+       accept: accept_material(conn, plan.output, opts)
+     ]}
   end
 
   @spec evaluate_conditional(Plug.Conn.t(), CacheHeaders.t(), keyword()) ::
@@ -190,17 +189,13 @@ defmodule ImagePipe.Request.HTTPCache do
   end
 
   defp do_generated_etag(conn, plan, %CacheSemantics{byte_identity: {:strong, seed}}, opts) do
-    case etag_material(conn, plan, seed, opts) do
-      {:ok, material} ->
-        material
-        |> serialize_material()
-        |> then(&:crypto.hash(:sha256, &1))
-        |> Base.url_encode64(padding: false)
-        |> then(&{:etag, ~s("ip#{@etag_schema}-#{&1}")})
+    {:ok, material} = etag_material(conn, plan, seed, opts)
 
-      {:error, _reason} ->
-        :not_generated
-    end
+    material
+    |> serialize_material()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.url_encode64(padding: false)
+    |> then(&{:etag, ~s("ip#{@etag_schema}-#{&1}")})
   end
 
   defp do_generated_etag(_conn, _plan, %CacheSemantics{byte_identity: :none}, _opts),

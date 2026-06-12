@@ -11,7 +11,6 @@ defmodule ImagePipe.Transform.ChainTest do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.ExtendCanvas
   alias ImagePipe.Transform.Operation.Resize
-  alias ImagePipe.Transform.Operation.Rotate
   alias ImagePipe.Transform.Operation.Saturation
   alias ImagePipe.Transform.State
 
@@ -218,11 +217,11 @@ defmodule ImagePipe.Transform.ChainTest do
       {:ok, image} = Image.new(40, 20, color: :white)
 
       {:ok, state} =
-        Chain.execute(%State{image: image, materialized?: false}, [%Rotate{angle: 90}])
+        Chain.execute(%State{image: image, materialized?: false}, [smart_crop(20, 10)])
 
       assert state.materialized? == true
       assert Image.width(state.image) == 20
-      assert Image.height(state.image) == 40
+      assert Image.height(state.image) == 10
     end
 
     test "a second materializing op produces correct output (no double-copy regression)" do
@@ -230,14 +229,13 @@ defmodule ImagePipe.Transform.ChainTest do
 
       {:ok, state} =
         Chain.execute(%State{image: image, materialized?: false}, [
-          %Rotate{angle: 90},
-          %Rotate{angle: 90}
+          smart_crop(30, 16),
+          smart_crop(20, 10)
         ])
 
-      # two 90-degree turns = 180; back to 40x20
       assert state.materialized? == true
-      assert Image.width(state.image) == 40
-      assert Image.height(state.image) == 20
+      assert Image.width(state.image) == 20
+      assert Image.height(state.image) == 10
     end
 
     test "a fully sequential-safe chain leaves materialized? false" do
@@ -253,15 +251,24 @@ defmodule ImagePipe.Transform.ChainTest do
 
     test "a materializing op on a corrupt sequential image returns {:materialize_error, _}, not {:transform_error, _}" do
       # Open just enough bytes to satisfy the JPEG header parser but not enough to
-      # read all pixel data. copy_memory fails when the rotate tries to pull pixels
-      # from the truncated sequential stream.
+      # read all pixel data. copy_memory fails when the materializing crop tries to
+      # pull pixels from the truncated sequential stream.
       body = File.read!("priv/static/images/beach.jpg")
       truncated = binary_part(body, 0, 5000)
       {:ok, image} = Image.open([truncated], access: :sequential, fail_on: :error)
 
       assert {:error, {:materialize_error, _}} =
-               Chain.execute(%State{image: image}, [%Rotate{angle: 90}])
+               Chain.execute(%State{image: image}, [smart_crop(20, 10)])
     end
+  end
+
+  defp smart_crop(width, height) do
+    %Crop{
+      width: {:pixels, width},
+      height: {:pixels, height},
+      crop_from: :gravity,
+      gravity: :smart
+    }
   end
 
   test "execute/3 emits [:transform, :operation] spans in order with operation metadata" do

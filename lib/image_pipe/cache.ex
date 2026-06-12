@@ -71,7 +71,6 @@ defmodule ImagePipe.Cache do
           | {:hit, Key.t(), Entry.t()}
           | {:miss, Key.t()}
           | {:miss, Key.t(), {:cache_read, term()}}
-          | {:error, {:cache_read, term()}}
 
   @doc false
   @spec validate_config(keyword()) :: {:ok, keyword()} | {:error, term()}
@@ -146,10 +145,8 @@ defmodule ImagePipe.Cache do
   end
 
   defp lookup_configured(adapter, conn, plan, source_identity, opts, cache_opts) do
-    case Key.build(conn, plan, source_identity, key_options(opts, cache_opts)) do
-      {:ok, key} -> get_configured(adapter, key, cache_opts)
-      {:error, reason} -> {:error, {:cache_read, reason}}
-    end
+    {:ok, key} = Key.build(conn, plan, source_identity, key_options(opts, cache_opts))
+    get_configured(adapter, key, cache_opts)
   end
 
   defp get_configured(adapter, key, cache_opts) do
