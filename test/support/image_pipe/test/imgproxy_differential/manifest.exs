@@ -13,6 +13,13 @@
     "exif_6.jpg" => "ffc9f345632012165b7c80950b5d97999c370cc8f434995e52f58099fc675905",
     "exif_7.jpg" => "e3e222be9871ff6064dd88d2fd0e6281f39b04183bf6960a8dc22dde82b4f976",
     "exif_8.jpg" => "51d5a8f471da85a76b6327bcc08afe22f55994001003d252f0c98e6540ffd023",
+    "exif_placement_2.jpg" => "b4c47754f040d0fb6cd23d76576430dbabe760c7c2f698c9da30003f2708a9db",
+    "exif_placement_3.jpg" => "7c7d36bec89cac720e78660b0ba4153f678a8d5ab0e254421c9c27626b98ae99",
+    "exif_placement_4.jpg" => "6416279f4061f5d7e8a532abde187611724ecc98cb27ed17931fda37d597a40f",
+    "exif_placement_5.jpg" => "dc1a15da0a2fa424750012054e8dd77e8513da21341172b6b63e1fdb07ed8c2e",
+    "exif_placement_6.jpg" => "647850a6d806cc8141574273bf8b4cf7cc76548331af2f00777b838dcdbb9d9f",
+    "exif_placement_7.jpg" => "cd865146d6bcced1ee11cef5807ccb95dfe5051cf2df14ce39a724438899c11e",
+    "exif_placement_8.jpg" => "c2705d93f917dc4c51b40ee8a01ca05b27ab7806d3a46636c26eedee8e1ae082",
     "high_freq.jpg" => "54ded6c57ec02c685e275276b54947f8c9345015342fc8a2acc9d8e54e4a7d43",
     "high_freq.webp" => "32d8e080d7e440b6329a441d2913222906d320bdeb060e956eb68a297c51df18",
     "icc_p3.png" => "80ce9bc055c01a12a9d8bf3db1693a1b46995f66bfdb796503636122de264869",
@@ -252,9 +259,9 @@
       kind: :transform
     },
     "exif_2_crop_no" => %{
-      authored_sha256: "b2f9fd669ac0d4acfe295132d6908d9fa859178006b6a9f8074eccd50bf10f7e",
+      authored_sha256: "3ce288626249c0a86f6431ad66838c903e39b46c8fc1e667b821be267296d7d9",
       fixture_filename: "exif_2_crop_no.png",
-      fixture_sha256: "203da9019e4b2f2508941bb9f197667ede17c9bab35495fb3c404f79c36dca53",
+      fixture_sha256: "d3e9c6ddfe1c8546db919983898f9a1cce89cd5cfe8d74831142621482bf36dc",
       kind: :transform
     },
     "exif_2_extend_so" => %{
@@ -270,9 +277,9 @@
       kind: :transform
     },
     "exif_3_crop_no" => %{
-      authored_sha256: "94b83d4ad6d2e7f28ae1c20ef04bd0820180c2b7a144fa4c05e2f55c6ce88416",
+      authored_sha256: "21ba98c9e0749f276e91f38deb263b9be889810a608dac615a0f761e76acfce2",
       fixture_filename: "exif_3_crop_no.png",
-      fixture_sha256: "133dbb7eb8d513da849d91f58c9ab608b1969a24720429255e19405456797b6a",
+      fixture_sha256: "72c0684d1cd41a0069acac6f408ec1a87fe6a1041ef7c2dac33c36776d439f0b",
       kind: :transform
     },
     "exif_3_extend_so" => %{
@@ -288,9 +295,9 @@
       kind: :transform
     },
     "exif_4_crop_no" => %{
-      authored_sha256: "83742ebe028de990624d76fa9078f56c85f390c79ed7cdba6712c94d3fa99c99",
+      authored_sha256: "560cb0f328f1c793e3f07b72a9d8f714fb22241a908715959208d0cec078bfea",
       fixture_filename: "exif_4_crop_no.png",
-      fixture_sha256: "133dbb7eb8d513da849d91f58c9ab608b1969a24720429255e19405456797b6a",
+      fixture_sha256: "6d320fe78bd2cd98e8de1dea37bfa0c947a11fa5a25b0e72b8008acd49c51303",
       kind: :transform
     },
     "exif_4_extend_so" => %{
@@ -318,9 +325,9 @@
       kind: :transform
     },
     "exif_5_crop_no" => %{
-      authored_sha256: "ea712d0c37f8aa727306e8b6688e51aafae0d9d3bb63edfed2d07973b766a4b7",
+      authored_sha256: "a2114b8cf723da0836898768b7f451aa6de83b915fcb367195062aeadf6ed650",
       fixture_filename: "exif_5_crop_no.png",
-      fixture_sha256: "e29999f169ef8cbf73afd885de1a3fe1175c7213424592b6c752020d72f6664b",
+      fixture_sha256: "cb0ef932743dc2d6abe9688447ae8f2c795fae50225ff2a81779c0ccf52ab690",
       kind: :transform
     },
     "exif_5_extend_so" => %{
@@ -348,9 +355,9 @@
       kind: :transform
     },
     "exif_7_crop_no" => %{
-      authored_sha256: "0384ebd259bb27c3c8aef702be23f5d53d61d077bdb4d89bb87b997fd63f98f8",
+      authored_sha256: "ec2a406e96675579a03ddd68b3eda768133cc0e5bc224bad093ecd6bbfb3a569",
       fixture_filename: "exif_7_crop_no.png",
-      fixture_sha256: "133dbb7eb8d513da849d91f58c9ab608b1969a24720429255e19405456797b6a",
+      fixture_sha256: "e9a1433b8c78bb2d0d6a66b0ac927cadaa3628c568dbe9c76ea80ff119337a13",
       kind: :transform
     },
     "exif_7_extend_so" => %{
@@ -366,9 +373,9 @@
       kind: :transform
     },
     "exif_8_crop_no" => %{
-      authored_sha256: "cf785d702334ee80d302a5b41633ca732eef52b0c5dc65212f855d5c31eb8171",
+      authored_sha256: "61431db3fb481717cef2e353ad063809da98b8650b9b7058775caf1387276951",
       fixture_filename: "exif_8_crop_no.png",
-      fixture_sha256: "133dbb7eb8d513da849d91f58c9ab608b1969a24720429255e19405456797b6a",
+      fixture_sha256: "99449d7cdf5c29395b041ad60fbcb92aa5eebe7deddd3f0bbf32da59fe2f324d",
       kind: :transform
     },
     "exif_8_extend_so" => %{
@@ -402,9 +409,9 @@
       kind: :transform
     },
     "exif_crop_focal" => %{
-      authored_sha256: "94162743b41e2cd2cb7af4891f53ef3be1ee465da2b71a77bbf1bbdfc780e054",
+      authored_sha256: "0b7574e2938b0963942e968f693d44a4eb94d83b0505b4e33751296e34b21c2f",
       fixture_filename: "exif_crop_focal.png",
-      fixture_sha256: "133dbb7eb8d513da849d91f58c9ab608b1969a24720429255e19405456797b6a",
+      fixture_sha256: "6f7380739c9aa949e3102829cabe2ddaf9ca57ff6671abdcc83cbbd6ca43639d",
       kind: :transform
     },
     "exif_crop_north" => %{

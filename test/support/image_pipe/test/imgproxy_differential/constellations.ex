@@ -22,6 +22,13 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
     exif_6: "exif_6.jpg",
     exif_7: "exif_7.jpg",
     exif_8: "exif_8.jpg",
+    exif_placement_2: "exif_placement_2.jpg",
+    exif_placement_3: "exif_placement_3.jpg",
+    exif_placement_4: "exif_placement_4.jpg",
+    exif_placement_5: "exif_placement_5.jpg",
+    exif_placement_6: "exif_placement_6.jpg",
+    exif_placement_7: "exif_placement_7.jpg",
+    exif_placement_8: "exif_placement_8.jpg",
     icc_p3: "icc_p3.png",
     small: "small.png",
     cmyk: "cmyk.jpg",
@@ -460,7 +467,10 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # CARDINAL-anchor rotation has differential coverage (exif_crop_north,
       # rot90_crop_north_marker) — the fp coordinate-rotation path has none. exif_6 is a
       # plain quarter turn; 5/7 (transpose/transverse) add an axis swap to the fraction.
-      c("exif_crop_focal", :exif_6, "c:200:120:fp:0.3:0.7"),
+      # Inline crop on the aperiodic exif_placement grid (#239 EXIF half): the focal
+      # window would land in exif_base's uniform gold ground, so a fp-rotation bug would
+      # move it within a flat field; the placement grid makes any 1px shift maxΔ≈255.
+      c("exif_crop_focal", :exif_placement_6, "c:200:120:fp:0.3:0.7"),
       c("exif_cover_focal_transpose", :exif_5, "rs:fill:200:150/g:fp:0.2:0.8"),
       c("exif_cover_focal_transverse", :exif_7, "rs:fill:200:150/g:fp:0.2:0.8"),
       # P2: focal-point × min-dims × dpr. #198 proved the result-crop box is computed
@@ -637,8 +647,8 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
 
   defp exif_orientation_constellations do
     cover_crop =
-      for o <- @exif_orientations, {suffix, opts} <- exif_base_seams() do
-        c("exif_#{o}_#{suffix}", :"exif_#{o}", opts)
+      for o <- @exif_orientations, {suffix, opts, family} <- exif_base_seams() do
+        c("exif_#{o}_#{suffix}", :"#{family}_#{o}", opts)
       end
 
     cover_crop ++
@@ -692,11 +702,15 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
 
   # cover + non-center crop are a clean 6×2 cross-product (uniform per-orientation
   # intent — see the family comment above). extend_so is listed explicitly because
-  # its libvips skew profile differs by orientation class.
+  # its libvips skew profile differs by orientation class. The third element is the
+  # source family per seam: `cover` stays on the corner-block `:exif_N` (its scaled
+  # blue/gold block is the signal), but `crop_no`'s north window lands in exif_base's
+  # uniform gold ground, so it routes to the aperiodic `:exif_placement_N` grid (#239
+  # EXIF half) where a 1px window misplacement is maxΔ≈255 instead of identical pixels.
   defp exif_base_seams do
     [
-      {"cover", "rs:fill:200:150"},
-      {"crop_no", "c:200:120/g:no"}
+      {"cover", "rs:fill:200:150", :exif},
+      {"crop_no", "c:200:120/g:no", :exif_placement}
     ]
   end
 
