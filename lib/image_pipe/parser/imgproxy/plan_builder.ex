@@ -35,6 +35,10 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
          source: source,
          auto_rotate: false,
          pipelines: [],
+         # The render path ignores `output` entirely (it produces JSON via the
+         # renderer). A non-`:automatic` placeholder mode is required so no spurious
+         # `Vary: Accept` is negotiated; `:json` is not a valid output format, so a
+         # concrete image format stands in.
          output: %Output{mode: {:explicit, :jpeg}},
          expires: expires,
          cachebuster: cachebuster,

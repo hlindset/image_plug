@@ -30,4 +30,9 @@ defmodule ImagePipe.Parser.Imgproxy.InfoDispatchTest do
     assert {:ok, %Plan{render: %Render{module: ImagePipe.Parser.Imgproxy.InfoRenderer}}} =
              Imgproxy.parse(conn, opts())
   end
+
+  test "an info URL with a missing plain source errors (does not build a render plan)" do
+    conn = conn(:get, "/info/unsafe/plain/")
+    assert {:error, {:missing_source_identifier, "plain"}} = Imgproxy.parse(conn, opts())
+  end
 end

@@ -46,15 +46,19 @@ defmodule ImagePipe.Parser.Imgproxy.Path do
   end
 
   def parse_source_no_extension(:encoded, source_path, opts) do
-    value = encoded_source_value(source_path, opts)
-    decode_encoded_source(value, nil)
+    case encoded_source_value(source_path, opts) do
+      "" -> {:error, {:missing_source_identifier, "encoded"}}
+      value -> decode_encoded_source(value, nil)
+    end
   end
 
   def parse_source_no_extension(:encrypted, source_path, opts) do
     source_encryption = Keyword.get(opts, :source_url_encryption)
 
-    value = encoded_source_value(source_path, opts)
-    decode_encrypted_source(value, nil, source_encryption)
+    case encoded_source_value(source_path, opts) do
+      "" -> {:error, {:missing_source_identifier, "encrypted"}}
+      value -> decode_encrypted_source(value, nil, source_encryption)
+    end
   end
 
   def parse_plain_source(source_path) do
