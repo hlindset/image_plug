@@ -18,6 +18,7 @@ defmodule ImagePipe.Response.Sender do
   alias ImagePipe.Output.Resolved
   alias ImagePipe.Plan.Response
   alias ImagePipe.Response.CacheHeaders
+  alias ImagePipe.Response.Json
   alias ImagePipe.Response.PreparedStream
   alias ImagePipe.Telemetry
 
@@ -26,6 +27,7 @@ defmodule ImagePipe.Response.Sender do
   @type delivery() ::
           {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t()}
           | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
+          | {:rendered, String.t(), iodata(), CacheHeaders.t()}
 
   @type error() ::
           {:processing, term(), [{String.t(), String.t()}]}
@@ -65,6 +67,16 @@ defmodule ImagePipe.Response.Sender do
         opts
       ) do
     send_prepared_stream(conn, prepared_stream, response, prepared, opts)
+  end
+
+  def send_result(
+        %Plug.Conn{} = conn,
+        {:ok, {:rendered, content_type, body, %CacheHeaders{} = prepared}},
+        _opts
+      ) do
+    conn
+    |> apply_render_cache_headers(prepared)
+    |> Json.send(content_type, body)
   end
 
   def send_result(
@@ -145,6 +157,15 @@ defmodule ImagePipe.Response.Sender do
        ) do
     Logger.info("unsupported_output_format: #{inspect(reason)}")
     send_unsupported_output_format_error(conn, response_headers)
+  end
+
+  defp handle_processing_error(conn, {:render, reason}, response_headers) do
+    Logger.error("render_error: #{inspect(reason)}")
+
+    conn
+    |> put_resp_headers(response_headers)
+    |> put_resp_content_type("text/plain")
+    |> send_resp(500, "error rendering response")
   end
 
   defp handle_processing_error(conn, {tag, _value} = reason, response_headers)
@@ -390,6 +411,11 @@ defmodule ImagePipe.Response.Sender do
        ) do
     headers = merge_delivery_headers(conn, prepared_stream.headers, prepared)
     %{prepared_stream | headers: headers}
+  end
+
+  defp apply_render_cache_headers(%Plug.Conn{} = conn, %CacheHeaders{} = prepared) do
+    (prepared.headers ++ prepared.representation_headers)
+    |> Enum.reduce(conn, fn {name, value}, conn -> put_resp_header(conn, name, value) end)
   end
 
   defp merge_delivery_headers(%Plug.Conn{} = conn, delivery_headers, %CacheHeaders{} = prepared) do
