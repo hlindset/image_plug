@@ -3,8 +3,18 @@ name: Lint
 on:
   push:
     branches: ["main"]
+    paths: &lint_paths
+      - "lib/**"
+      - "test/**"
+      - "config/**"
+      - "fiddle/**"
+      - ".formatter.exs"
+      - "mix.exs"
+      - "mix.lock"
+      - ".github/workflows/lint.yml"
   pull_request:
     branches: ["main"]
+    paths: *lint_paths
 
 permissions:
   contents: read
