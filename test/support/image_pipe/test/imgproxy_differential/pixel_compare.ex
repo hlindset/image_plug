@@ -7,9 +7,47 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompare do
   """
 
   alias Vix.Vips.Image, as: VipsImage
+  alias Vix.Vips.Operation
 
   @spec dims(VipsImage.t()) :: {pos_integer(), pos_integer()}
   def dims(image), do: {Image.width(image), Image.height(image)}
+
+  @doc """
+  Largest per-band **spatial** range (`max − min` over the pixels of a band), in
+  8-bit-equivalent levels (0.0..255.0). A discrimination signal: a near-zero value
+  means the image is spatially flat — a placement/crop error would move the window
+  within a uniform field and produce identical pixels, so the fixture cannot detect
+  it (e.g. the marker dead-region crops).
+
+  Uses per-band stats deliberately: a spatially uniform `[200,180,60]` fill has a
+  *band-byte* range of 140 (the cross-channel gamut) yet zero spatial variation, so
+  band-byte range would mis-rate it as discriminating. `vips_stats` row 0 is the
+  combined cross-band row (ignored); rows `1..bands` are per band, columns
+  `0=min, 1=max`. Normalized by the band format max so 8- and 16-bit fixtures are
+  comparable.
+  """
+  @spec spatial_contrast(VipsImage.t()) :: float()
+  def spatial_contrast(image) do
+    {:ok, stats} = Operation.stats(image)
+    {:ok, bin} = VipsImage.write_to_binary(stats)
+    vals = for <<v::native-float-64 <- bin>>, do: v
+
+    max_band_range =
+      1..Image.bands(image)
+      |> Enum.map(fn band -> Enum.at(vals, band * 10 + 1) - Enum.at(vals, band * 10) end)
+      |> Enum.max()
+
+    max_band_range / format_max(image) * 255.0
+  end
+
+  defp format_max(image) do
+    case VipsImage.format(image) do
+      :VIPS_FORMAT_USHORT -> 65_535.0
+      :VIPS_FORMAT_SHORT -> 32_767.0
+      :VIPS_FORMAT_UINT -> 4_294_967_295.0
+      _ -> 255.0
+    end
+  end
 
   @spec same_dims?(VipsImage.t(), VipsImage.t()) :: boolean()
   def same_dims?(a, b), do: dims(a) == dims(b)

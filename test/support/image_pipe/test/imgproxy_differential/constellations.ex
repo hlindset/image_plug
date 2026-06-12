@@ -442,6 +442,193 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       },
       c("rgba16_tonemap_8bit", :rgba16, "ph:0/rs:fit:200:200"),
 
+      # --- stage-interaction probes: compositions verified alone but never crossed.
+      # Each is a PRODUCT of two independently-correct compensations; the halves are
+      # baked in isolation but their interaction is not. Authored :equal — the bake
+      # decides. Speculative gap-hunt, no `lib/` change. ---
+      #
+      # P1: focal-point gravity × EXIF orientation. orientation.ex rotates {:fp,fx,fy}
+      # coords into the storage frame (rotate_fp / flip-fraction rules), but only the
+      # CARDINAL-anchor rotation has differential coverage (exif_crop_north,
+      # rot90_crop_north_marker) — the fp coordinate-rotation path has none. exif_6 is a
+      # plain quarter turn; 5/7 (transpose/transverse) add an axis swap to the fraction.
+      c("exif_crop_focal", :exif_6, "c:200:120:fp:0.3:0.7"),
+      c("exif_cover_focal_transpose", :exif_5, "rs:fill:200:150/g:fp:0.2:0.8"),
+      c("exif_cover_focal_transverse", :exif_7, "rs:fill:200:150/g:fp:0.2:0.8"),
+      # P2: focal-point × min-dims × dpr. #198 proved the result-crop box is computed
+      # against the EFFECTIVE dpr (not the raw request) for center/north gravity; fp
+      # resolves its origin against that same box. The bake confirms fp reads the
+      # effective box: dims match at 600×560 and the residual is the IDENTICAL
+      # libvips-version edge seam as the center sibling [[min_dims_dpr_marker]] — 188
+      # band-bytes over Δ2, maxΔ=29, 0 over Δ32, confined to sharp marker edges (a fp
+      # reading the raw box would shift the focal anchor → maxΔ→~255 across every edge).
+      # Budget set just above the seam KEEPING the strict Δ2 threshold, exactly as the
+      # sibling does.
+      %{
+        c("fp_min_dims_dpr_marker", :marker, "rs:fit:300:300/mw:280/mh:280/dpr:2/g:fp:0.3:0.7")
+        | tol: %{threshold: 2, budget: 256}
+      },
+      # P3: absolute offset × dpr on the cover and inline-crop sites. Offset-scales-by-
+      # dpr (ScaleToEven) is baked ONLY on the extend site (extend_offset_dpr_marker);
+      # the cover result-crop and inline-crop offsets are baked without dpr
+      # (cover_gravity_south_offset_marker, crop_east_offset_marker).
+      c("cover_offset_dpr_marker", :marker, "rs:fill:300:200/g:so:0:20/dpr:2"),
+      c("crop_offset_dpr_marker", :marker, "c:300:200:ea:20:0/dpr:2"),
+      # P4: #233 square sign-bucket × #182 display-frame classification. rt:auto buckets
+      # fill-vs-fit by sign(W−H) (square in the landscape bucket), classified on
+      # DISPLAY-frame source dims. exif_6 is storage 400×300 (landscape bucket → fill)
+      # but display 300×400 (portrait bucket → fit) against a square target; the two
+      # frames pick OPPOSITE branches, so this pins that ImagePipe classifies on display.
+      c("exif_auto_square_marker", :exif_6, "rs:auto:300:300"),
+      # P5: odd surplus × non-center anchor (× dpr). cover_odd_gap_center_marker pins
+      # ShrinkToEven(outer−inner+1,2) for the SYMMETRIC center case — the one case where
+      # the rounding sign is invisible. An odd gap against a CORNER anchor is where the
+      # sign actually bites: marker 4:3 into 301×200 cover-scales to ~301×226 (odd
+      # vertical surplus), soea anchors the result-crop to the bottom-right. The bake
+      # confirms the rounding sign is correct (a 1px origin error would shift every
+      # sharp marker edge to maxΔ≈255 across thousands of bytes); the residual is the
+      # marker edge-AA seam: maxΔ=18, 201 band-bytes over Δ2, 0 over Δ32. Strict Δ2,
+      # budget widened just above the seam (the marker convention).
+      %{
+        c("cover_odd_gap_corner_marker", :marker, "rs:fill:301:200/g:soea")
+        | tol: %{threshold: 2, budget: 256}
+      },
+      # The dpr variant doubles to 602×400; the cover upscale-under-dpr makes the skew
+      # diffuse and higher-amplitude (maxΔ=43, 99 band-bytes over Δ32) rather than a
+      # single thin seam — the heavy-skew profile, so the threshold is set just above
+      # the measured maxΔ with a tight budget (the min_dims_clamp / trim_resize
+      # convention). A 1px corner-origin shift still misaligns the marker edges to
+      # maxΔ≈255 over thousands of bytes, blowing Δ48/budget-64.
+      %{
+        c("cover_odd_gap_corner_dpr_marker", :marker, "rs:fill:301:200/g:soea/dpr:2")
+        | tol: %{threshold: 48, budget: 64}
+      },
+      # P6: trim × EXIF × resize × gravity — the full storage→display frame handoff in a
+      # single request (also the suite's deepest pipeline chain). trim decides in the
+      # STORAGE frame (#182), then scale + cover-crop gravity decide in the DISPLAY
+      # frame; each half is baked alone (exif_182_trim_smart, exif_5_cover) but never the
+      # handoff with a real resize between them.
+      c("trim_exif_cover_crop", :exif_5, "t:10/rs:fill:200:150/g:no"),
+      # P7: fill-down × min-dims — DIVERGES (quarantined → #236). The probe crossed
+      # mw/mh ABOVE the requested box for the first time on the cover path: imgproxy
+      # scales to the 400×400 intermediate (honoring mw/mh) then cropToResult-crops
+      # back to the requested 200×200, while ImagePipe's cover result-crop uses the
+      # min-EXPANDED target as its crop box (plan_executor cover_resize_and_crop crops
+      # to target_*, not result_box_*) and leaves the output at 400×400 — the #194
+      # cropToResult fix never reached the cover path. A dims mismatch (400×400 vs
+      # 200×200), so not pixel-comparable; imgproxy still bakes the fixture to keep the
+      # gap measured. The existing cover_min_dims_marker has mw/mh < target (inert), so
+      # it could not surface this. Affects plain `fill` too (shared cover path).
+      %{
+        c("fill_down_min_dims_marker", :marker, "rs:fill-down:200:200/mw:400/mh:400")
+        | triage: %{
+            reason:
+              "cover/fill result-crop uses the min-expanded target as the crop box, not " <>
+                "the requested box; mw/mh > target leaves the output uncropped (#194 fit " <>
+                "fix never reached the cover path)",
+            issue: "#236"
+          }
+      },
+
+      # --- oracle-branch boundary probes: each flips a specific imgproxy conditional
+      # (prepare.go / gravity.go / trim) to its MINORITY side, the regime no existing
+      # fixture occupies. Authored :equal — the bake decides; predicted diverges carry
+      # a triage prior, not arithmetic. ---
+      #
+      # B1: #236 on PLAIN fill (not just fill-down). mw/mh ABOVE the target on the
+      # shared cover path: the result-crop crops to the min-expanded target_* instead of
+      # result_box_*, so it never trims back (ImagePipe 400×400 vs imgproxy 200×200).
+      # The fill-down sibling [[fill_down_min_dims_marker]] already pins this; this pins
+      # that the gap is the cover path itself, not fill-down-specific. Quarantined → #236.
+      %{
+        c("fill_mw_mh_above_target", :marker, "rs:fill:200:200/mw:400/mh:400")
+        | triage: %{
+            reason:
+              "plain-fill arm of the #236 cover result-crop gap: mw/mh > target leaves " <>
+                "the output uncropped (cover_resize_and_crop crops to target_*, not " <>
+                "result_box_*)",
+            issue: "#236"
+          }
+      },
+      # B2/B3: the enlarge-off DprScale compensation branch (prepare.go calcScale,
+      # `!Enlarge() && minShrink<1`). small (120×90) is smaller than the 400×400 box, so
+      # with enlarge off (default) and dpr:2 the `DprScale /= minShrink` compensation
+      # fires — UNLESS extend is enabled, which prepare.go explicitly skips
+      # (`!po.ExtendEnabled()`). B2 isolates the compensation; B3 is the same request
+      # with ex:1 so the compensation is skipped. Crossing the pair pins that ImagePipe
+      # replicates the extend-skips-compensation special case (no isolated fixture today;
+      # min_dims_dpr_enlarge_off_small couples it with mw/mh).
+      c("enlarge_off_dpr_comp_small", :small, "rs:fit:400:400/dpr:2"),
+      c("enlarge_off_dpr_extend_small", :small, "rs:fit:400:400/ex:1/dpr:2"),
+      # B4: anisotropic zoom — separate ZoomWidth/ZoomHeight feeding wshrink/hshrink
+      # independently (prepare.go `wshrink /= ZoomWidth`). Only uniform z:0.5 is baked
+      # ([[zoom_marker]]); a per-axis zoom has never been crossed against the wire. Dims
+      # agree at 533×1200; the residual is diffuse libvips-version resampling skew from
+      # the anisotropic scaling across the whole frame (maxΔ=27, 0 over Δ32 — a real
+      # per-axis scale error would shift edges to maxΔ≈255). Threshold just above the
+      # skew ceiling with a tight budget (the diffuse-resample convention).
+      %{
+        c("zoom_anisotropic_marker", :marker, "z:0.5:1.5")
+        | tol: %{threshold: 32, budget: 64}
+      },
+      # B5: zoom feeding the COVER result-crop box. zoom folds into the single scale, but
+      # whether it also scales the result-crop target (the #236-adjacent zoom×target box
+      # interaction) is untested — zoom is only baked without a cover result-crop. Dims
+      # agree at 450×300, so the zoom does feed the result-crop box correctly; the
+      # residual is the 1.5× upscale resampling skew on sharp marker edges (maxΔ=40, 0
+      # over Δ48). Threshold just above the skew ceiling with a tight budget.
+      %{
+        c("zoom_cover_resultcrop_marker", :marker, "rs:fill:300:200/z:1.5")
+        | tol: %{threshold: 48, budget: 64}
+      },
+      # B6: extend absolute offset that OVER-clamps under dpr. small (120×90) inside the
+      # 200×150 box; east offset 200 × dpr 2 = 400 pushes the image far past the canvas
+      # edge, so calcPosition clamps it to the boundary (#200, allowOverflow=false) —
+      # crossing the clamp with dpr offset-scaling. The existing extend offset cases stay
+      # within the canvas (no clamp) or clamp without dpr.
+      c("extend_offset_clamp_dpr_small", :small, "rs:fit:200:150/ex:1:ea:200:0/dpr:2"),
+      # B7: trim equal_hor/equal_ver symmetrization (`trim:%th:%color:%eh:%ev`). The
+      # symmetrize-opposite-margins-to-the-smaller-inset branch is parsed and unit-tested
+      # but never differentially baked. border is the uniform-border trim source.
+      c("trim_equal_hv_border", :border, "t:10::1:1"),
+      # B8: symmetrization × EXIF storage-axis transpose. #182 notes equal_hor/equal_ver
+      # symmetrize the STORAGE axes, which transpose vs display under EXIF 5–8. exif_5
+      # (transpose) with equal_hor crosses the symmetrization branch with the frame
+      # transpose — two minority branches at once.
+      c("trim_equal_h_exif5", :exif_5, "t:10::1"),
+
+      # --- coverage tier: realization paths never differentially checked (expected
+      # PASS — cheap insurance against an invisible mis-port). ---
+      #
+      # C1: asymmetric padding × dpr × deferred-flush display frame — DIVERGES
+      # (quarantined → #237). Filed in the coverage tier as an expected PASS; the bake
+      # refuted it. With NO resize, imgproxy caps DprScale to 1 (prepare.go: wshrink=
+      # hshrink=1 → DprScale=min(DPR, 1)=1) so padding is UNSCALED (312×412), but
+      # ImagePipe's no-enlarge padding cap lives in the resize handler, so the resize-
+      # less path falls back to the RAW dpr=2 and doubles the padding (324×424). Same
+      # blind-spot shape as #236: a cap one path computes and the no-resize sibling
+      # skips. exif_182_auto_pad_dpr_cap verifies the cap WITH a resize (PASS); this is
+      # the resize-less arm. Dims mismatch → not pixel-comparable; imgproxy still bakes
+      # the fixture to keep the gap measured.
+      %{
+        c("padding_asym_dpr_exif", :exif_6, "pd:10:4:2:8/dpr:2")
+        | triage: %{
+            reason:
+              "no-enlarge effective-DPR padding cap is computed only in the resize " <>
+                "handler; a no-resize request falls back to the raw dpr and doubles the " <>
+                "padding (imgproxy caps DprScale to 1 with no resize)",
+            issue: "#237"
+          }
+      },
+      # C2: absolute offset on a CORNER anchor of the cover result-crop. Offsets are
+      # baked on cardinal/edge anchors (south, east) but never on a corner — calcPosition
+      # composes both axes of the offset against the corner placement.
+      c("cover_corner_offset_marker", :marker, "rs:fill:300:200/g:soea:10:10"),
+      # C3: focal fraction at the 0/1 boundary. fp:1:0 anchors the focus point at the
+      # image's right-top edge; checks the focus-window clamp at the extreme fraction
+      # (interior fp is baked, the edge is not).
+      c("crop_focal_edge_marker", :marker, "c:200:200:fp:1:0"),
+
       # --- lossy group: contract-only (dims/content-type/decode), no pixel claim ---
       lossy("lossy_webp", :high_freq_webp, "rs:fill:240:180/f:webp"),
       lossy("lossy_jpeg_q40", :high_freq, "rs:fill:240:180/q:40/f:jpg"),

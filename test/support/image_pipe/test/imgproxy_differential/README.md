@@ -63,7 +63,19 @@ conformance test uses):
 ```shell
 mise exec -- mix imgproxy.diagnose exif_extend_south trim_resize_high_freq   # specific cases
 mise exec -- mix imgproxy.diagnose                                           # whole suite
+mise exec -- mix imgproxy.diagnose --undiscriminating                        # only near-uniform fixtures
 ```
+
+**Discrimination — `contrast=N`.** Each transform line also reports the imgproxy
+fixture's largest per-band *spatial* range (`PixelCompare.spatial_contrast/1`, 0..255
+levels). A near-zero value (`⚠ near-uniform`) means the fixture is spatially flat, so a
+placement/crop error would move the window within a uniform field and yield identical
+pixels — the case passes at `maxΔ=0` but cannot *catch* a regression (the marker
+dead-region crops, [#239](https://github.com/hlindset/image_pipe/issues/239)). The flag
+is informational, not a gate: a dims-based test (`trim`) can be legitimately uniform
+inside, since its signal is the output dimensions. `--undiscriminating` lists only the
+flagged cases — a separate axis from `--failing` (correctness). It measures per-band
+*spatial* range, not band-byte range, so a uniform `[200,180,60]` fill reads 0, not 140.
 
 **Reading it — skew vs structural.** `maxΔ` is the deciding signal:
 
@@ -87,6 +99,62 @@ mise exec -- mix imgproxy.diagnose                                           # w
 
 After changing only a `tol`, refresh the authored hashes with `mix imgproxy.reauthor`
 (no Docker) rather than re-baking.
+
+## Choosing constellations — oracle-branch boundary testing
+
+Black-box combinatorics (pairwise, random interior values) burns bake budget on
+PASS-confirmations — they tend to land at `maxΔ=0` and tell you nothing you didn't
+already trust. The high-yield approach is grey-box, because we *have* imgproxy's source (a local
+`darthsim/imgproxy` checkout): **the oracle's source is the test-selection spec.** Three
+moves:
+
+1. **Enumerate imgproxy's parameter-relationship branches.** Every `if` in
+   `processing/prepare.go` / `gravity.go` / `crop.go` / `extendImage` that turns on a
+   *relationship between parameters* (not a constant) is a regime boundary. A branch is
+   the one place two implementations can disagree about which side to take — and every
+   structural divergence found so far was exactly one: #200 (`calcPosition` offset
+   clamp), #220 (`extendImage` early return `w<=imgW && h<=imgH`), #233 (fill-vs-fit
+   `sign(W−H)` bucket), #236 (`minShrink < wshrink`, mw/mh vs target), #237 (`DprScale`
+   cap with no resize).
+
+2. **Flip each branch to its MINORITY side and check whether any fixture sits there.**
+   ImagePipe almost always ports the common side correctly (it's what the demo and the
+   obvious tests exercise); the rare side is where a port is missing or subtly wrong. The
+   hot cell is a branch whose minority side **no existing constellation occupies**. #236's
+   tell: every cover fixture had `mw/mh ≤ target` (inert side); none crossed to
+   `mw/mh > target`, so the missing crop-back logic was invisible.
+
+3. **Cross two independent minority-side branches.** ImagePipe realizes the pipeline
+   *differently* from imgproxy — deferred orientation, a separate result-crop op, the
+   single-round scale fold — so when two branch conditions are simultaneously on their
+   minority side, ImagePipe's different *order/frame of evaluation* is where an error
+   compounds. The whole #182 family is `orientation-pending` × `frame-sensitive op`.
+
+Then **push the numeric boundary inside the hot cell**: odd-vs-even surplus, square
+(`D==0`), sub-pixel, an offset that clamps *exactly* at the edge, a focal fraction at 0/1.
+That is where `RoundToEven` / `ShrinkToEven` / sign-bucket mistakes hide.
+
+**Two yield categories — tag them, and don't conflate the triage effort:**
+
+- **Bug-hunt** (branch-boundary crossings) — structural divergences live here; high
+  triage cost, high value.
+- **Realization coverage** (ImagePipe code written-to-match-imgproxy but never
+  differentially checked — e.g. fp-coordinate rotation under EXIF) — mostly PASS, but a
+  wrong port is otherwise *invisible*. Cheap insurance; author `:equal` and don't
+  over-triage.
+
+**The sharpest signature so far** (both #236 and #237): *a cap or box computed inside the
+resize handler and silently skipped on a sibling path* — the `mw/mh > target` cover crop
+in #236, the no-resize padding DPR cap in #237. "No resize present" is itself a minority
+branch for any quantity whose scaling is derived during resize handling (padding,
+extend-canvas scale, zoom fold, clamp). Any resize-derived value consumed on a
+no-resize or boundary path is a prime suspect.
+
+**Anti-patterns:** random interior-value combos (≈all `maxΔ=0`); exhaustive crossing
+(combinatorial blow-up, and most cells redundantly hit the same branch); widening a `tol`
+to bury a structural shift (`maxΔ ≪ 255` is the skew tell — a real placement shift is
+~255; see *Triage a bake*). PASS-confirmations are worth keeping as regression pins, but
+they are cheap insurance, not the bug-hunt.
 
 ## The per-PR loop (driving rules)
 

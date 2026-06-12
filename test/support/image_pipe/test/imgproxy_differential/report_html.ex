@@ -350,9 +350,11 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
        wrapping row at a consistent width so nothing is stranded or stacked */
     .visuals { display:flex; flex-wrap:wrap; gap:14px; align-items:flex-start; margin-top:14px; }
     .panel { margin:0; }
-    /* checker lives on ONE layer per panel: the static panels' own img, and the
-       slider HOST (behind both slotted images) — never on the stacked slider images,
-       or a transparent top image would reveal the opaque one beneath as a checker */
+    /* checker backs each rendered image INDIVIDUALLY (static panel imgs + the slider
+       host as a fallback). The slotted slider images get their own checker below, so
+       each composites over its own opaque backing: the top (second) image then fully
+       occludes the first beneath it, instead of two transparent images stacking into a
+       doubled, more-opaque blend on the second's side of the divider */
     .panel > img, .panel img-comparison-slider {
       display:block; max-width:280px; border-radius:6px;
       background:repeating-conic-gradient(var(--checker-square) 0 25%, transparent 0 50%) 50% / 20px 20px;
@@ -363,7 +365,8 @@ defmodule ImagePipe.Test.ImgproxyDifferential.ReportHtml do
        visible over a light, checkered image */
     .panel.slider { max-width:100%; }
     .panel.slider img, .panel.slider img-comparison-slider { width:100%; max-width:100%; }
-    .panel.slider img { display:block; border-radius:6px; background:none; }
+    .panel.slider img { display:block; border-radius:6px;
+      background:repeating-conic-gradient(var(--checker-square) 0 25%, transparent 0 50%) 50% / 20px 20px; }
     .panel.slider img-comparison-slider {
       --divider-width:3px; --divider-color:var(--accent);
       --default-handle-color:var(--accent); --default-handle-opacity:1;
