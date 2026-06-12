@@ -437,8 +437,12 @@ defmodule ImagePipe.Response.Sender do
   end
 
   defp apply_render_cache_headers(%Plug.Conn{} = conn, %CacheHeaders{} = prepared) do
-    (prepared.headers ++ prepared.representation_headers)
-    |> Enum.reduce(conn, fn {name, value}, conn -> put_resp_header(conn, name, value) end)
+    # Reuse the same delivery-header precedence as image responses: prepared cache /
+    # representation headers are merged, but host headers already set on the conn are
+    # respected (a host plug's stricter cache policy is not silently relaxed).
+    conn
+    |> merge_delivery_headers([], prepared)
+    |> Enum.reduce(conn, fn {name, value}, acc -> put_resp_header(acc, name, value) end)
   end
 
   defp merge_delivery_headers(%Plug.Conn{} = conn, delivery_headers, %CacheHeaders{} = prepared) do

@@ -71,11 +71,17 @@ defmodule ImagePipe.Transform do
           {:ok, [Pipeline.t()]} | {:error, term()}
   def validate_prefetch_safe_plan(%Plan{} = plan) do
     case Plan.validate_shape(plan) do
-      {:ok, %Plan{render: render} = validated} when render != :image_encode ->
+      {:ok, %Plan{render: render, pipelines: pipelines}}
+      when render != :image_encode and is_list(pipelines) ->
         # A non-image render plan legitimately carries an empty pipeline (it has no
         # transform stage); allow it. Shape validation already ran above. The check
-        # is plan-shape only, so Transform stays ignorant of renderer internals.
-        {:ok, validated.pipelines}
+        # is plan-shape only, so Transform stays ignorant of renderer internals. The
+        # plan is parser-produced (a host-implementable boundary), so the pipeline
+        # shape is validated here rather than trusted.
+        {:ok, pipelines}
+
+      {:ok, %Plan{render: render, pipelines: pipelines}} when render != :image_encode ->
+        {:error, {:invalid_pipeline_plan, pipelines}}
 
       {:ok, %Plan{}} ->
         Plan.validated_pipelines(plan)
