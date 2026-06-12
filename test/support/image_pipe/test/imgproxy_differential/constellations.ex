@@ -301,6 +301,15 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # T2.13: auto resize (picks fit/fill by source vs target orientation), untested
       # entirely. Landscape source into a portrait target.
       c("auto_resize_marker", :marker, "rs:auto:200:300"),
+      # #233: auto resize square↔landscape. imgproxy buckets fill-vs-fit by the SIGN of
+      # width−height, with square (diff == 0) in the non-negative (landscape) bucket, so
+      # both directions FILL (cover + result-crop) rather than fit. ImagePipe used a
+      # three-class (landscape/portrait/square) exact-match classifier that fit these
+      # cells; this pins the corrected sign bucketing. Landscape source (1600×1200) into a
+      # square target covers to 300×300; square source (512×512) into a landscape target
+      # covers to 300×200 (scp:0 strips the P3 profile so only geometry is compared).
+      c("auto_resize_square_target_marker", :marker, "rs:auto:300:300"),
+      c("auto_resize_square_source_icc", :icc_p3, "rs:auto:300:200/scp:0"),
       # T2.14: inline pre-resize crop corner, no resize — the genuine c:W:H:TYPE corner
       # form on the crop path.
       c("crop_corner_marker", :marker, "c:600:600:soea"),

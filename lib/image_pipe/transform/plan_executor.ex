@@ -978,28 +978,30 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp tagged_ratio_to_float({:ratio, numerator, denominator}), do: numerator / denominator
 
   defp resize_auto_branch(current_width, current_height, target_width, target_height) do
-    current_orientation = orientation(current_width, current_height)
-    target_orientation = orientation(target_width, target_height)
-
-    auto_branch(current_orientation, target_orientation)
+    auto_branch(
+      orientation_diff(current_width, current_height),
+      orientation_diff(target_width, target_height)
+    )
   end
 
-  defp auto_branch(:unknown, _target_orientation), do: :fit
-  defp auto_branch(_current_orientation, :unknown), do: :fit
-  defp auto_branch(orientation, orientation), do: :cover
-  defp auto_branch(_current_orientation, _target_orientation), do: :fit
+  # imgproxy buckets fill-vs-fit by the sign of the width−height difference, with a
+  # square dimension (diff == 0) sharing the non-negative (landscape) bucket; cover
+  # fills only when both source and target land in the same bucket
+  # (processing/prepare.go:88-97). An `:unknown` diff is an auto (omitted) dimension,
+  # which keeps the conservative fit branch.
+  defp auto_branch(:unknown, _target_diff), do: :fit
+  defp auto_branch(_current_diff, :unknown), do: :fit
 
-  defp orientation(width, height)
-       when is_integer(width) and is_integer(height) and width > height,
-       do: :landscape
+  defp auto_branch(current_diff, target_diff)
+       when (current_diff >= 0 and target_diff >= 0) or
+              (current_diff < 0 and target_diff < 0),
+       do: :cover
 
-  defp orientation(width, height)
-       when is_integer(width) and is_integer(height) and width < height,
-       do: :portrait
+  defp auto_branch(_current_diff, _target_diff), do: :fit
 
-  defp orientation(width, height)
-       when is_integer(width) and is_integer(height) and width == height,
-       do: :square
+  defp orientation_diff(width, height)
+       when is_integer(width) and is_integer(height),
+       do: width - height
 
-  defp orientation(_width, _height), do: :unknown
+  defp orientation_diff(_width, _height), do: :unknown
 end

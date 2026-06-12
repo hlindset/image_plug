@@ -127,4 +127,20 @@ defmodule ImagePipe.ImgproxyResizeAutoTest do
   test "4. request-level resize:auto from 100x100 to 50x80 returns 50x50" do
     assert_auto_resize_dimensions({100, 100}, {50, 80}, {50, 50})
   end
+
+  # #233: imgproxy buckets fill-vs-fit by the sign of width−height, with square
+  # (diff == 0) sharing the non-negative (landscape) bucket. So square↔landscape
+  # pairs fill (cover + result-crop), not fit. (processing/prepare.go:88-97)
+
+  test "5. resize:auto square source 100x100 into landscape 100x50 fills to 100x50" do
+    assert_auto_resize_dimensions({100, 100}, {100, 50}, {100, 50})
+  end
+
+  test "6. resize:auto landscape source 200x100 into square 50x50 fills to 50x50" do
+    assert_auto_resize_dimensions({200, 100}, {50, 50}, {50, 50})
+  end
+
+  test "7. resize:auto portrait source 100x200 into square 50x50 fits to 25x50" do
+    assert_auto_resize_dimensions({100, 200}, {50, 50}, {25, 50})
+  end
 end

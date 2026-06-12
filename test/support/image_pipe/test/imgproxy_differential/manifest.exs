@@ -40,6 +40,18 @@
       fixture_sha256: "c55cd6309fa68b2e9244f3dbd9e0c18d62ef82f8392b42a968acdf3d0ff18b61",
       kind: :transform
     },
+    "auto_resize_square_source_icc" => %{
+      authored_sha256: "12373137d33a6c068bf52bfee59daddcc25cf9c5d6a02c8366198e13acc37219",
+      fixture_filename: "auto_resize_square_source_icc.png",
+      fixture_sha256: "de43f58c1197c1a2a56208766929c0f78ef51ef5c0add07f3e61ab97756fc6fb",
+      kind: :transform
+    },
+    "auto_resize_square_target_marker" => %{
+      authored_sha256: "d3994d8fd6926d447f5883f6a8df43345e71fdfa75e8f2bd5b2d9cd927ab49a6",
+      fixture_filename: "auto_resize_square_target_marker.png",
+      fixture_sha256: "bd1ebd7079f7d41f861fa3249b43d1b290e30f913f14744d6b8c897d00b0c103",
+      kind: :transform
+    },
     "background_alpha" => %{
       authored_sha256: "c8f9f7436ee1b9dbc6a7b8743527827d0a2031008b0261eb21be440ec1636ec1",
       fixture_filename: "background_alpha.png",
