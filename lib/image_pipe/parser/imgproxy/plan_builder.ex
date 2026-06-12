@@ -20,8 +20,31 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
 
   @default_gravity {:anchor, :center, :center}
 
+  alias ImagePipe.Parser.Imgproxy.InfoRenderer
+  alias ImagePipe.Plan.Render
+
   @spec to_plan(ParsedRequest.t(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
-  def to_plan(%ParsedRequest{} = request, opts \\ []) do
+  def to_plan(request, opts \\ [])
+
+  def to_plan(%ParsedRequest{info?: true} = request, opts) do
+    with {:ok, source} <- source_plan(request.source_kind, request.source_path, opts),
+         {:ok, expires} <- expires_plan(request.policy, opts),
+         {:ok, cachebuster} <- cachebuster_plan(request.cache) do
+      {:ok,
+       %Plan{
+         source: source,
+         auto_rotate: false,
+         pipelines: [],
+         output: %Output{mode: {:explicit, :jpeg}},
+         expires: expires,
+         cachebuster: cachebuster,
+         response: %Response{},
+         render: %Render{module: InfoRenderer, params: %{}}
+       }}
+    end
+  end
+
+  def to_plan(%ParsedRequest{} = request, opts) do
     imgproxy_opts = Keyword.get(opts, :imgproxy, [])
     face_assist? = Keyword.get(imgproxy_opts, :smart_crop_face_detection, false)
 

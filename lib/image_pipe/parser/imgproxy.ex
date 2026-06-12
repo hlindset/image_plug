@@ -122,6 +122,13 @@ defmodule ImagePipe.Parser.Imgproxy do
   end
 
   defp parse_request(%Plug.Conn{} = conn, opts) do
+    case Path.split_endpoint(conn) do
+      {:info, info_conn} -> parse_info_request(info_conn, opts)
+      :image -> parse_image_request(conn, opts)
+    end
+  end
+
+  defp parse_image_request(%Plug.Conn{} = conn, opts) do
     imgproxy_opts = Keyword.get(opts, :imgproxy, [])
 
     with {:ok, signature, signed_path, path_info} <- Path.extract(conn),
@@ -141,6 +148,36 @@ defmodule ImagePipe.Parser.Imgproxy do
         source_format,
         request_options
       )
+    end
+  end
+
+  defp parse_info_request(%Plug.Conn{} = conn, opts) do
+    imgproxy_opts = Keyword.get(opts, :imgproxy, [])
+
+    with {:ok, signature, signed_path, path_info} <- Path.extract(conn),
+         :ok <- verify_signature(signature, signed_path, opts),
+         {:ok, option_segments, source_kind, raw_source_path} <- Path.split_source(path_info),
+         {:ok, request_options} <-
+           Options.parse(
+             option_segments,
+             preset_config(imgproxy_opts),
+             request_defaults(imgproxy_opts)
+           ),
+         {:ok, source_path, _source_format} <-
+           Path.parse_source_no_extension(source_kind, raw_source_path, source_parsing_config(opts)) do
+      {:ok,
+       %ParsedRequest{
+         signature: signature,
+         source_kind: :plain,
+         source_path: source_path,
+         pipelines: request_options.pipelines,
+         info?: true,
+         auto_rotate: false,
+         output: request_options.output,
+         policy: request_options.policy,
+         cache: request_options.cache,
+         response: request_options.response
+       }}
     end
   end
 
