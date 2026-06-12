@@ -36,7 +36,27 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     @impl true
     def identity(_o), do: {__MODULE__, :unavailable}
     @impl true
-    def warmup(_opts), do: {:error, {:detector, :unavailable}}
+    def warmup(opts) do
+      if pid = Keyword.get(opts, :test_pid), do: send(pid, :warmup_called)
+      {:error, {:detector, :unavailable}}
+    end
+  end
+
+  defmodule FailingDetector do
+    @behaviour ImagePipe.Transform.Detector
+    @impl true
+    def supported_classes(_o), do: ["face"]
+    @impl true
+    def detect(_i, _o), do: {:error, :boom}
+    @impl true
+    def available?(_o), do: true
+    @impl true
+    def identity(_o), do: {__MODULE__, :failing}
+    @impl true
+    def warmup(opts) do
+      send(Keyword.fetch!(opts, :test_pid), :warmup_attempt)
+      {:error, :boom}
+    end
   end
 
   test "async warmup does not block start and terminates :normal" do
@@ -52,16 +72,32 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
   end
 
-  test "unavailable detector is a clean no-op that still terminates :normal" do
+  test "unavailable detector skips warmup entirely and terminates :normal" do
     pid =
-      start_supervised!({Warmup, detector: UnavailableDetector, classes: ["face"], opts: []})
+      start_supervised!(
+        {Warmup, detector: UnavailableDetector, classes: ["face"], opts: [test_pid: self()]}
+      )
 
     ref = Process.monitor(pid)
-    # The failed-warmup retries have no backoff, so the worker can terminate
-    # before we monitor it; the monitor then reports :noproc. Either way it ended
-    # cleanly — a never-raising worker under :transient would have been restarted
-    # otherwise.
     assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]
+    # available?/1 is false, so warmup is never attempted — no retry storm. The
+    # worker is dead by the DOWN, so any warmup signal would already be queued.
+    refute_received :warmup_called
+  end
+
+  test "available detector that keeps failing retries a bounded number of times" do
+    pid =
+      start_supervised!(
+        {Warmup,
+         detector: FailingDetector, classes: ["face"], opts: [test_pid: self()], retries: 1}
+      )
+
+    ref = Process.monitor(pid)
+    # retries: 1 → the initial attempt plus one backed-off retry, then it stops.
+    assert_receive :warmup_attempt
+    assert_receive :warmup_attempt
+    assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]
+    refute_received :warmup_attempt
   end
 
   test "nil detector disables warmup as a clean no-op" do
