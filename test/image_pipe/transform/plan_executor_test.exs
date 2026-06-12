@@ -70,6 +70,38 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
     end
   end
 
+  # Structural guardrail against this codebase's recurring bug shape: a result-crop
+  # box (or a resize-derived cap) computed correctly on one mode/path and silently
+  # skipped on its siblings — #236 was exactly "#194's result_box_* crop wired for
+  # :fit, never :cover". A table over EVERY box-cropping mode catches the next
+  # sibling at authoring time instead of months later via a differential probe.
+  describe "cross-mode result-crop invariants (regression guardrails)" do
+    # imgproxy's universal cropToResult crops to TargetWidth/Height = the LITERAL
+    # requested box (Scale(po.Width, DprScale·Zoom)), NOT the min-expanded target.
+    # So when mw/mh drive the scale past the requested box on both axes, every mode
+    # that crops to a box trims back to that box. A mode that regressed to cropping
+    # at the min-expanded target would land at 400×400 (or its cover intermediate).
+    # :stretch is excluded — force has no cropToResult; it resizes straight to the
+    # (min-expanded) target. A new box-cropping mode must be added to this list.
+    test "mw/mh above the requested box trims to that box across box-cropping modes (#194/#236)" do
+      for mode <- [:fit, :cover, :auto] do
+        assert {:ok, operation} =
+                 Operation.resize(mode, {:px, 200}, {:px, 200},
+                   min_width: {:px, 400},
+                   min_height: {:px, 400},
+                   enlargement: :deny
+                 )
+
+        assert {:ok, %State{} = state} =
+                 Transform.execute_plan(plan([operation]), state_with_image({1600, 1200}), [])
+
+        assert dimensions(state.image) == {200, 200},
+               "#{mode}: result-crop should trim to the requested 200×200, " <>
+                 "got #{inspect(dimensions(state.image))}"
+      end
+    end
+  end
+
   describe "crop execution" do
     test "crop guided executes gravity crop against the current image" do
       assert {:ok, operation} = Operation.crop_guided({:px, 120}, {:px, 80}, :bottom_right)
