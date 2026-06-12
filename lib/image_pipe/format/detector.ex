@@ -75,6 +75,73 @@ defmodule ImagePipe.Format.Detector do
     (expected == :any or expected == byte) and prefix_match?(rest, tail)
   end
 
-  # SVG structural scan — added in Task 2.
-  defp svg?(_peek), do: false
+  # --- SVG structural scan ---
+  #
+  # Bounded, not a full XML parser. Skip a UTF-8 BOM, leading whitespace, and the
+  # XML prolog (declarations / comments / DOCTYPE incl. a `[ ... ]` internal
+  # subset), then test for an `<svg>` root element (optionally namespace-prefixed).
+  # Biases toward catching real SVGs so libvips' svgload never parses attacker
+  # XML; punts to a non-match (=> :unknown) on anything ambiguous. A non-match is
+  # harmless: it falls through to libvips, which still rejects SVG.
+
+  defp svg?(peek) do
+    peek
+    |> strip_bom()
+    |> skip_prolog()
+    |> svg_root?()
+  end
+
+  defp strip_bom(<<0xEF, 0xBB, 0xBF, rest::binary>>), do: rest
+  defp strip_bom(bin), do: bin
+
+  defp skip_prolog(bin) do
+    case skip_ws(bin) do
+      <<"<?", rest::binary>> -> rest |> skip_after("?>") |> skip_prolog()
+      <<"<!--", rest::binary>> -> rest |> skip_after("-->") |> skip_prolog()
+      <<"<!", rest::binary>> -> rest |> skip_doctype() |> skip_prolog()
+      other -> other
+    end
+  end
+
+  defp skip_ws(<<c, rest::binary>>) when c in [?\s, ?\t, ?\r, ?\n], do: skip_ws(rest)
+  defp skip_ws(bin), do: bin
+
+  # The suffix after the first occurrence of `terminator`, or "" if it is not
+  # present within the peek (treated as "not enough data" => not SVG).
+  defp skip_after(bin, terminator) do
+    case :binary.split(bin, terminator) do
+      [_before, rest] -> rest
+      [_whole] -> ""
+    end
+  end
+
+  # Positioned just after "<!". Skip to the matching top-level ">", stepping over
+  # a "[ ... ]" internal subset (which may itself contain ">").
+  defp skip_doctype(<<>>), do: ""
+  defp skip_doctype(<<?>, rest::binary>>), do: rest
+  defp skip_doctype(<<?[, rest::binary>>), do: rest |> skip_after("]") |> skip_doctype()
+  defp skip_doctype(<<_c, rest::binary>>), do: skip_doctype(rest)
+
+  defp svg_root?(<<?<, rest::binary>>), do: local_name(read_name(rest)) == "svg"
+  defp svg_root?(_bin), do: false
+
+  # Read an element name up to a name terminator (whitespace, ">", "/", or EOF).
+  defp read_name(bin), do: read_name(bin, [])
+
+  defp read_name(<<c, _rest::binary>> = bin, acc) when c in [?\s, ?\t, ?\r, ?\n, ?>, ?/],
+    do: {finish_name(acc), bin}
+
+  defp read_name(<<c, rest::binary>>, acc), do: read_name(rest, [c | acc])
+  defp read_name(<<>>, acc), do: {finish_name(acc), <<>>}
+
+  defp finish_name(acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+
+  # Strip an optional `prefix:` so a namespace-prefixed root resolves to its local
+  # name (imgproxy matches on `Name.Local() == "svg"`).
+  defp local_name({name, _rest}) do
+    case :binary.split(name, ":") do
+      [_prefix, local] -> local
+      [local] -> local
+    end
+  end
 end

@@ -68,4 +68,52 @@ defmodule ImagePipe.Format.DetectorTest do
       assert Detector.detect(<<0, 0, 0, 0x20, "ftyp">>) == :unknown
     end
   end
+
+  describe "detect/1 SVG structural scan" do
+    test "bare svg root" do
+      assert Detector.detect(~s(<svg xmlns="http://www.w3.org/2000/svg"></svg>)) == :svg
+    end
+
+    test "leading whitespace" do
+      assert Detector.detect("\n\t  <svg></svg>") == :svg
+    end
+
+    test "UTF-8 BOM" do
+      assert Detector.detect(<<0xEF, 0xBB, 0xBF, "<svg></svg>">>) == :svg
+    end
+
+    test "XML declaration before root" do
+      assert Detector.detect(~s(<?xml version="1.0" encoding="UTF-8"?>\n<svg/>)) == :svg
+    end
+
+    test "comment before root" do
+      assert Detector.detect("<!-- a comment with > inside -->\n<svg/>") == :svg
+    end
+
+    test "DOCTYPE with internal subset containing >" do
+      doctype = ~s(<!DOCTYPE svg [ <!ENTITY x "a > b"> ]>)
+      assert Detector.detect(doctype <> "<svg/>") == :svg
+    end
+
+    test "namespace-prefixed root" do
+      assert Detector.detect(~s(<svg:svg xmlns:svg="http://www.w3.org/2000/svg"/>)) == :svg
+    end
+
+    test "self-closing root" do
+      assert Detector.detect("<svg/>") == :svg
+    end
+
+    test "non-svg XML is :unknown" do
+      assert Detector.detect(~s(<?xml version="1.0"?><html><body/></html>)) == :unknown
+      assert Detector.detect("<rss><channel/></rss>") == :unknown
+    end
+
+    test "an element whose name merely starts with svg is not svg" do
+      assert Detector.detect("<svgfoo></svgfoo>") == :unknown
+    end
+
+    test "plain text is :unknown" do
+      assert Detector.detect("hello world, not markup") == :unknown
+    end
+  end
 end
