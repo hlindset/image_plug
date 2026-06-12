@@ -64,6 +64,7 @@ streaming spans.
 [:image_pipe, :transform, :materialize, ...]
 [:image_pipe, :encode, ...]
 [:image_pipe, :cache, :write, ...]
+[:image_pipe, :render, ...]
 [:image_pipe, :send, ...]
 [:image_pipe, :deliver, ...]
 ```
@@ -252,6 +253,31 @@ Stop metadata:
 - `:status`, `:output_format`, and, on failure, `:stream_phase` (the streaming
   phase the error occurred in, e.g. `:encode`) and `:error`.
 
+### Render span (`[:render]`)
+
+The `[:image_pipe, :render]` span wraps alternative (non-image) response
+rendering — for example, JSON representation responses emitted by
+`ImagePipe.Request.RenderRunner`. It is emitted as a sibling of `[:encode]`
+when the request produces a rendered response rather than an encoded image.
+
+Start metadata:
+
+- `:representation` — the representation kind, e.g. `:json`.
+
+Stop metadata:
+
+- `:result` — `:ok` on success, or `:render_error` on failure. The default
+  Logger escalates `:render_error` to `:warning`.
+- `:content_type` — the response content-type string on success (e.g.
+  `"application/json"`).
+- `:error` — a stable error category atom on failure.
+
+The default Logger renders it as:
+
+```text
+image_pipe render: ok (application/json)
+```
+
 ## Measurements
 
 ImagePipe uses the measurements provided by `:telemetry.span/3`:
@@ -315,6 +341,7 @@ Request and stage spans use narrow result atoms:
 - `:cache_error`
 - `:materialize_error`
 - `:processing_error`
+- `:render_error`
 - `:error`
 
 Use `:error` for stage-local failures that aren't otherwise classified at that
@@ -329,6 +356,7 @@ Representative stage → result mappings:
 - `[:transform, :materialize]` → `:ok` or `:materialize_error`.
 - `[:output, :negotiate]` → `:ok` or a negotiation failure category.
 - `[:encode]` → `:ok` or `:processing_error`.
+- `[:render]` → `:ok` or `:render_error`.
 - `[:deliver]` → `:ok`, `:processing_error`, or `:client_closed`.
 
 The `:error` field is a stable category atom (`ImagePipe.Error.tag/1`), never a
@@ -519,6 +547,7 @@ defmodule MyApp.ImagePipeTelemetry do
     [:transform, :operation],
     [:transform, :materialize],
     [:encode],
+    [:render],
     [:cache, :stage],
     [:cache, :write],
     [:send],

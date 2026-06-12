@@ -10,7 +10,7 @@ defmodule ImagePipe.Telemetry.Logger do
 
   # group => span event suffixes (each gets :stop + :exception)
   @group_span_events %{
-    request: [[:request], [:send], [:encode], [:deliver]],
+    request: [[:request], [:send], [:encode], [:deliver], [:render]],
     parse: [[:parse]],
     source: [[:source, :resolve], [:source, :fetch], [:source, :fetch_decode]],
     transform: [
@@ -119,6 +119,7 @@ defmodule ImagePipe.Telemetry.Logger do
       encode_failure?(suffix, metadata) -> :warning
       color_management_failure?(suffix, metadata) -> :warning
       detect_fallback_warning?(suffix, metadata) -> :warning
+      render_failure?(suffix, metadata) -> :warning
       true -> base
     end
   end
@@ -147,6 +148,11 @@ defmodule ImagePipe.Telemetry.Logger do
     do: meta[:result] in [:unavailable, :error, :no_detector]
 
   defp detect_fallback_warning?(_suffix, _meta), do: false
+
+  # A render that failed (decode/source/render error) → escalate to :warning,
+  # analogous to encode_failure?.
+  defp render_failure?([:render | _], meta), do: meta[:result] == :render_error
+  defp render_failure?(_suffix, _meta), do: false
 
   # --- message ---
   defp message([:transform, :operation | _], _m, meta) do
@@ -205,6 +211,11 @@ defmodule ImagePipe.Telemetry.Logger do
   defp message([:encode | _], _m, meta) do
     format = if meta[:output_format], do: " (#{meta[:output_format]})", else: ""
     "image_pipe encode: #{outcome(meta)}#{format}"
+  end
+
+  defp message([:render | _], _m, meta) do
+    ct = if meta[:content_type], do: " (#{meta[:content_type]})", else: ""
+    "image_pipe render: #{outcome(meta)}#{ct}"
   end
 
   defp message(suffix, _m, meta) do
