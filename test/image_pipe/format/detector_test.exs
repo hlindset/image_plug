@@ -1,5 +1,6 @@
 defmodule ImagePipe.Format.DetectorTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   alias ImagePipe.Format.Detector
 
@@ -114,6 +115,38 @@ defmodule ImagePipe.Format.DetectorTest do
 
     test "plain text is :unknown" do
       assert Detector.detect("hello world, not markup") == :unknown
+    end
+  end
+
+  describe "detect/1 properties" do
+    @confident_prefixes %{
+      png: <<0x89, "PNG\r\n\x1a\n">>,
+      jpeg: <<0xFF, 0xD8, 0xFF>>,
+      gif: <<"GIF89a">>,
+      webp: <<"RIFF", 0, 0, 0, 0, "WEBP">>,
+      avif: <<0, 0, 0, 0x20, "ftypavif">>,
+      jpeg2000: <<0, 0, 0, 0x0C, "jP  ", 0x0D, 0x0A, 0x87, 0x0A>>,
+      tiff: <<"II", 0x2A, 0x00>>
+    }
+
+    property "a confident prefix is stable under arbitrary appended bytes" do
+      prefixes = Map.to_list(@confident_prefixes)
+
+      check all {format, prefix} <- member_of(prefixes),
+                suffix <- binary() do
+        assert Detector.detect(prefix <> suffix) == format
+      end
+    end
+
+    property "detection over a 32KB peek equals detection over the full input" do
+      prefixes = Map.values(@confident_prefixes)
+
+      check all prefix <- member_of(prefixes),
+                tail <- binary(min_length: 0, max_length: 64 * 1024) do
+        full = prefix <> tail
+        peek = binary_part(full, 0, min(byte_size(full), 32 * 1024))
+        assert Detector.detect(peek) == Detector.detect(full)
+      end
     end
   end
 end
