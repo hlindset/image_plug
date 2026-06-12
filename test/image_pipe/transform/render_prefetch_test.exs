@@ -3,7 +3,6 @@ defmodule ImagePipe.Transform.RenderPrefetchTest do
 
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Output
-  alias ImagePipe.Plan.Render
   alias ImagePipe.Plan.Source
   alias ImagePipe.Transform
 
@@ -19,12 +18,12 @@ defmodule ImagePipe.Transform.RenderPrefetchTest do
   end
 
   test "a render plan with an empty pipeline is prefetch-safe (returns {:ok, []})" do
-    p = plan(render: %Render{module: SomeRendererModule, params: %{}})
+    p = plan(render: {:custom, SomeRendererModule, %{}})
     assert {:ok, []} = Transform.validate_prefetch_safe_plan(p)
   end
 
   test "an image-encode plan with an empty pipeline is still rejected" do
-    p = plan(render: :image_encode)
+    p = plan(render: :image)
     assert {:error, :empty_pipeline_plan} = Transform.validate_prefetch_safe_plan(p)
   end
 

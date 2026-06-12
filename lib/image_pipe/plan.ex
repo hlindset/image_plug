@@ -9,7 +9,6 @@ defmodule ImagePipe.Plan do
     exports: [
       Pipeline,
       Output,
-      Render,
       RenderContext,
       Response,
       SourceInfo,
@@ -44,7 +43,6 @@ defmodule ImagePipe.Plan do
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
-  alias ImagePipe.Plan.Render
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
 
@@ -55,7 +53,7 @@ defmodule ImagePipe.Plan do
                 cachebuster: nil,
                 response: %Response{},
                 auto_rotate: false,
-                render: :image_encode
+                render: :image
               ]
 
   @type t :: %__MODULE__{
@@ -66,7 +64,7 @@ defmodule ImagePipe.Plan do
           cachebuster: String.t() | nil,
           response: Response.t(),
           auto_rotate: boolean(),
-          render: :image_encode | ImagePipe.Plan.Render.t()
+          render: :image | {:custom, module(), map()}
         }
 
   @type pipeline_error() ::
@@ -312,7 +310,10 @@ defmodule ImagePipe.Plan do
   defp validate_auto_rotate(value) when is_boolean(value), do: :ok
   defp validate_auto_rotate(value), do: {:error, {:invalid_auto_rotate, value}}
 
-  defp validate_render(:image_encode), do: :ok
-  defp validate_render(%Render{module: m}) when is_atom(m), do: :ok
+  defp validate_render(:image), do: :ok
+
+  defp validate_render({:custom, module, params}) when is_atom(module) and is_map(params),
+    do: :ok
+
   defp validate_render(render), do: {:error, {:invalid_render_plan, render}}
 end

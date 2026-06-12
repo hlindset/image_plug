@@ -86,9 +86,9 @@ defmodule ImagePipe.Cache.Key do
 
   defp transform_data, do: [key_data_version: @transform_key_data_version]
 
-  defp representation_data(:image_encode), do: [version: @representation_version]
+  defp representation_data(:image), do: [version: @representation_version]
 
-  defp representation_data(%ImagePipe.Plan.Render{module: module, params: params}),
+  defp representation_data({:custom, module, params}),
     do: [version: @representation_version, render: module, params: params]
 
   defp output_plan_data(%Output{mode: :automatic} = output, opts) do

@@ -506,7 +506,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_exports(plan, [
       ImagePipe.Plan.Pipeline,
       ImagePipe.Plan.Output,
-      ImagePipe.Plan.Render,
       ImagePipe.Plan.RenderContext,
       ImagePipe.Plan.Response,
       ImagePipe.Plan.SourceInfo,

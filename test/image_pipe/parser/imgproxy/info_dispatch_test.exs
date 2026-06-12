@@ -4,7 +4,6 @@ defmodule ImagePipe.Parser.Imgproxy.InfoDispatchTest do
 
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Plan
-  alias ImagePipe.Plan.Render
 
   defp opts, do: [imgproxy: []]
 
@@ -12,7 +11,7 @@ defmodule ImagePipe.Parser.Imgproxy.InfoDispatchTest do
     conn = conn(:get, "/info/unsafe/plain/https://example.com/a.jpg")
 
     assert {:ok,
-            %Plan{render: %Render{module: ImagePipe.Parser.Imgproxy.InfoRenderer}, pipelines: []} =
+            %Plan{render: {:custom, ImagePipe.Parser.Imgproxy.InfoRenderer, _}, pipelines: []} =
               plan} =
              Imgproxy.parse(conn, opts())
 
@@ -27,7 +26,7 @@ defmodule ImagePipe.Parser.Imgproxy.InfoDispatchTest do
   test "an info URL with options still parses (options are accepted, ignored)" do
     conn = conn(:get, "/info/unsafe/rs:fill:100:100/plain/https://example.com/a.jpg")
 
-    assert {:ok, %Plan{render: %Render{module: ImagePipe.Parser.Imgproxy.InfoRenderer}}} =
+    assert {:ok, %Plan{render: {:custom, ImagePipe.Parser.Imgproxy.InfoRenderer, _}}} =
              Imgproxy.parse(conn, opts())
   end
 

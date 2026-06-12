@@ -100,8 +100,11 @@ registry:
   facade `Renderer.run(plan.render, context, opts)` and `Renderer.requires(plan.render)`
   — the only place the behaviour is invoked. There is **no `@renderers` registry** and
   the core never enumerates adapters.
-- `%Plan.Render{module: module(), params: map()}` carries the renderer **module**
-  itself (the parser emits its own module), not a tag the core resolves.
+- **Final selector shape (as shipped):** `Plan.render :: :image | {:custom, module(),
+  map()}`. `:image` is the built-in image-encode path (not a renderer); the override
+  is a tagged tuple carrying the renderer **module** itself (the parser emits its own
+  module), not a tag the core resolves and not a struct. (Supersedes every
+  `%Plan.Render{…}` / `:image_encode` mention in the body below.)
 - The imgproxy renderer is **`ImagePipe.Parser.Imgproxy.InfoRenderer`** (in the
   adapter, implementing `ImagePipe.Renderer`), not `Output.Render.ImgproxyInfo`.
   `Output.*` stays image-encode-only.

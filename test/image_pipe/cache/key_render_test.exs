@@ -4,7 +4,6 @@ defmodule ImagePipe.Cache.KeyRenderTest do
   alias ImagePipe.Cache.Key
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Output
-  alias ImagePipe.Plan.Render
   alias ImagePipe.Plan.Source
 
   defp representation(render) do
@@ -23,18 +22,18 @@ defmodule ImagePipe.Cache.KeyRenderTest do
   end
 
   test "render selector changes the representation key data" do
-    image = representation(:image_encode)
-    info = representation(%Render{module: SomeRenderer, params: %{}})
+    image = representation(:image)
+    info = representation({:custom, SomeRenderer, %{}})
     refute image == info
   end
 
   test "different render modules produce different representation data" do
-    a = representation(%Render{module: RendererA, params: %{}})
-    b = representation(%Render{module: RendererB, params: %{}})
+    a = representation({:custom, RendererA, %{}})
+    b = representation({:custom, RendererB, %{}})
     refute a == b
   end
 
-  test "the :image_encode representation is unchanged (still just the version)" do
-    assert representation(:image_encode) == [version: Key.representation_version()]
+  test "the :image representation is unchanged (still just the version)" do
+    assert representation(:image) == [version: Key.representation_version()]
   end
 end

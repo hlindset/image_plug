@@ -1,7 +1,6 @@
 defmodule ImagePipe.RendererTest do
   use ExUnit.Case, async: true
 
-  alias ImagePipe.Plan.Render
   alias ImagePipe.Plan.RenderContext
   alias ImagePipe.Plan.SourceInfo
   alias ImagePipe.Renderer
@@ -16,12 +15,12 @@ defmodule ImagePipe.RendererTest do
   end
 
   test "requires/1 delegates to the spec's module" do
-    spec = %Render{module: StubRenderer, params: %{}}
+    spec = {:custom, StubRenderer, %{}}
     assert Renderer.requires(spec) == [:header]
   end
 
   test "run/3 delegates to the module with context, params, opts" do
-    spec = %Render{module: StubRenderer, params: %{k: "v"}}
+    spec = {:custom, StubRenderer, %{k: "v"}}
     ctx = %RenderContext{info: %SourceInfo{format: :jpeg, width: 1, height: 1, orientation: 1}}
     assert {:ok, {"application/json", "stub:jpeg:v"}} = Renderer.run(spec, ctx, [])
   end

@@ -21,7 +21,6 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
   @default_gravity {:anchor, :center, :center}
 
   alias ImagePipe.Parser.Imgproxy.InfoRenderer
-  alias ImagePipe.Plan.Render
 
   @spec to_plan(ParsedRequest.t(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
   def to_plan(request, opts \\ [])
@@ -43,7 +42,7 @@ defmodule ImagePipe.Parser.Imgproxy.PlanBuilder do
          expires: expires,
          cachebuster: cachebuster,
          response: %Response{},
-         render: %Render{module: InfoRenderer, params: %{}}
+         render: {:custom, InfoRenderer, %{}}
        }}
     end
   end

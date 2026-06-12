@@ -38,7 +38,7 @@ defmodule ImagePipe.Request.Runner do
           {:ok, delivery()} | {:error, error()}
   def run(
         _conn,
-        %Plan{render: %Plan.Render{}} = plan,
+        %Plan{render: {:custom, _module, _params}} = plan,
         %Source.Resolved{} = resolved_source,
         %CacheHeaders{} = prepared_http_cache,
         opts
