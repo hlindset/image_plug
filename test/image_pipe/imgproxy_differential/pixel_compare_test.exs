@@ -6,6 +6,12 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompareTest do
 
   defp img(w, h, color), do: Image.new!(w, h, color: color)
 
+  # A 1-band USHORT image filled with a single value, for exact 16-bit-delta control.
+  defp u16_const(w, h, value) do
+    {:ok, base} = Operation.black(w, h)
+    base |> Operation.linear!([0.0], [value * 1.0]) |> Image.cast!({:u, 16})
+  end
+
   describe "dims/1" do
     test "returns width and height" do
       assert PixelCompare.dims(img(7, 3, :black)) == {7, 3}
@@ -85,6 +91,50 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompareTest do
 
       # a full-range 16-bit edge (Δ65535) normalizes to ~255, not ~65535
       assert_in_delta PixelCompare.spatial_contrast(edge), 255.0, 0.5
+    end
+  end
+
+  describe "16-bit (USHORT) tolerance" do
+    test "a sub-level 16-bit delta is judged in 8-bit-equivalent levels, not raw low bytes" do
+      # raw Δ224/65535 ≈ 0.87 levels — the imgproxy opaque-alpha perturbation (#229).
+      # The low byte differs by 224, which a byte-wise comparison flags as a massive
+      # Δ224 outlier; reconstructed in USHORT space the sample is below Δ2.
+      a = u16_const(16, 16, 30_000)
+      b = u16_const(16, 16, 30_224)
+
+      assert PixelCompare.outliers(a, b, 2) == 0
+      assert PixelCompare.fraction_over(a, b, 2) == 0.0
+    end
+
+    test "a genuine 16-bit structural delta still trips the tolerance (anti-tautology)" do
+      # raw Δ32768 ≈ 127 levels — a real blow-out must stay visible, so the 16-bit
+      # path cannot pass simply by ignoring high bytes. One band → one sample per
+      # pixel, so the count is per-sample (256), not per-byte (512).
+      a = u16_const(16, 16, 20_000)
+      b = u16_const(16, 16, 52_768)
+
+      assert PixelCompare.outliers(a, b, 2) == 16 * 16
+      assert PixelCompare.fraction_over(a, b, 2) == 1.0
+    end
+
+    test "diagnose reports a sub-level 16-bit delta in 8-bit-equivalent levels" do
+      a = u16_const(8, 8, 10_000)
+      b = u16_const(8, 8, 10_224)
+      d = PixelCompare.diagnose(a, b)
+
+      # round(224 / 257) == 1 level; nothing exceeds Δ2.
+      assert d.max_delta == 1
+      assert d.over == %{2 => 0, 16 => 0, 32 => 0}
+    end
+
+    test "diagnose surfaces a structural 16-bit delta above every level threshold" do
+      a = u16_const(8, 8, 10_000)
+      b = u16_const(8, 8, 42_768)
+      d = PixelCompare.diagnose(a, b)
+
+      # round(32768 / 257) == 128 levels; every sample exceeds Δ2/Δ16/Δ32.
+      assert d.max_delta == 128
+      assert d.over == %{2 => 8 * 8, 16 => 8 * 8, 32 => 8 * 8}
     end
   end
 

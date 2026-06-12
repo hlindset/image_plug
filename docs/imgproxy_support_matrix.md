@@ -206,16 +206,16 @@ in that corner.
 
 **Differential coverage (behavioral/pixel).** The PNG path is OSS-differentiable:
 `rgb16_preserve_hdr` (`ph:1`, 16-bit PNG round-trip) and `rgb16_tonemap_8bit`
-(`ph:0`, 8-bit) both pixel-conform against the OSS bake (maxΔ 0), and the 8-bit
-RGBA case `rgba16_tonemap_8bit` also conforms. **Diverges (alpha band, [#229](https://github.com/hlindset/image_pipe/issues/229)):**
-`rgba16_preserve_hdr` is **quarantined** — on a uniformly fully-opaque 16-bit RGBA
-source (alpha = 65535 everywhere) imgproxy's `ph:1` path perturbs the alpha band
-(fixture avg 65435, down to ~65311 — maxΔ 224/65535 ≈ 0.34%) while ImagePipe
-preserves it pristine; the RGB bands match to Δ1, so the visible image agrees and
-ImagePipe is the more-correct side. The differential tol model also can't fairly
-judge it: it decomposes the 16-bit USHORT band into hi/lo bytes, so a 0.34% real
-alpha delta surfaces as Δ224 in the low byte across the whole band — an 8-bit
-Δ-threshold/budget can't express a 16-bit-channel tolerance.
+(`ph:0`, 8-bit) both pixel-conform against the OSS bake (maxΔ 0), and both RGBA
+cases — `rgba16_tonemap_8bit` (8-bit) and `rgba16_preserve_hdr` (16-bit) — conform
+within the default Δ2/64 tol. On the 16-bit RGBA case imgproxy premultiplies the RGB
+by the (uniformly opaque) alpha before the resize and rounds the alpha a hair off
+65535, where ImagePipe leaves a fully-opaque alpha untouched — ImagePipe is the
+more-correct side, and the decoded footprint of the difference is a handful of
+sub-tolerance skew samples (maxΔ ~9 levels). The differential comparator reconstructs
+16-bit samples and judges deltas in 8-bit-equivalent levels
+([#229](https://github.com/hlindset/image_pipe/issues/229)), so HDR fixtures get a
+fair pixel claim instead of a low-byte blow-out.
 
 ## Status legend
 
@@ -460,6 +460,19 @@ ImagePipe probes libvips AVIF/WebP write support at boot. Automatic negotiation
 filters out formats the build cannot write; a modern source format the client did
 not accept transcodes to raster (PNG/JPEG by alpha). An explicit `format` the
 build cannot write is rejected with `501` before source fetch.
+
+**Diverges (`extend`/`padding` + auto format, [#235](https://github.com/hlindset/image_pipe/issues/235)):**
+when that raster container is picked by alpha (a modern source the client did not
+accept, no explicit `format`), ImagePipe reads the **final image's** `has_alpha?`,
+while imgproxy predicts transparency from the **request** —
+`expectTransparency = HasAlpha || PaddingEnabled() || ExtendEnabled()`
+(`processing/processing.go`). So when `extend`/`padding` is requested but the result
+is opaque (an opaque `bg`, or an inert extend, [#220](https://github.com/hlindset/image_pipe/issues/220)),
+ImagePipe serves **JPEG** and imgproxy serves **PNG**. ImagePipe is the more-correct
+side — it ships the smaller opaque container, with no alpha to lose — and this is the
+same pre- vs post-transform resolution timing as the HDR `supports_hdr?` divergence
+above. Reachable only on the non-passthrough source path (jpeg/png sources
+short-circuit). Pinned by a wire test (`imgproxy_wire_conformance_test.exs`).
 
 - ✅ `IMGPROXY_AUTO_WEBP`
 - ✅ `IMGPROXY_ENABLE_WEBP_DETECTION`

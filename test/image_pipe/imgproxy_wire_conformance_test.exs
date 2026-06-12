@@ -2352,6 +2352,30 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       end
     end
 
+    test "automatic format is state-driven: opaque padding on a non-passthrough source stays JPEG (#235)" do
+      base = [
+        parser: ImagePipe.Parser.Imgproxy,
+        sources: [
+          path:
+            {RootHTTPAdapter,
+             root_url: "http://origin.test", req_options: [plug: AvifOriginImage]}
+        ]
+      ]
+
+      # cat.avif is 64×64 solid red (opaque). An opaque padding fill keeps the result
+      # opaque, so ImagePipe's automatic format — resolved from the *final* image's
+      # `has_alpha?` — picks JPEG. imgproxy is request-driven: the mere presence of
+      # padding makes `determineOutputFormat` expect transparency (`PaddingEnabled()`,
+      # processing.go), so it would emit PNG here. ImagePipe deliberately diverges,
+      # serving the smaller opaque container; this pins that choice (a documented
+      # surface divergence — docs/imgproxy_support_matrix.md, #235).
+      conn = call_imgproxy("/_/pd:10/bg:255:0:0/plain/images/cat.avif", base, "image/jpeg")
+
+      assert conn.status == 200
+      assert content_type(conn) == ["image/jpeg"]
+      assert dimensions(conn) == {84, 84}
+    end
+
     test "an avif-capable and avif-less build caches distinct variants for the same Accept" do
       {base, cache_root} = cached_opts()
 
