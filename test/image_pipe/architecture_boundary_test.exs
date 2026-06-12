@@ -52,6 +52,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Plan => "lib/image_pipe/plan.ex",
     ImagePipe.Parser => "lib/image_pipe/parser.ex",
     ImagePipe.Parser.Imgproxy => "lib/image_pipe/parser/imgproxy.ex",
+    ImagePipe.Renderer => "lib/image_pipe/renderer.ex",
     ImagePipe.Request => "lib/image_pipe/request.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
     ImagePipe.Source => "lib/image_pipe/source.ex",
@@ -343,6 +344,11 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Cache,
       ImagePipe.Transform
     ])
+  end
+
+  test "renderer boundary depends only on the plan" do
+    renderer = boundary_declaration(ImagePipe.Renderer)
+    assert_boundary_deps(renderer, [ImagePipe.Plan])
   end
 
   test "request, source, and response code does not depend on concrete transform modules" do
