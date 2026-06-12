@@ -479,7 +479,55 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
         c("exif_#{o}_#{suffix}", :"exif_#{o}", opts)
       end
 
-    cover_crop ++ exif_extend_constellations() ++ exif_transpose_crosses()
+    cover_crop ++
+      exif_extend_constellations() ++
+      exif_transpose_crosses() ++
+      frame_of_reference_182()
+  end
+
+  # --- #182: frame-of-reference at the deferred-orientation seams ---
+  #
+  # imgproxy's mainPipeline fixes WHICH frame each op decides in relative to
+  # `rotateAndFlip` (stage 7): trim (2) = storage, scale/rt:auto (6) = display
+  # (ExtractGeometry-swapped src dims), applyFilters/pixelate (9) = display,
+  # padding (12) = display. The existing EXIF constellations only cross
+  # orientation with cover/crop/extend/rotate, so none of these op families had
+  # wire coverage against a quarter-turn source. `:exif_6` is storage 400×300 /
+  # display 300×400, and its base is a blue [40,40,200] top-left quadrant on gold
+  # [200,180,60] — storage top-left is blue, display top-left (post-rotate) is
+  # gold, so even smart trim's `getpoint(0,0)` is frame-sensitive here. Each case
+  # is `:equal`: after the #182 fix ImagePipe reproduces imgproxy's frame choice.
+  defp frame_of_reference_182 do
+    [
+      # rt:auto branch decided on display-frame src dims. display 300×400 (portrait)
+      # into a portrait target → fill; the storage frame (landscape 400×300) would
+      # have mis-picked fit (a different output box).
+      c("exif_182_auto_branch", :exif_6, "rs:auto:200:300"),
+      # The no-enlarge effective-DPR padding cap, resolved in the display frame
+      # (fitted target dims + source both ExtractGeometry-swapped). fit shrinks, so
+      # the cap binds and dpr scales the padding off the display axes.
+      c("exif_182_auto_pad_dpr_cap", :exif_6, "rs:fit:200:120/pd:10/dpr:2"),
+      # Asymmetric padding with NO resize: the resize-triggered flush never fires,
+      # so the padding op itself must flush first and land pt/pr/pb/pl on display
+      # sides. pd:T:R:B:L all distinct.
+      c("exif_182_padding_no_resize", :exif_6, "pd:10:4:2:8"),
+      # Pixelate block grid aligns to the display edges (size 7 divides neither
+      # 300 nor 400, so partial edge blocks are placed by frame). The 300×400
+      # output confirms the display frame; a storage-frame grid would diverge
+      # grossly (every block edge at near-full contrast). The residual is
+      # pixelate's diffuse block-average rounding skew — larger than the clean
+      # `pixelate_marker` (Δ16) because exif_6's sharp blue/gold quadrant edge
+      # falls mid-block, so the block average is more libvips-version-sensitive
+      # (maxΔ=23, >Δ32=0). Δ32 absorbs that skew; a 1px grid shift would not fit.
+      %{
+        c("exif_182_pixelate", :exif_6, "pix:7")
+        | tol: %{threshold: 32, budget: 64}
+      },
+      # Smart trim samples the STORAGE top-left corner (blue), trimming the
+      # storage-frame box before the orientation flush — not the display top-left
+      # (gold).
+      c("exif_182_trim_smart", :exif_6, "t:10")
+    ]
   end
 
   # cover + non-center crop are a clean 6×2 cross-product (uniform per-orientation

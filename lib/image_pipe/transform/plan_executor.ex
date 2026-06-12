@@ -250,6 +250,64 @@ defmodule ImagePipe.Transform.PlanExecutor do
     end
   end
 
+  # Padding (imgproxy stage 12) and pixelate (applyFilters, stage 9) both run
+  # AFTER rotateAndFlip (stage 7), i.e. in the display frame. ImagePipe defers
+  # orientation, so when one of these runs with an orientation still pending —
+  # the resize-less path, since any resize would already have flushed — flush
+  # first so the op decides in the display frame: padding lands on display sides,
+  # and pixelate's block grid aligns to the display edges (partial edge blocks at
+  # a non-multiple size otherwise land on the rotated edge). An identity pending
+  # is cleared without materializing (streaming fast path preserved).
+  defp execute_operation(
+         %PlanPadding{} = operation,
+         %State{pending_orientation: po} = state,
+         ctx,
+         opts
+       )
+       when not is_nil(po) do
+    with {:ok, %State{} = state} <- flush_if_pending(state) do
+      run_executable(operation, state, ctx, opts)
+    end
+  end
+
+  defp execute_operation(
+         %PlanPixelate{} = operation,
+         %State{pending_orientation: po} = state,
+         ctx,
+         opts
+       )
+       when not is_nil(po) do
+    with {:ok, %State{} = state} <- flush_if_pending(state) do
+      run_executable(operation, state, ctx, opts)
+    end
+  end
+
+  # Trim is imgproxy's one pre-orientation op (stage 2 < rotateAndFlip stage 7):
+  # it trims the storage frame. ImagePipe's trim materializes (it needs random
+  # access), but the orienting materialization would flush orientation first and
+  # trim the display frame. So when an orientation is pending, materialize WITHOUT
+  # orienting and run trim on the storage frame, leaving pending for the boundary
+  # flush — matching imgproxy's storage-frame trim box (smart top-left corner,
+  # equal_hor/equal_ver axes). An identity pending trims literally (no orientation
+  # to defer). A storage-frame copy_memory failure is a decode failure, wrapped as
+  # {:materialize_error, _} the same way the flush path is.
+  defp execute_operation(
+         %PlanTrim{} = operation,
+         %State{pending_orientation: po} = state,
+         ctx,
+         opts
+       )
+       when not is_nil(po) do
+    if PendingOrientation.identity?(po) do
+      run_executable(operation, state, ctx, opts)
+    else
+      case Materializer.materialize_without_orientation(state) do
+        {:ok, %State{} = state} -> run_executable(operation, state, ctx, opts)
+        {:error, reason} -> {:error, {:materialize_error, reason}}
+      end
+    end
+  end
+
   defp execute_operation(operation, %State{} = state, context, opts) do
     run_executable(operation, state, context, opts)
   end
@@ -866,7 +924,12 @@ defmodule ImagePipe.Transform.PlanExecutor do
     do: tagged_dpr_float(operation.dpr)
 
   defp resize_padding_scale(%PlanResize{} = operation, %State{} = state, mode) do
-    {src_w, src_h} = State.effective_source_dims(state)
+    # imgproxy computes the no-enlarge padding/DPR cap entirely in the display
+    # frame: the fitted target dims (`base.requested_*`) and the source it caps
+    # them against are both ExtractGeometry-swapped under a quarter turn. Resolve
+    # `base` against the display-frame source so the fitted dims match imgproxy's
+    # (a fit against the storage frame fits the transposed axes and skews the cap).
+    {src_w, src_h} = display_source_dims(state)
     requested_scale = tagged_dpr_float(operation.dpr)
     branch = plan_resize_branch(operation, state)
     resize = resize_from(operation, branch)
@@ -894,7 +957,12 @@ defmodule ImagePipe.Transform.PlanExecutor do
          %{requested_width: width, requested_height: height},
          %State{} = state
        ) do
-    {src_w, src_h} = State.effective_source_dims(state)
+    # The requested box is display-frame; size it against the display-frame source
+    # so the no-enlarge cap couples the same axes imgproxy does (its SrcWidth is
+    # ExtractGeometry-swapped under a quarter turn). Mixing the display-frame
+    # request with storage-frame source dims crosses axes under a pending quarter
+    # turn (#182).
+    {src_w, src_h} = display_source_dims(state)
     min(src_w / width, src_h / height)
   end
 
@@ -928,7 +996,11 @@ defmodule ImagePipe.Transform.PlanExecutor do
   defp plan_resize_branch(%PlanResize{mode: :stretch}, %State{}), do: :stretch
 
   defp plan_resize_branch(%PlanResize{mode: :auto} = operation, %State{} = state) do
-    {src_w, src_h} = State.effective_source_dims(state)
+    # imgproxy's ResizeAuto compares srcW−srcH against dstW−dstH on the DISPLAY
+    # axes — ExtractGeometry swaps the source dims for a quarter turn before the
+    # comparison (prepare.go). Classify against the display-frame source so an
+    # EXIF 5–8 / rot:90/270 source is not judged on transposed axes (#182).
+    {src_w, src_h} = display_source_dims(state)
 
     resize_auto_branch(
       src_w,
@@ -936,6 +1008,17 @@ defmodule ImagePipe.Transform.PlanExecutor do
       tagged_logical_pixels(operation.width),
       tagged_logical_pixels(operation.height)
     )
+  end
+
+  # The source dims in the DISPLAY frame: the storage-frame effective source dims,
+  # with the axes swapped when a quarter turn is pending (the display width axis is
+  # the storage height axis, and vice versa). Used where imgproxy resolves against
+  # ExtractGeometry-swapped source dims — the ResizeAuto fill-vs-fit classification
+  # and the no-enlarge padding-scale cap.
+  defp display_source_dims(%State{pending_orientation: po} = state) do
+    {w, h} = State.effective_source_dims(state)
+
+    if not is_nil(po) and PendingOrientation.quarter_turn?(po), do: {h, w}, else: {w, h}
   end
 
   defp scaled_padding_side({:px, value}, scale), do: round_half_to_even(value * scale)
