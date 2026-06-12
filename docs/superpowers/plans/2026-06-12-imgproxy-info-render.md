@@ -40,6 +40,132 @@
 
 ---
 
+## Plan-review corrections (READ FIRST — applies on top of the tasks below)
+
+A three-reviewer pass found these code-verified issues. Apply each within the named
+task; they override the task body where they conflict.
+
+**Two decisions to confirm with the maintainer before starting:**
+
+- **D1 — JSON library.** Tasks 5/12 use stdlib `JSON` (`JSON.encode_to_iodata!` /
+  `JSON.decode!`). The dev toolchain is Elixir 1.20 (`mise.toml`), but **`mix.exs`
+  declares `~> 1.17`** and there is **no direct `jason` dep** (only transitive).
+  Stdlib `JSON` is 1.18+. Choose ONE before Task 5: (a) bump `mix.exs` to `~> 1.18`
+  and use stdlib `JSON` (no new dep — recommended for a greenfield unreleased lib),
+  or (b) add `jason` to `mix.exs` deps and use `Jason.encode_to_iodata!`/`decode!`.
+  Do not leave it ambiguous — library code can't rely on a transitive dep.
+- **D2 — expired-`/info` status.** imgproxy docs say **404** for an expired URL, and
+  the spec stated 404. But the repo's `Parser.Imgproxy.handle_error/2` has no
+  `{:expired_request, _}` clause, so it falls to the generic **400** (the existing
+  `test/image_pipe/request_safety_test.exs` asserts 400). `handle_error` is shared
+  with the processing endpoint, so changing it to 404 changes that endpoint too.
+  **Default for Phase 1: assert the repo's actual 400** and record the imgproxy-404
+  gap as a divergence (Task 14). If the maintainer wants 404 parity, that's a
+  separate task: add an `{:expired_request, _}` → 404 clause and update the existing
+  400 test — flagged, not done here.
+
+**Task 4 + Task 5 — merge into one task (no red commit, no phantom list):**
+- There is **no `assert_boundary_exports(ImagePipe.Output, …)`** in
+  `architecture_boundary_test.exs` (Output only has dep assertions). Drop the
+  instruction to "add `Render` to the Output exports list" — just add `Render` to
+  `lib/image_pipe/output.ex` `exports:`. (Optionally add a new
+  `assert_boundary_exports(output, [Render, ...])` to lock it, but only if you also
+  enumerate the existing exports.)
+- The `@renderers` map references `ImagePipe.Output.Render.ImgproxyInfo`, created in
+  Task 5. **Do Tasks 4 and 5 as a single red→green→commit**: behaviour + dispatch +
+  the renderer + both test files in one commit. The Task 4 `module(:imgproxy_info)`
+  assertion only passes once Task 5's module exists.
+
+**Task 5 — fix the `@wire` table (verified against imgproxy `imagetype/defs.go`):**
+- The detectable rows are byte-correct (`jpeg/png/webp/avif`, `heif → "heic"/
+  image/heif`, `tiff`, `jpeg_xl → "jxl"/image/jxl`). **Drop the `:gif` row** —
+  `Request.SourceFormat.from_image/1` never produces `:gif`, so it's unreachable.
+- **Add `:jpeg2000`** (which `SourceFormat` *does* produce via `jp2kload`). The
+  generic fallback currently fabricates `{"jpeg2000", "application/octet-stream"}`,
+  but imgproxy has no JP2 type at all (it would report `format: null`). ImagePipe
+  *can* decode JP2, so this is a deliberate divergence: map
+  `jpeg2000: {"jp2", "image/jp2"}` and record it in Task 14. The `@moduledoc`'s
+  "no jpeg2000 type" line refers to imgproxy — keep it but note our divergence.
+
+**Task 6 — wrong return shape (BLOCKER).** `Transform.validate_prefetch_safe_plan/1`
+returns `{:ok, [Pipeline.t()]}`, NOT `{:ok, plan}`, and the plug binds
+`{:ok, _pipelines}` at `plug.ex:133`. The render carve-out must return the
+pipeline-list shape **and** still run shape validation:
+
+```elixir
+def validate_prefetch_safe_plan(%Plan{render: render} = plan) when render != :image_encode do
+  case Plan.validate_shape(plan) do
+    {:ok, %Plan{pipelines: pipelines}} -> {:ok, pipelines}   # [] for an info plan
+    {:error, _} = error -> error
+  end
+end
+```
+
+Fix the Task 6 test accordingly: assert `{:ok, []}` for the render plan and the
+real `{:error, :empty_pipeline_plan}` (verify the exact error term) for the
+image-encode plan.
+
+**Task 10 — two unstated edits.** (a) Prefix the unused `conn` in the new render
+`run/5` clause as `_conn`, or `mix compile --warnings-as-errors` fails. (b) The new
+`handle_processing_error(conn, {:render, reason}, _)` clause must be placed **before**
+the `when tag in @plan_validation_error_tags` guard clause in `sender.ex` (≈line
+150), or `{:render, _}` falls through to no clause and crashes.
+
+**Task 11 — feasible but the sketch will not compile as written. Required:**
+- `decode_source_path/2`, `encoded_source_value/2`, `decode_encoded_source/2` are
+  **private** (`path.ex:135, 154, 238`). Promote them or add thin public wrappers
+  before `parse_source_no_extension/3` can call them.
+- `ParsedRequest` is rigidly typed: `@enforce_keys [:signature, :source_kind,
+  :source_path, :pipelines]`, `source_kind: :plain`, `source_path: String.t()` (a
+  **single binary**). The existing `parsed_request/4` (`imgproxy.ex:218-238`)
+  hardcodes `source_kind: :plain` and stores the single decoded `source` binary that
+  `Path.parse_source` returns. `PlanBuilder.source_plan` only handles `:plain`
+  (`plan_builder.ex:47-51`). So the info path must **mirror `parsed_request/4`**:
+  decode to a single `source` binary, set `source_kind: :plain`. Add `info?: false`
+  to `ParsedRequest`'s `defstruct` + `@type`, set `info?: true` on the info path.
+- `Path.split_endpoint/1`: `parser_request_path/1` reads **`request_path`** (after
+  `script_name` prefix stripping, `path.ex:179-195`), so the load-bearing peel is
+  `%{conn | request_path: "/" <> rest}`. The `path_info: nil` in the sketch is inert
+  — **treat the sketch as illustrative; read `parser_request_path/1` first** and peel
+  the leading `"info"` from whatever it actually reads.
+- Keep the empty-source guard: `parse_source_no_extension(:plain, ...)` must still
+  reject a bare `/info/unsafe/plain/` (missing source identifier), as
+  `parse_plain_source` does.
+
+**Task 12 — expired test asserts 400 (per D2):** change `assert conn.status == 404`
+to `assert conn.status == 400` (the repo's actual behavior) unless D2 chooses 404.
+The `exp:` option spelling is correct.
+
+**Task 13 — telemetry message clause (BLOCKER).** The span event suffix includes
+`:stop`, absorbed by `| _` in the Logger's `message/3` clauses (see
+`logger.ex:205`). So the clause must be `defp message([:render | _], measurements,
+meta)`, placed before the generic fallback. There is **no `duration_ms/1` helper** —
+remove it; use the existing `outcome/1` and, if you want duration, read
+`measurements[:duration]` the way the other clauses do. Adding `[:render]` to the
+`request:` group in `@group_span_events` is correct.
+
+**Task 7 — note.** `representation_data/0` is at `key.ex:89`, call site `key.ex:73`.
+Adding `render:` to the keyword changes the canonical bytes for **all** requests, so
+**regenerate any committed cache-key hash fixtures** in `test/image_pipe/cache/`.
+
+**Task 9 — drop the tautological assertion.** `build_source_info/2` is passed
+`byte_size` directly, so asserting `info.byte_size == 4096` tests nothing. Keep the
+`format`/`width`/`height`/`orientation` assertions; drop the `byte_size` one.
+
+**Task 14 — divergence wording fixes.** (a) `size`: imgproxy emits it from the
+source response's **`Content-Length` header** (it does **not** download); ImagePipe
+omits it in Phase 1. (b) Add: `mime_type` — imgproxy derives MIME from the response
+`Content-Type` / extension / magic bytes; ImagePipe derives it from the decoded
+format atom. (c) Add the JP2 divergence (Task 5) and the expired-status divergence
+(D2, if 400 is kept).
+
+**Caching decision (spec line 320):** Phase 1 does the cache-**key fold** (Task 7,
+mandatory) but does **not store** rendered bodies. The render path returns
+`{:rendered, …}` directly from `Runner` without a cache write — leave it that way;
+storage is an explicit follow-up.
+
+---
+
 ## Task 1: `Plan.SourceInfo` struct
 
 **Files:**
