@@ -7,7 +7,7 @@ defmodule ImagePipe.PlugTest do
 
   doctest ImagePipe.Plug
 
-  @slow_origin_first_chunk_timeout 5_000
+  @slow_origin_ci_load_timeout 10_000
 
   alias ImagePipe.Parser.Imgproxy.Presets
   alias ImagePipe.Parser.Imgproxy.Signature
@@ -532,12 +532,16 @@ defmodule ImagePipe.PlugTest do
   defp call_after_slow_origin_first_chunk(conn, opts, ref, server) do
     task = Task.async(fn -> call_image_pipe(conn, opts) end)
 
-    assert_receive {^ref, :first_chunk_sent, ^server}, @slow_origin_first_chunk_timeout
-
-    # The behavior under test is the request's own `origin_receive_timeout` (~1s);
-    # this is just the harness waiting for that to surface. Keep the upper bound
-    # generous so CI scheduler load can't trip it before the request completes.
-    Task.await(task, 10_000)
+    # This real-socket handshake has two sequential waits: first for the fake
+    # origin's first chunk (the client must be scheduled to connect + send the
+    # request), then for the request's own `origin_receive_timeout` (~1s) to
+    # surface. Neither leg is the behavior under test — both are dominated by
+    # BEAM scheduling latency, which has a heavy tail on a loaded/throttled CI
+    # runner even though the work itself is trivial. So both share one generous
+    # CI-load budget; capping the first leg lower than the second is what made
+    # this test flaky.
+    assert_receive {^ref, :first_chunk_sent, ^server}, @slow_origin_ci_load_timeout
+    Task.await(task, @slow_origin_ci_load_timeout)
   end
 
   defp chunked_body_chunk(body) do
