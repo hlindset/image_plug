@@ -953,3 +953,5 @@ The endpoint runs as a request-layer render: the transform pipeline is empty (no
 **Expired URL status.** An expired `/info` URL (past its `expires` timestamp) returns **400** in ImagePipe, using the same imgproxy error-mapping path as processing URLs. imgproxy's `/info` documentation specifies **404** for expired requests. This is a known divergence.
 
 **Non-image / video source.** ImagePipe returns 415 or 422 for sources it cannot decode as an image. imgproxy's `/info` endpoint returns a comma-joined format list for video sources.
+
+**Source-safety gates apply uniformly.** `/info` runs through the same fetch/decode path as a processing request, so `max_body_bytes` and the `max_input_pixels` image-bomb gate apply — an over-resolution source returns the gate's error rather than a metadata report. This is conservatively correct (Phase 1 `/info` is header-only, but a future pixel-decoding field such as blurhash would genuinely need the gate); per-need scoping of safety gates — header-only renders skipping the pixel-bomb gate, pixel renders keeping it — is tracked in #262.
