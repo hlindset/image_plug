@@ -18,7 +18,7 @@ defmodule ImagePipe.Transform.RenderPrefetchTest do
   end
 
   test "a render plan with an empty pipeline is prefetch-safe (returns {:ok, []})" do
-    p = plan(render: {:custom, SomeRendererModule, %{}})
+    p = plan(render: {:custom, SomeRendererModule, %{}}, output: nil)
     assert {:ok, []} = Transform.validate_prefetch_safe_plan(p)
   end
 

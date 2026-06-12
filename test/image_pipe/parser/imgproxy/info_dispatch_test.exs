@@ -15,7 +15,7 @@ defmodule ImagePipe.Parser.Imgproxy.InfoDispatchTest do
               plan} =
              Imgproxy.parse(conn, opts())
 
-    refute plan.output.mode == :automatic
+    assert plan.output == nil
   end
 
   test "the /info prefix is peeled (signature verified on the remainder, not on \"info\")" do

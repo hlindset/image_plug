@@ -12,7 +12,7 @@ defmodule ImagePipe.Cache.KeyRenderTest do
         %Plan{
           source: %Source.Path{segments: ["a.jpg"]},
           pipelines: [%Plan.Pipeline{operations: []}],
-          output: %Output{mode: :automatic}
+          output: output_for(render)
         },
         render: render
       )
@@ -20,6 +20,9 @@ defmodule ImagePipe.Cache.KeyRenderTest do
     {:ok, material} = Key.plan_material(plan, [])
     material[:representation]
   end
+
+  defp output_for(:image), do: %Output{mode: :automatic}
+  defp output_for({:custom, _module, _params}), do: nil
 
   test "render selector changes the representation key data" do
     image = representation(:image)

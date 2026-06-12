@@ -91,6 +91,10 @@ defmodule ImagePipe.Cache.Key do
   defp representation_data({:custom, module, params}),
     do: [version: @representation_version, render: module, params: params]
 
+  # A custom render carries no image output; it contributes no output key data
+  # (the render identity is carried by `representation_data/1` instead).
+  defp output_plan_data(nil, _opts), do: {:ok, []}
+
   defp output_plan_data(%Output{mode: :automatic} = output, opts) do
     {:ok,
      [
@@ -141,6 +145,8 @@ defmodule ImagePipe.Cache.Key do
        hdr: output.hdr
      ]}
   end
+
+  defp output_data(_conn, nil, opts), do: output_plan_data(nil, opts)
 
   defp output_data(_conn, %Output{} = output, opts), do: output_plan_data(output, opts)
 
