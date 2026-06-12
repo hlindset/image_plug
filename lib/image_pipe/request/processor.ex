@@ -165,6 +165,8 @@ defmodule ImagePipe.Request.Processor do
        }),
        do: operations
 
+  defp first_pipeline_operations(%Plan{pipelines: []}), do: []
+
   defp seekable_input(%Source.Response{path: path, stream: nil}) when is_binary(path),
     do: {:ok, {:path, path}}
 

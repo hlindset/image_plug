@@ -3608,4 +3608,71 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       0 -> Enum.reverse(events)
     end
   end
+
+  describe "/info endpoint" do
+    test "returns 200 application/json with the header field set" do
+      conn = call_imgproxy("/info/unsafe/plain/images/beach.jpg", @default_opts)
+
+      assert conn.status == 200
+      assert content_type(conn) == ["application/json; charset=utf-8"]
+
+      json = JSON.decode!(conn.resp_body)
+      assert json["format"] == "jpeg"
+      assert json["mime_type"] == "image/jpeg"
+      assert is_integer(json["width"]) and json["width"] > 0
+      assert is_integer(json["height"]) and json["height"] > 0
+      assert json["orientation"] in 1..8
+    end
+
+    test "omits size when not cheaply available (Phase 1)" do
+      conn = call_imgproxy("/info/unsafe/plain/images/beach.jpg", @default_opts)
+      json = JSON.decode!(conn.resp_body)
+      refute Map.has_key?(json, "size")
+    end
+
+    test "does not emit Vary: Accept" do
+      conn = call_imgproxy("/info/unsafe/plain/images/beach.jpg", @default_opts)
+      vary = Plug.Conn.get_resp_header(conn, "vary")
+      refute Enum.any?(vary, &String.contains?(String.downcase(&1), "accept"))
+    end
+
+    test "reports orientation-adjusted (swapped) dimensions for a quarter-turn EXIF source" do
+      conn = call_imgproxy("/info/unsafe/plain/images/oriented.jpg", exif_orientation_origin_opts())
+      json = JSON.decode!(conn.resp_body)
+      # ExifOrientationOriginImage creates a 40x80 image with EXIF orientation 6
+      # (90-degree clockwise). /info reports the display (swapped) dimensions.
+      assert json["orientation"] == 6
+      assert json["width"] == 80
+      assert json["height"] == 40
+    end
+
+    test "a bad signature is rejected (403) before any source fetch" do
+      signed_opts =
+        Keyword.merge(@default_opts,
+          imgproxy: [signature: [keys: ["746573742d6b6579"], salts: ["746573742d73616c74"]]],
+          sources: [
+            path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginShouldNotFetch]}
+          ]
+        )
+
+      conn = call_imgproxy("/info/invalidsig/plain/images/beach.jpg", signed_opts)
+      assert conn.status == 403
+    end
+
+    test "an expired /info URL returns 400" do
+      opts = Keyword.put(@default_opts, :clock, fn -> DateTime.from_unix!(101) end)
+      conn = call_imgproxy("/info/unsafe/exp:100/plain/images/beach.jpg", opts)
+      assert conn.status == 400
+    end
+
+    test "a non-image source returns 415" do
+      opts =
+        Keyword.put(@default_opts, :sources,
+          path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: CorruptSourceOriginImage]}
+        )
+
+      conn = call_imgproxy("/info/unsafe/plain/images/whatever.jpg", opts)
+      assert conn.status == 415
+    end
+  end
 end

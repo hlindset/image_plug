@@ -159,6 +159,21 @@ defmodule ImagePipe.Response.Sender do
     send_unsupported_output_format_error(conn, response_headers)
   end
 
+  defp handle_processing_error(conn, {:render, {:decode, _} = inner}, response_headers),
+    do: handle_processing_error(conn, inner, response_headers)
+
+  defp handle_processing_error(conn, {:render, {:source, _} = inner}, response_headers),
+    do: handle_processing_error(conn, inner, response_headers)
+
+  defp handle_processing_error(conn, {:render, {:unsupported_source_format, _} = inner}, response_headers),
+    do: handle_processing_error(conn, inner, response_headers)
+
+  defp handle_processing_error(conn, {:render, :source_format_required = inner}, response_headers),
+    do: handle_processing_error(conn, inner, response_headers)
+
+  defp handle_processing_error(conn, {:render, {:input_limit, _} = inner}, response_headers),
+    do: handle_processing_error(conn, inner, response_headers)
+
   defp handle_processing_error(conn, {:render, reason}, response_headers) do
     Logger.error("render_error: #{inspect(reason)}")
 
