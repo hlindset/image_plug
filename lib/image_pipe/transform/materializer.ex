@@ -22,6 +22,7 @@ defmodule ImagePipe.Transform.Materializer do
 
   alias ImagePipe.Telemetry
   alias ImagePipe.Transform.{OrientationFlush, State}
+  alias Vix.Vips.Image, as: VipsImage
 
   @callback materialize(State.t(), keyword()) ::
               {:ok, State.t()} | {:error, term()}
@@ -43,6 +44,33 @@ defmodule ImagePipe.Transform.Materializer do
   @spec materialize(State.t(), keyword()) :: {:ok, State.t()} | {:error, term()}
   def materialize(%State{} = state, _opts) do
     materialize(state)
+  end
+
+  # Storage-frame materialization for the one op imgproxy runs BEFORE orientation
+  # (trim, mainPipeline stage 2 < rotateAndFlip stage 7). Trim needs random
+  # access, but the orienting `materialize/1` would rotate first and trim the
+  # display frame. This copies the un-oriented pixels to RAM and leaves
+  # `pending_orientation` for the later flush, so trim sees the storage frame
+  # (its smart top-left sample and equal_hor/equal_ver axes are storage-frame).
+  # Same [:transform, :materialize] span as the orienting path for honest
+  # per-barrier timing; the span stays owned here, not in PlanExecutor.
+  @spec materialize_without_orientation(State.t()) :: {:ok, State.t()} | {:error, term()}
+  def materialize_without_orientation(%State{materialized?: true} = state), do: {:ok, state}
+
+  def materialize_without_orientation(%State{telemetry_opts: telemetry_opts} = state) do
+    Telemetry.span(telemetry_opts, [:transform, :materialize], %{}, fn ->
+      case copy_to_memory(state) do
+        {:ok, new_state} -> {{:ok, new_state}, %{result: :ok}}
+        {:error, reason} -> {{:error, reason}, %{result: :materialize_error}}
+      end
+    end)
+  end
+
+  defp copy_to_memory(%State{image: image} = state) do
+    case VipsImage.copy_memory(image) do
+      {:ok, image} -> {:ok, %State{state | image: image, materialized?: true}}
+      {:error, _} = error -> error
+    end
   end
 
   # The flush returns a BARE {:ok, state} | {:error, reason}. The
