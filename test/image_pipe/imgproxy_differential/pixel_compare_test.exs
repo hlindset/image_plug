@@ -2,6 +2,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompareTest do
   use ExUnit.Case, async: true
 
   alias ImagePipe.Test.ImgproxyDifferential.PixelCompare
+  alias Vix.Vips.Operation
 
   defp img(w, h, color), do: Image.new!(w, h, color: color)
 
@@ -51,6 +52,39 @@ defmodule ImagePipe.Test.ImgproxyDifferential.PixelCompareTest do
     test "identical images have zero fraction" do
       a = img(16, 16, [10, 20, 30])
       assert PixelCompare.fraction_over(a, a, 0) == 0.0
+    end
+  end
+
+  describe "spatial_contrast/1" do
+    test "a spatially uniform image is zero regardless of its colour" do
+      assert PixelCompare.spatial_contrast(img(16, 16, [0, 0, 0])) == 0.0
+
+      # The load-bearing property: a uniform [200,180,60] fill has a *band-byte*
+      # range of 140 (the cross-channel gamut) but zero spatial variation, so it must
+      # read as 0 — proving we measure per-band spatial range, not band-byte range.
+      assert PixelCompare.spatial_contrast(img(16, 16, [200, 180, 60])) == 0.0
+    end
+
+    test "a hard black/white edge reads near the full 0..255 range" do
+      black = img(8, 16, [0, 0, 0])
+      white = img(8, 16, [255, 255, 255])
+      {:ok, edge} = Operation.join(black, white, :VIPS_DIRECTION_HORIZONTAL)
+
+      assert_in_delta PixelCompare.spatial_contrast(edge), 255.0, 0.5
+    end
+
+    test "normalizes 16-bit images onto the same 0..255 scale" do
+      # 255 cast to u16 stays 255; scale by 257 to reach the true 16-bit max (65535).
+      to_u16 = fn image, scale ->
+        image |> Operation.linear!([scale], [0.0]) |> Image.cast!({:u, 16})
+      end
+
+      lo = img(8, 16, [0, 0, 0]) |> to_u16.(1.0)
+      hi = img(8, 16, [255, 255, 255]) |> to_u16.(257.0)
+      {:ok, edge} = Operation.join(lo, hi, :VIPS_DIRECTION_HORIZONTAL)
+
+      # a full-range 16-bit edge (Δ65535) normalizes to ~255, not ~65535
+      assert_in_delta PixelCompare.spatial_contrast(edge), 255.0, 0.5
     end
   end
 

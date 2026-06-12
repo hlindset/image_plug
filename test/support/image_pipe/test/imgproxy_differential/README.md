@@ -63,7 +63,19 @@ conformance test uses):
 ```shell
 mise exec -- mix imgproxy.diagnose exif_extend_south trim_resize_high_freq   # specific cases
 mise exec -- mix imgproxy.diagnose                                           # whole suite
+mise exec -- mix imgproxy.diagnose --undiscriminating                        # only near-uniform fixtures
 ```
+
+**Discrimination — `contrast=N`.** Each transform line also reports the imgproxy
+fixture's largest per-band *spatial* range (`PixelCompare.spatial_contrast/1`, 0..255
+levels). A near-zero value (`⚠ near-uniform`) means the fixture is spatially flat, so a
+placement/crop error would move the window within a uniform field and yield identical
+pixels — the case passes at `maxΔ=0` but cannot *catch* a regression (the marker
+dead-region crops, [#239](https://github.com/hlindset/image_pipe/issues/239)). The flag
+is informational, not a gate: a dims-based test (`trim`) can be legitimately uniform
+inside, since its signal is the output dimensions. `--undiscriminating` lists only the
+flagged cases — a separate axis from `--failing` (correctness). It measures per-band
+*spatial* range, not band-byte range, so a uniform `[200,180,60]` fill reads 0, not 140.
 
 **Reading it — skew vs structural.** `maxΔ` is the deciding signal:
 
