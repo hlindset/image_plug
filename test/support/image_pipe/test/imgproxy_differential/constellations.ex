@@ -14,6 +14,7 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
     marker: "marker.png",
     placement: "placement.png",
     border: "border.png",
+    border_asym: "border_asym.png",
     alpha: "alpha.png",
     exif_2: "exif_2.jpg",
     exif_3: "exif_3.jpg",
@@ -510,8 +511,17 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # result-crop now crops to result_box_* (the literal requested box) like the fit
       # path, so it matches at 200×200. The existing cover_min_dims_marker has mw/mh <
       # target (inert), so it could not surface this; the plain-fill sibling
-      # fill_mw_mh_above_target pins the same gap on `fill`.
-      c("fill_down_min_dims_marker", :marker, "rs:fill-down:200:200/mw:400/mh:400"),
+      # fill_mw_mh_above_target pins the same gap on `fill`. Source is `placement`, not
+      # `marker`: the center cover-crop lands in marker's flat field (#239 dead region →
+      # solid 200×200), so a result-crop placement error would be invisible; the
+      # aperiodic placement grid keeps it discriminating beyond the bare dims signal.
+      # The 8× cover downscale of the sharp grid is diffuse resample skew (maxΔ=13, 0 over
+      # Δ16); threshold just above the skew ceiling with the tight default budget — a real
+      # result-crop placement shift pushes the aperiodic grid to maxΔ≈255, well over Δ16.
+      %{
+        c("fill_down_min_dims_placement", :placement, "rs:fill-down:200:200/mw:400/mh:400")
+        | tol: %{threshold: 16, budget: 64}
+      },
 
       # --- oracle-branch boundary probes: each flips a specific imgproxy conditional
       # (prepare.go / gravity.go / trim) to its MINORITY side, the regime no existing
@@ -521,9 +531,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # B1: #236 on PLAIN fill (not just fill-down). mw/mh ABOVE the target on the
       # shared cover path: the result-crop crops to result_box_* (the literal requested
       # box), so it trims back to 200×200 like imgproxy. The fill-down sibling
-      # [[fill_down_min_dims_marker]] pins the same fix; this pins that it is the cover
-      # path itself, not fill-down-specific.
-      c("fill_mw_mh_above_target", :marker, "rs:fill:200:200/mw:400/mh:400"),
+      # [[fill_down_min_dims_placement]] pins the same fix; this pins that it is the cover
+      # path itself, not fill-down-specific. Source is `placement` for the same reason as
+      # its sibling — a center cover-crop of `marker` is a #239 dead region (solid 200×200).
+      # Same diffuse 8× cover-downscale skew as the sibling (maxΔ=13, 0 over Δ16).
+      %{
+        c("fill_mw_mh_above_target", :placement, "rs:fill:200:200/mw:400/mh:400")
+        | tol: %{threshold: 16, budget: 64}
+      },
       # B2/B3: the enlarge-off DprScale compensation branch (prepare.go calcScale,
       # `!Enlarge() && minShrink<1`). small (120×90) is smaller than the 400×400 box, so
       # with enlarge off (default) and dpr:2 the `DprScale /= minShrink` compensation
@@ -562,9 +577,12 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # within the canvas (no clamp) or clamp without dpr.
       c("extend_offset_clamp_dpr_small", :small, "rs:fit:200:150/ex:1:ea:200:0/dpr:2"),
       # B7: trim equal_hor/equal_ver symmetrization (`trim:%th:%color:%eh:%ev`). The
-      # symmetrize-opposite-margins-to-the-smaller-inset branch is parsed and unit-tested
-      # but never differentially baked. border is the uniform-border trim source.
-      c("trim_equal_hv_border", :border, "t:10::1:1"),
+      # symmetrize-opposite-margins-to-the-smaller-inset branch extends each opposite-
+      # margin pair to its smaller inset, so it is a no-op on the centered `border` (equal
+      # margins, diff==0) — it must run on `border_asym` (off-center rect: left=100/right=
+      # 200, top=60/bot=140) where plain trim → 1300×1000 but symmetrization → 1400×1080
+      # reaching into the white border. The asymmetric crop is the discriminator.
+      c("trim_equal_hv_border", :border_asym, "t:10::1:1"),
       # B8: symmetrization × EXIF storage-axis transpose. #182 notes equal_hor/equal_ver
       # symmetrize the STORAGE axes, which transpose vs display under EXIF 5–8. exif_5
       # (transpose) with equal_hor crosses the symmetrization branch with the frame

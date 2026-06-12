@@ -5,6 +5,7 @@
   sources: %{
     "alpha.png" => "7ef18f9ce1e08b6752fa8e55caf0819882d3779b997b65ec7a6c0c45e3a75fee",
     "border.png" => "350a6d992b4204dc619ccc492475ced70509b9f350fb7aed6f6156cb5efe1952",
+    "border_asym.png" => "9782adfcd78b6033d6d97797bf76709fca200d5789491e4e8f080541e17b7ebd",
     "cmyk.jpg" => "9888782df8ccd2e3654b430d6d9feb16985c381859688b22a54dc956772aad0c",
     "exif_2.jpg" => "8756ad8af4a475b0f3a3a6899d9f4e4133fb6ba9db48de3de0351c0a89c41a47",
     "exif_3.jpg" => "1d1f1f82266ae21079b7da91a715f540e260f38a4aca56e99b6c2d40b1367ea4",
@@ -522,16 +523,16 @@
       fixture_sha256: "2939a6d8a0de7382492f0f268b896e4663e75b63d5be6846b86248e9f8d6c8da",
       kind: :transform
     },
-    "fill_down_min_dims_marker" => %{
-      authored_sha256: "7512193de895674e14d6895bf6beb669218e89ecdf065c953f5d8993934ed54d",
-      fixture_filename: "fill_down_min_dims_marker.png",
-      fixture_sha256: "fc26c82d52009da1733fc0e4a841566a7fafd47aaa773eb29158ab6c57e1e895",
+    "fill_down_min_dims_placement" => %{
+      authored_sha256: "e98c070323aed8e449299d42301940ab75dc5a5e6e5d71a4ed51d9203fdf0ee7",
+      fixture_filename: "fill_down_min_dims_placement.png",
+      fixture_sha256: "40fe6df290e2ee1a48feb5d21891f9d31e03ccc71c5ee5ed7d5c1e0aa8b0a5b9",
       kind: :transform
     },
     "fill_mw_mh_above_target" => %{
-      authored_sha256: "14a9731e37ccec428b2c00e34c99aaba2a797a5804c80f5273630b1ad31c23b7",
+      authored_sha256: "c26ff2550e7bbe5d61754dde805e32b2ad082628d08c938da5c6ec4d92e286e4",
       fixture_filename: "fill_mw_mh_above_target.png",
-      fixture_sha256: "fc26c82d52009da1733fc0e4a841566a7fafd47aaa773eb29158ab6c57e1e895",
+      fixture_sha256: "40fe6df290e2ee1a48feb5d21891f9d31e03ccc71c5ee5ed7d5c1e0aa8b0a5b9",
       kind: :transform
     },
     "fit_min_dims_gravity_marker" => %{
@@ -736,9 +737,9 @@
       kind: :transform
     },
     "trim_equal_hv_border" => %{
-      authored_sha256: "e48730ba7e1a70f813acc95b7b143cc29b6dc07b5ba80af7ec76d6f9c0e17e6e",
+      authored_sha256: "0d5420086fbb9ce020dc6a77ffbd2c0526a090075b129c22e072063e1d282e1b",
       fixture_filename: "trim_equal_hv_border.png",
-      fixture_sha256: "f25e7af1bf08e3df79b6ace82515d7276dc92575f96006f24d37b3b72bf48336",
+      fixture_sha256: "e00a29a6c06e316258b52fb51795248503b7d2c25d48676bca3615b9d0e96bfc",
       kind: :transform
     },
     "trim_exif_cover_crop" => %{

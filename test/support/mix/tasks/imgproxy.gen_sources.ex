@@ -58,6 +58,20 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
 
     write!(border, "border.png", suffix: ".png")
 
+    # Asymmetric border for the trim `equal_hor`/`equal_ver` symmetrization branch.
+    # The blue rect is off-center (left=100, right=200, top=60, bot=140 margins), so
+    # the opposite margins are unequal. Plain trim crops to the tight 1300×1000 bbox
+    # (all blue); `t:%th::1:1` symmetrizes each pair to the smaller inset, extending
+    # the crop into the white border (→ 1400×1080 with white strips). On the centered
+    # `border.png` the branch is a no-op (equal margins, diff==0), so this off-center
+    # source is what makes the symmetrization differentially visible.
+    border_asym =
+      @w
+      |> Image.new!(@h, color: [255, 255, 255])
+      |> Image.Draw.rect!(100, 60, 1300, 1000, color: [20, 30, 200])
+
+    write!(border_asym, "border_asym.png", suffix: ".png")
+
     {:ok, alpha} = Image.new(256, 256, color: [0, 200, 100, 128], bands: 4)
     write!(alpha, "alpha.png", suffix: ".png")
 

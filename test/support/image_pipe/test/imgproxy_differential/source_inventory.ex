@@ -99,6 +99,24 @@ defmodule ImagePipe.Test.ImgproxyDifferential.SourceInventory do
                invariant: "Uniform border is the trim signal; the interior is intentionally flat."
              },
              %{
+               file: "border_asym.png",
+               width: 1600,
+               height: 1200,
+               bands: 3,
+               format: :VIPS_FORMAT_UCHAR,
+               interpretation: :VIPS_INTERPRETATION_sRGB,
+               profile?: false,
+               produced_by: :gen_sources,
+               content:
+                 "White field with an OFF-center blue [20,30,200] rect (margins left=100/right=200, " <>
+                   "top=60/bot=140) — an asymmetric border.",
+               consumers: [],
+               invariant:
+                 "Asymmetric opposite margins are the trim `equal_hor`/`equal_ver` symmetrization signal: " <>
+                   "plain trim → tight 1300×1000 bbox, `t::1:1` → 1400×1080 reaching into the white border. " <>
+                   "On the centered `border.png` the branch is a no-op (diff==0), so do NOT center this rect."
+             },
+             %{
                file: "high_freq.jpg",
                width: 1600,
                height: 1200,
