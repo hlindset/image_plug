@@ -42,10 +42,11 @@ they actually require:
 
 A request like `format:1/dimensions:1/detect_objects:1/hashsums:sha256` needs all
 four tiers merged into one JSON document. **Depth is the union of the enabled
-fields' needs** — see *the fold satisfier*.
+fields' needs** — see *the satisfier* (forward generalization).
 
 The default-enabled fields are `size`, `format`, `dimensions`, `orientation`,
-`exif`, `iptc`, `xmp`. Every pixel/stream-tier field is opt-in and default-OFF.
+`exif`, `iptc`, `xmp` (and `video_meta` for video, which ImagePipe does not handle).
+Every pixel/stream-tier field is opt-in and default-OFF.
 
 ### URL grammar / signature (must-match)
 
@@ -57,17 +58,22 @@ The default-enabled fields are `size`, `format`, `dimensions`, `orientation`,
 
 - **`/info` is an UNSIGNED path prefix.** The HMAC covers
   `salt + "/" + info_options + "/" + source` — the leading `/info` is *not* in the
-  signed payload. The dispatcher must **peel `/info` first, then run the existing
-  signature extract/verify on the remainder.** (`Path.extract` treats segment 1 as
-  the signature; an unpeeled `/info/...` URL mis-verifies.)
-- **Info URLs carry no output extension.** The reused source parser must not run the
-  `.`-split output-extension logic (`path.ex` `parse_plain_source` /
-  `parse_encoded_source_value`), or `plain/http://x/a.jpg` mis-parses.
+  signed payload (`signing_url.mdx`). The dispatch must **peel `/info` first, then
+  run the existing signature extract/verify on the remainder.** `Path.extract`
+  (`path.ex:7-20`) treats path segment 1 as the signature, so the fork lives in
+  `parse_request/2` (imgproxy.ex): detect a leading `/info` segment and call a
+  peeled variant before `extract`.
+- **Info URLs carry no output extension.** The **encoded** source parser
+  (`parse_encoded_source_value`, `path.ex:111`) splits on `.` to extract an output
+  format; that split must be bypassed for info, or an encoded info source mis-parses
+  its trailing `.segment`. (The `plain` parser splits on `@`, not `.`, so plain is
+  unaffected — but the no-extension rule applies to both forms.)
 - **Info-options live _inside_ the signed path.** The options segment must be
-  *parsed* (so the signed string is reconstructed byte-identically), even though
-  Phase 1 ignores the *display* options' effect. **`expires` and `cachebuster` must
-  be parsed _and honored_** (not ignored): `expires` → 404 when expired is a
-  security/policy option that already flows through the planner.
+  *parsed* so the signed string is reconstructed byte-identically, even though Phase
+  1 ignores the *display* options' effect. **`expires` and `cachebuster` must be
+  parsed _and honored_** (not ignored): `expires` → 404 when expired is enforced in
+  `plan_builder.ex` `reject_expired_request` during parsing, before any fetch — the
+  `/info` dispatch must route through that same planner policy path.
 
 Source decoding (encoded / `plain` / `enc`) is otherwise identical to the
 processing endpoint and is reused.
@@ -80,172 +86,162 @@ is a service-capability advertisement; blurhash/lqip are representations of the
 processed image. Each dialect/representation owns its serializer; the core knows
 only "a non-image terminal renderer produces a complete body."
 
-## Architecture: the terminal stage becomes a Renderer
+## Architecture: a non-image render path in the request layer
 
-The producer (`lib/image_pipe/request/source_session/producer.ex`
-`prepare_first_chunk/1`, ~114–166) has two distinct spines, reused very differently:
+The producer (`lib/image_pipe/request/source_session/producer.ex`) is the
+**streaming-encode machine**: a spawned process with a `{:next}`/`{:halt}` demand
+protocol whose `prepare_first_chunk/1` (~114–166) is one `with` chain hard-wired to
+`resolve_output → clamp → materialize → encode_first_chunk`, every step consuming or
+producing `%Output.Resolved{}`, and whose `SourceSession` reply path opens the cache
+sink from that `Resolved` (`source_session.ex:259`). It exists to stream large,
+chunked, cancellable **encoded image** bytes. It is **not** a generic compute engine
+with a pluggable terminal — its compute and its streaming protocol are the same
+chain in the same process.
 
-- **Compute spine** — `fetch → decode → (transform → materialize) → terminal`. Every
-  response uses this, stopping at the depth it needs.
-- **Streaming-delivery spine** — the `PreparedStream` chunked/cancellable machinery,
-  with `Output.Resolved` welded into `PreparedStream` / `SourceSession.Prepared` via
-  `@enforce_keys`. **Only image-encode uses this** (large, chunked output).
-
-**Key observation: rendered representations are never streams — they are small,
-fully-known complete bodies** (a JSON doc, a blurhash string, an lqip data-URI). So
-renders run on the *compute* spine but bypass the *streaming-delivery* spine
-entirely, returning a complete body. This is what keeps `PreparedStream`/`Resolved`
-image-encode-only — there is **no `Resolved`-neutralization to do.**
-
-The producer terminal forks on render kind:
+**Rendered representations are small, fully-known complete bodies** (a JSON doc, a
+blurhash string, an lqip data-URI) — never streams. So a render must **not** go
+through the producer/`SourceSession`. Instead, a render runs in the **request layer**
+(`Runner`), calling the already-public `Request.Processor` entry points to the depth
+it needs, then formats and returns a complete body:
 
 ```
-... → materialize → TERMINAL:
-   default image-encode renderer  → encode_first_chunk → PreparedStream (streaming; unchanged)
-   non-image renderer             → render(context) → {:rendered, content_type, iodata} (complete body)
+Runner, when plan.render is a render spec:
+  decoded = Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source, opts)   # :header depth
+  # (future :pixels depth: Processor.process_source/3 — fetch+decode+transform+materialize)
+  context = build_render_context(decoded, requires)        # Phase 1: %RenderContext{info: SourceInfo}
+  {:ok, {content_type, body}} = renderer.render(context, params, opts)
+  → {:rendered, content_type, body, prepared_http_cache}
 ```
 
-`depth` (from `requires`, below) controls how far the compute spine runs before the
-terminal: `:header` stops after decode; `:pixels` runs transform + materialize. The
-streaming spine and its `Resolved` welding are untouched.
+This path **never starts `SourceSession`/`Producer`, never constructs `%Resolved{}`,
+never opens the streaming cache sink.** `PreparedStream`/`Resolved` stay
+image-encode-only and untouched — there is no neutralization to do. It still runs
+after `parse → validate → resolve source → HTTPCache.prepare → conditional-GET` in
+`plug.ex`, so source-safety and the 304-before-fetch path are reused.
+
+> **Forward note (heavy `:pixels` renders):** a `:header` render is cheap and runs
+> synchronously in the request process. A future `:pixels` render (blurhash/lqip)
+> does real transform+materialize work via `Processor.process_source/3`; if
+> disconnect-cancellation of that CPU work matters, wrap the render compute in a
+> monitored `Task` then. Not a Phase-1 concern.
 
 ### The `requires` contract (the load-bearing discipline)
 
 A renderer declares `requires(params)` → a list of **needs**. A need means exactly
 one thing: **"which expensive pipeline stage must run."** Not vendor semantics, not
-computations. The vocabulary is small, finite, vendor-neutral — each member is a
-real cost boundary that already exists:
+computations. The vocabulary is a small, finite, vendor-neutral set — each member a
+real cost boundary that already exists. Phase 1 inhabits **only `:header`**, so the
+Phase-1 typespec is `need :: :header`; the union widens at the first renderer that
+returns another member (no dead arms written now):
 
-| Need | Stage it runs | Existing seam |
+| Need (eventual) | Stage it runs | Existing seam |
 | --- | --- | --- |
-| `:header` | lazy open; read header scalars (dims, format, orientation, interpretation) | `request/processor.ex:60-91` (`header_image`) |
-| `:pixels` | materialize the post-pipeline image | `Processor.materialize_for_delivery` |
-| `{:detector, classes}` | run the object/face detector | `Transform.detector_*` (gated + cache-folded) |
+| `:header` (Phase 1) | lazy open; read header scalars (dims, format, orientation, interpretation) | `request/processor.ex:60-91` (`header_image`) |
+| `:pixels` (next) | materialize the post-pipeline image | `Processor.process_source/3` → `final_state.image` |
+| `{:detector, classes}` | run the object/face detector | `Transform.detector_*` |
 | `:source_bytes` | buffer the full raw source stream | the stream drain in `processor.ex` |
-
-`requires/1` returns an **open list**; Phase 1's imgproxy-info renderer returns
-`[:header]`. We do **not** enumerate the other members as dead arms — they appear
-with the field/renderer that first needs them.
 
 **What is _not_ in `requires`** (and must never be): vendor field semantics, wire
 key names, and *all pure computation*. The renderer derives everything else over the
-context it requested. The crop case proves the vocabulary does not fragment:
-imgproxy info `crop:w:h:gravity` introduces **no `:geometry` need** — it requires
-`:header` (dims) for center gravity, or `:header` + `{:detector,_}` for object
-gravity, and computes the crop rectangle *itself* by calling a shared pure resolver
-over those inputs. Hashing is pure over `:source_bytes`; palette/blurhash are pure
-over `:pixels`.
+context. The crop case proves the vocabulary does not fragment: imgproxy info
+`crop:w:h:gravity` introduces **no `:geometry` need** — it requires `:header` (dims)
+for center gravity, or `:header` + `{:detector,_}` for object gravity, and computes
+the crop rectangle *itself*. Hashing is pure over `:source_bytes`; palette/blurhash
+are pure over `:pixels`.
 
 - **In `requires` (neutral):** which expensive stages to run.
 - **In the dialect renderer (vendor):** the field→need mapping, the wire key names,
-  and every derivation (crop rectangles, fraction conversion, hash digests, palette
-  quantization, EXIF tag naming).
+  the wire format/mime spellings, and every derivation.
 
-`requires/1` is vendor code returning *neutral* needs — that is correct, not a leak.
-IIIF maps `width`/`height` → `[:header]`; imgproxy maps `detect_objects` →
-`[:header, {:detector, "all"}]`. Different mappings, one neutral vocabulary and one
-satisfier.
+`requires/1` is vendor code returning *neutral* needs. IIIF maps `width`/`height` →
+`[:header]`; imgproxy maps `detect_objects` → `[:header, {:detector, "all"}]`.
 
 `:pixels` means **the materialized result of _this plan's_ pipeline** — empty
 pipeline → the decoded source (imgproxy info's own `palette`/`blurhash`); full
-pipeline → the processed image (TwicPics/imgproxy `format:blurhash`). The
-source-vs-processed distinction is handled by "this plan's pipeline," not by a
-separate need. (Phase 1 builds no `:pixels` handler; this definition is the contract
-the first `:pixels` renderer implements.)
+pipeline → the processed image (TwicPics / imgproxy `format:blurhash`). The
+source-vs-processed distinction is handled by "this plan's pipeline," not a separate
+need.
 
-### The fold satisfier and mixed bags
+### The satisfier (Phase 1 straight-line; fold is the forward generalization)
 
-The satisfier is a **fold over the needs set**, not a depth branch:
+Phase 1 has one need, so the satisfier is straight-line:
 
 ```
-satisfy(requires):
-  context = %RenderContext{}
-  for each need in normalize(requires):     # run every declared stage, in dep order
-    run the stage, populate its context slot
-  → one context (info / image / detections / source_bytes populated as needed)
-renderer.render(context, params) → one merged document
+build_render_context(decoded, [:header]) → %RenderContext{info: SourceInfo.from_decoded(decoded)}
 ```
 
-A **mixed bag** (headers + pixels + detector + raw bytes in one response) is the
-*designed-for* case, not an edge case — it is why `requires` is a set and the
-context has multiple slots. A union just runs more stages and fills more slots, then
-the renderer merges. **No split-and-merge**: one compute pass, one context, one
-renderer, one document.
+**Forward generalization (not built now):** with ≥2 needs the satisfier becomes a
+**fold over the union** — normalize the set (expand implications
+`{:detector,_}` ⟹ `:pixels` ⟹ decode ⟹ `:header`), run stages in a fixed dependency
+order (`fetch → buffer-raw → decode → transform+materialize → detect → render`),
+populate one `RenderContext` with multiple slots, and let the renderer merge. A
+**mixed bag** (header + pixels + detector + raw bytes in one response — imgproxy
+`/info` at full surface) is then the natural case: a union runs more stages and fills
+more slots; **no split-and-merge**. The source is fetched **once** (drained to a
+buffer; `:source_bytes` hashes the buffer, `:pixels` decodes from it). Phase 1 ships
+the one-element case directly and documents the fold as the generalization point —
+building `normalize/1` and a fold over a one-element list now would be dead code.
 
-Two mechanical concerns, both handled:
-
-1. **Implication + ordering.** `normalize/1` expands implied needs
-   (`{:detector,_}` ⟹ `:pixels` ⟹ decode ⟹ `:header`), then stages run in a fixed
-   dependency order: `fetch → (buffer raw if :source_bytes) → decode (:header) →
-   transform+materialize (:pixels) → detect (:detector) → render`. `:header` is free
-   in any mixed bag once anything decodes.
-2. **One fetch, shared.** `:source_bytes` (hash the original file) and `:pixels`
-   (decode the image) both consume the fetched source, which is fetched **once**: the
-   existing path drains to a buffer and decodes *from* it, so "hash the buffer" +
-   "decode the buffer" compose on a single read.
-
-**Deferred policy (not decided now):** when a *required* stage in a mixed bag cannot
-run (detector unavailable, image exceeds `max_input_pixels` for `:pixels`), does the
-render fail the whole request or omit that field and return a partial document?
-imgproxy tends to fail; partial/omit is a per-field policy settled when those fields
-exist. Phase 1 (header-only) never hits this.
+> **Deferred policy:** in a mixed bag, if a required stage cannot run (detector
+> unavailable, image exceeds `max_input_pixels` for `:pixels`), does the render fail
+> the request or omit that field? imgproxy tends to fail; partial/omit is settled
+> when those fields exist. Phase 1 (header-only) never hits this.
 
 ### The `size` wrinkle
 
-`size` is **not** purely param-determined. It is cheap from HTTP `Content-Length` /
-`File.stat`. **Phase 1: present when cheaply available, else omit.** imgproxy
-*downloads* the source to compute size when no `Content-Length` is present — that
-fallback is a documented divergence (the escalation to `:source_bytes` is a
-forward-note, not built now, since `:source_bytes` is deferred).
+`size` is cheap from HTTP `Content-Length` / `File.stat`. **Phase 1: present when
+cheaply available, else omit.** imgproxy *downloads* to compute size when no
+`Content-Length` is present — that fallback is a documented divergence (escalation to
+`:source_bytes` is a forward-note, not built now). `size` is sourced by the request
+layer from the `Source.Response`/`File.stat`, **not** from the decoded image (see
+`SourceInfo.byte_size` below).
 
-### RenderContext
+### `Plan.RenderContext` (hard placement: under `Plan.*`)
 
-Assembled by the request layer; renderers are pure formatters over it.
+Assembled by the request layer; renderers are pure formatters over it. It **must**
+live under `Plan.*` (not `Request.*`): `Output.Render.render/3` takes it as an
+argument, so its owning boundary becomes a dep of `Output`, and `output → request` is
+forbidden (`output → plan` already exists).
 
 ```elixir
-%RenderContext{
+%ImagePipe.Plan.RenderContext{
   info: %ImagePipe.Plan.SourceInfo{...}   # always (from :header)
   # image / detections / source_bytes fields are ADDED with their stage handlers,
   # not declared now (they would be permanently nil in Phase 1).
 }
 ```
 
-**Boundary discipline for the future `image` field:** when the first `:pixels`
-renderer lands, `RenderContext.image` is typed `Vix.Vips.Image.t()` — a plain Vix
-image (external library), the **same** type `Output.Encoder.stream_output/3` already
-receives. It must **not** carry a `Transform.State` or a detector-internal struct.
-So renderers under `Output.*` format over external Vix + neutral `Plan.*` types only
-— no `Output → Transform` edge is created.
+When the first `:pixels` renderer lands, `RenderContext.image` is typed
+`Vix.Vips.Image.t()` — a plain Vix image (external library), the **same** type
+`Output.Encoder.stream_output/3` already receives. It must **not** carry a
+`Transform.State` or detector-internal struct, so `Output.*` renderers format over
+external Vix + neutral `Plan.*` types only — no `output → transform` edge.
 
 ## Component decisions
 
 ### `ImagePipe.Plan.SourceInfo` (new, under `Plan.*`)
 
-Product-neutral header facts. Lives under `Plan.*` (not `Transform`/`Request`) so
-renderers (under `Output.*`) can format over it without an `output → transform`
-edge.
+Product-neutral facts. Header scalars come from the `header_image`
+(`processor.ex:64-68`); `byte_size` is the **one non-header field**, filled by the
+request layer from `Source.Response`/`File.stat` (nil when neither is available).
 
 ```elixir
 %ImagePipe.Plan.SourceInfo{
-  format: :jpeg,            # plain atom
-  mime_type: "image/jpeg",
+  format: :jpeg,            # neutral atom (from Request.SourceFormat.from_image/1)
   width: 1200, height: 800, # STORED (pre-orientation) dims
   orientation: 1,           # "orientation" header, default 1
-  byte_size: 123_456 | nil  # best-effort (Content-Length / File.stat), else nil
+  byte_size: 123_456 | nil  # request-layer: Content-Length / File.stat, else nil
 }
 ```
 
-- Sourced from the **`header_image`** (`processor.ex:64-68`), which already exposes
-  format, dims, and the EXIF orientation header — not the shrink-on-load decode
-  image.
 - The **request layer** calls `Request.SourceFormat.from_image/1` and stores a plain
   atom; `Plan.*` must **not** alias `Request.SourceFormat` (would create a
   `plan → request` edge).
-- `width`/`height` are **stored** (pre-rotation) dims + the orientation integer.
-  Each renderer decides display semantics (imgproxy reports orientation-adjusted
-  dims, swapping for EXIF 5–8; IIIF reports final display dims).
-- Colorspace/bands/sample_format/alpha/pages are **not** in the Phase-1 struct (see
-  scope).
+- `width`/`height` are **stored** (pre-rotation) dims + the orientation integer; each
+  renderer decides display semantics (imgproxy swaps for EXIF 5–8; IIIF reports final
+  display dims).
+- No `mime_type` field: MIME is a wire spelling owned by each renderer (below).
+  Colorspace/bands/sample_format/alpha/pages are **not** in the Phase-1 struct.
 
 ### `Plan.render` selector (minimal; not polymorphic `plan.output`)
 
@@ -256,106 +252,113 @@ render: :image_encode | %ImagePipe.Plan.Render{renderer: tag, params: map}
 ```
 
 - Default `:image_encode` → existing behavior, untouched.
-- A render spec carries a **neutral renderer tag + params**. The parser emits only
-  the tag + params (preserving `parser → plan`); the Output layer maps the tag → a
-  renderer module.
+- A render spec carries a **neutral renderer tag + params**; the parser emits only
+  the tag + params (preserving `parser → plan`); the Output layer maps tag → module.
 - `plan.output` (image-encode params) stays **orthogonal** and is ignored for
   non-image renders. We do **not** make `plan.output` polymorphic.
 
-**Two selection paths (both set `plan.render`, agnostic to which):**
+**Two selection paths (both set `plan.render`):**
 
 1. **Endpoint** — the imgproxy parser recognizes `/info` and emits an
    `:imgproxy_info` render spec (header-depth, empty pipeline).
-2. **Output-format option** — the imgproxy `format`/`f` handler forks: image formats
-   (`avif`/`webp`/`jpeg`/`png`) → `plan.output.mode`; render kinds
-   (`blurhash`/`lqip`) → `plan.render` (full pipeline preserved, output params
-   ignored). This non-standard `format` extension is isolated in the imgproxy
-   parser/option-grammar (dialect-quirk rule). *(Roadmap, not Phase 1.)*
+2. **Output-format option** *(roadmap, not Phase 1)* — the imgproxy `format`/`f`
+   handler forks: image formats → `plan.output.mode`; render kinds
+   (`blurhash`/`lqip`) → `plan.render` (full pipeline preserved). This non-standard
+   `format` extension is isolated in the imgproxy parser/option-grammar.
 
-**Render-tag namespace splits into neutral and dialect-specific.** `:blurhash` /
-`:lqip` are *product-neutral* representations — one renderer under `Output.*`, shared
-by imgproxy `format:blurhash` and TwicPics `output=blurhash`; only the *selection
-syntax* differs per parser. `:imgproxy_info` (and later `:iiif_info`) are
-*dialect-specific* schemas. The parser maps its syntax to the right tag; the renderer
-owns the representation.
+**Render-tag namespace splits neutral vs dialect-specific.** `:blurhash`/`:lqip` are
+*product-neutral* representations — one renderer under `Output.*`, shared by imgproxy
+`format:blurhash` and TwicPics `output=blurhash`; only selection syntax differs per
+parser. `:imgproxy_info` (later `:iiif_info`) are *dialect-specific* schemas.
 
 ### `ImagePipe.Output.Render` behaviour (new, under `Output.*`)
 
 ```elixir
-@callback requires(params) :: [need]              # open list; Phase 1: [:header]
-#   need :: :header | :pixels | {:detector, classes} | :source_bytes
+@callback requires(params) :: [need]              # Phase 1: need :: :header
 @callback render(RenderContext.t(), params, keyword()) ::
             {:ok, {content_type :: String.t(), body :: iodata()}} | {:error, term()}
 ```
 
 Renderers are pure formatters over `RenderContext`. The existing image encoder is the
 conceptual default renderer; Phase 1 leaves the image-encode path mechanically as-is
-and only adds the non-image terminal branch.
+and only adds the request-layer render branch.
 
 ### `ImagePipe.Output.Render.ImgproxyInfo` (new, dialect-specific)
 
-Maps `SourceInfo` → imgproxy JSON keys. Field renames happen here (struct field names
-are not wire names): `byte_size` → `size`, orientation-adjusted `width`/`height`,
-`mime_type` stays. `requires/1` → `[:header]`.
+Maps `SourceInfo` → imgproxy JSON. `requires/1` → `[:header]`. **Owns the imgproxy
+wire spellings** (vendor naming, sourced from imgproxy `imagetype/defs.go`):
 
-**`mime_type` must cover source-only formats.** imgproxy `/info` reports the
-*source* MIME, routinely a source-only format (TIFF/HEIC). `ImagePipe.Format` today
-maps MIME only for the four *output* formats; **extend the source-format → MIME
-mapping** (`heif`/`tiff`/`jpeg2000`/`jpeg_xl`) so `mime_type` is correct for those
-inputs. (Without this, TIFF/HEIC sources produce a wrong/`:error` `mime_type` — a
-latent bug inside the declared field set.)
+- `format` + `mime_type`: an atom → `{imgproxy_format_string, mime}` table.
+  imgproxy spells HEIC `"heic"`/`image/heif`, JXL `"jxl"`/`image/jxl`, TIFF
+  `"tiff"`/`image/tiff`, AVIF `"avif"`/`image/avif`, plus jpeg/png/webp/gif. It has
+  **no `heif` or `jpeg2000` type** — do not invent them. This table lives in the
+  renderer, **not** in `ImagePipe.Format` (those strings are imgproxy spellings, not
+  neutral facts).
+- `width`/`height`: orientation-adjusted (swap stored dims for EXIF 5–8).
+- `size` from `byte_size`; `orientation` from `SourceInfo.orientation`.
+
+**Detection divergence to record:** ImagePipe's `SourceFormat.from_image`
+(`source_format.ex:39-43`) classifies HEIF via the libvips loader + `heif-compression`
+(`av1` → `:avif`, else `:heif`/HEIC), whereas imgproxy detects HEIC vs AVIF from
+magic bytes. The mappings agree for typical inputs but the detection path differs —
+note it in the matrix.
 
 ### Non-image delivery (complete body)
 
-Renders bypass `PreparedStream` and `Resolved` entirely:
-
-- `Runner` returns `{:rendered, content_type, iodata(), CacheHeaders.t()}`.
+- `Runner` returns `{:rendered, content_type, iodata(), CacheHeaders.t()}`. The
+  `@type delivery()` is declared in **two** synced places —
+  `runner.ex:22` and `sender.ex:26` — both gain the variant.
 - A new `Sender.send_result/3` clause sends it with `send_resp/3`; a thin
-  `Response.*` helper owns content-type + body. Reused by info now and
-  blurhash/lqip later.
-- `Sender`'s render error path needs a tag + clause (the image-centric
-  `@plan_validation_error_tags` / `handle_processing_error` don't cover
-  `{:error, _}` from `render/3`).
-- **Caching:** a rendered body is a complete body, which maps cleanly onto the
-  existing complete-body `Cache.Entry` path. Phase 1 MAY cache rendered responses
-  via that path; if deferred, the render selector still folds into the cache key so
-  it is additive (open a follow-up). The streaming cache-sink
-  (`source_session.ex:259`) is *not* involved, since renders don't stream.
+  `Response.*` helper owns content-type + body and **does not** apply image
+  `content-disposition` logic. `plug.ex` `request_result*/1` already matches
+  `{:ok, _delivery}` generically, so no plug change is needed there.
+- Render errors: `handle_processing_error/3` (`sender.ex:100-153`) has no clause for
+  a `{:error, term()}` from `render/3`. Add a tag + clause; a render failure after a
+  successful decode maps to **500** (server-side formatting failure).
+- **Caching:** the **cache-key fold is mandatory** in Phase 1 (so deferring storage
+  stays additive); **storing** rendered bodies is **optional** in Phase 1 (a complete
+  body maps onto the existing `Cache.Entry` path; if deferred, open a follow-up). The
+  streaming cache-sink (`source_session.ex:259`) is never involved.
 
 ### Telemetry
 
-Rename the terminal span `[:encode]` → `[:render]` (encode is one renderer); carry a
-`representation` metadata key (`:image` | `:json` | …). Update
-`ImagePipe.Telemetry.Logger` (subscription + a `message/3` clause that still surfaces
-the outcome) and `docs/telemetry.md` in the same change.
+Rename the terminal span `[:encode]` → `[:render]` and carry a `representation`
+metadata key (`:image` | `:json` | …). The image-encode span site is
+`producer.ex:175`; the request-layer render emits its own `[:render]` span. Update
+`ImagePipe.Telemetry.Logger` (`@group_span_events` subscription + a `message/3`
+clause that still surfaces the outcome) and `docs/telemetry.md` in the same change.
 
 ### Plan validation
 
-- `Plan.validate_shape` learns the new `render` field (a `validate_render` clause +
-  a `shape_error` member); default `:image_encode` passes trivially.
+- `Plan.validate_shape` learns the `render` field (a `validate_render` clause + a
+  `shape_error` member); default `:image_encode` passes trivially.
 - **Empty-pipeline gate.** imgproxy `/info` has `pipelines: []`, which
-  `Plan.validated_pipelines` rejects (`:empty_pipeline_plan`). Allow an empty
-  pipeline for a **header-depth** render plan (a render spec whose `requires` lacks
-  `:pixels`). This must hold at the pre-fetch gate `validate_prefetch_safe_plan`
-  (`plug.ex:133`, called before source resolution), not only in the deeper
-  `validated_pipelines`. **No synthetic-`:pixels`-rejection test in Phase 1** — that
-  test arrives with the first real `:pixels` renderer (fabricating a `:pixels` render
-  plan now would be an impossible-internal-misuse test, which the repo forbids).
+  `Plan.validated_pipelines` rejects (`:empty_pipeline_plan`, `plan.ex:130`), at the
+  pre-fetch gate `validate_prefetch_safe_plan` (`transform.ex:72`, called from
+  `plug.ex:133`). Allow an empty pipeline **iff `plan.render` is a render selector**
+  (i.e. `!= :image_encode`) — a **plan-shape** check, *not* a `requires` query, so
+  the `Transform` boundary stays ignorant of `Output.Render` (a `transform → output`
+  dep is forbidden). This is also correct for the future `:pixels`-on-empty-pipeline
+  case (imgproxy info `palette`), which the depth-based predicate would wrongly
+  reject. **No synthetic `:pixels`-rejection test in Phase 1.**
 
 ### Cache key / ETag
 
 Fold the render selector into the **existing** `representation:` slot of
-`Cache.Key.plan_material/2` (`key.ex:62-75`), which flows into both the cache key and
-the input-derived ETag (`http_cache.ex`). This separates `/info` from the image
-render of the same source and preserves the 304-before-fetch fast path (the ETag
-stays input-derived, never a body hash). The info plan's `Output` mode must **not**
-be `:automatic`, so no spurious `Vary: Accept` is emitted on a non-negotiated JSON
-response (an explicit render bypasses `Accept` negotiation, like `format:avif`).
+`Cache.Key.plan_material/2` (`key.ex:62-75`). The current `representation_data/0` is a
+static `[version: …]` constant; it becomes `representation_data(plan.render)` (an
+argument-taking private helper + its tests). The fold flows into both the cache key
+and the input-derived ETag (`http_cache.ex`), separating `/info` from the image
+render of the same source and preserving the 304-before-fetch path. The info plan's
+`Output` mode must **not** be `:automatic`, so no spurious `Vary: Accept` is emitted
+on the non-negotiated JSON response (an explicit render bypasses `Accept`
+negotiation).
 
 ### imgproxy `/info` dispatch
 
-In the imgproxy parser: peel `/info`, verify the signature on the remainder, parse
-source (no output-extension split), parse-and-honor `expires`/`cachebuster`,
+In `parse_request/2`: detect the leading `/info` segment, peel it, verify the
+signature on the remainder, parse source (no output-extension split),
+parse-and-honor `expires`/`cachebuster` via the existing planner policy,
 parse-and-ignore the display info-options, and emit
 `%Plan.Render{renderer: :imgproxy_info, params: %{}}` with `pipelines: []`.
 
@@ -363,123 +366,130 @@ parse-and-ignore the display info-options, and emit
 
 **Build:**
 
-- `Plan.SourceInfo` (`format`, `mime_type`, `width`, `height`, `orientation`,
-  `byte_size`), sourced from `header_image`.
-- `Plan.render` field + `Plan.Render` spec + `validate_shape`/empty-pipeline branch.
-- `Output.Render` behaviour (`requires/1` open list, `render/3`) + `RenderContext`
-  with the `info:` field only.
-- The producer terminal fork + a **fold satisfier** that implements only the
-  `:header` stage (decode already does it), builds the context, calls the renderer,
-  returns `{:rendered, …}`.
-- `Output.Render.ImgproxyInfo` (header fields → imgproxy JSON; source-format MIME).
+- `Plan.SourceInfo` (`format` atom, `width`, `height`, `orientation`, `byte_size`).
+- `Plan.RenderContext` (only `info:`) and `Plan.render` field + `Plan.Render` spec +
+  `validate_shape`/empty-pipeline branch.
+- `Output.Render` behaviour (`requires/1` → `[:header]`, `render/3`).
+- A request-layer (`Runner`) render branch that calls
+  `Processor.fetch_decode_validate_source_with_source_format/3`, builds the context
+  (straight-line header population), calls the renderer, returns `{:rendered, …}`.
+- `Output.Render.ImgproxyInfo` (header fields → imgproxy JSON; **owns** the
+  format/mime wire-spelling table).
 - imgproxy `/info` dispatch (peel/verify/no-extension/honor-expires/ignore-display).
-- `{:rendered}` delivery: `Runner` result, `Sender.send_result/3` clause + render
-  error tag, `Response.*` complete-body helper.
-- `[:render]` span rename + Logger + `docs/telemetry.md`.
-- Source-format MIME mapping extension in `ImagePipe.Format`.
+- `{:rendered}` delivery: `Runner` + `Sender` `delivery()` type, `Sender.send_result/3`
+  clause + render error tag (500), `Response.*` complete-body helper (no image
+  content-disposition).
+- `[:render]` span + Logger + `docs/telemetry.md`.
 - Wire-level Plug tests; `docs/imgproxy_support_matrix.md` (surface + stage/order +
-  **behavioral** axes; stale-line cleanup).
+  **behavioral** axes; remove the stale "no info endpoint" lines).
 
 **Implemented imgproxy info field set:** `format`, `mime_type`, `width`, `height`,
 `orientation`, `size` (best-effort).
 
-**Do _not_ build** (additive later, each a field + need + satisfier-fold branch):
+**Do _not_ build** (additive later, each a field + need + satisfier branch):
 
-- `exif` / `iptc` / `xmp` — they ride `:header` (no extra stage) but need real
-  metadata-block extraction + imgproxy naming; deferred as a **documented divergence**
-  (the default imgproxy `/info` includes them — see below).
+- The `requires` union members `:pixels`/`{:detector,_}`/`:source_bytes`, the
+  `normalize/1` implication graph, and the fold satisfier — straight-line `:header`
+  only now.
+- `exif` / `iptc` / `xmp` — ride `:header` (no extra stage) but need real
+  metadata-block extraction + imgproxy naming; deferred as a **documented
+  divergence** (see Divergence #1 — they are default-ON).
 - `colorspace` / `bands` / `sample_format` / `alpha` / `pages_number` — imgproxy
-  marks these *slow* and **default-OFF**; emitting them would add keys imgproxy omits
-  by default. **Excluded** from the fixed set.
-- All `:pixels` / `{:detector, _}` / `:source_bytes` fold branches and the fields
-  needing them (`detect_objects`, `classify`, `crop`, `palette`, `average`,
-  `dominant_colors`, `blurhash`, `thumb/perceptual_hash`, `hashsums`).
-- The imgproxy info-option **grammar** (per-field toggles). Phase 1 returns the fixed
-  set; the options segment is parsed (for signature reconstruction) but its display
-  toggles are ignored. `expires`/`cachebuster` are still honored.
+  marks these *slow* and **default-OFF**; **excluded** (emitting them adds keys
+  imgproxy omits by default).
+- All pixel/detector/raw-byte fields (`detect_objects`, `classify`, `crop`,
+  `palette`, `average`, `dominant_colors`, `blurhash`, `thumb/perceptual_hash`,
+  `hashsums`).
+- The imgproxy info-option **grammar** (per-field toggles). The options segment is
+  parsed (for signature reconstruction) but display toggles are ignored;
+  `expires`/`cachebuster` are honored.
 - The `format:blurhash`/`format:lqip` output-format render path (roadmap).
 - The detector-gate / cache-identity `or requires` plumbing (no Phase-1 caller).
 
 **Out of scope (separate issues):** IIIF parser + `info.json` (Phase 2); the
-blurhash/lqip `:pixels` renderers and the producer `:pixels` fold branch.
+blurhash/lqip `:pixels` renderers.
 
 ## Compatibility divergences (record in `docs/imgproxy_support_matrix.md`)
 
-The matrix update must cover **surface**, **stage/order**, *and* **behavioral**
-axes, and must remove the now-stale "no info endpoint" statements and revisit the
-`IMGPROXY_INFO_PRESETS*` rows. Explicit divergences:
+Cover **surface**, **stage/order**, *and* **behavioral** axes; remove the stale "no
+info endpoint" lines; confirm the `IMGPROXY_INFO_PRESETS*` rows stay Missing
+(info-option grammar deferred). Explicit divergences:
 
-1. **Default response is a strict subset.** A bare `/info/SIG/plain/url` (no options)
-   in imgproxy returns `size`, `format`/`mime_type`, `width`/`height`/`orientation`,
-   **and** the default-ON `exif`/`iptc`/`xmp` blocks. ImagePipe Phase 1 returns the
-   first groups and **omits exif/iptc/xmp** — the *default, most-common* response
-   diverges, not just an opt-in field. State this plainly.
-2. **`size` omit-vs-download.** ImagePipe omits `size` on a length-less source;
+1. **Default response is a strict subset.** A bare `/info/SIG/plain/url` in imgproxy
+   returns `size`, `format`/`mime_type`, `width`/`height`/`orientation`, **and** the
+   default-ON `exif`/`iptc`/`xmp` blocks. ImagePipe Phase 1 **omits exif/iptc/xmp** —
+   the *default, most-common* response diverges.
+2. **`format`/`mime_type` spelling + detection.** Record imgproxy's exact spellings
+   (`heic`/`image/heif`, `jxl`/`image/jxl`, …) and the HEIC↔AVIF
+   loader-vs-magic-byte detection divergence.
+3. **`size` omit-vs-download.** ImagePipe omits `size` on a length-less source;
    imgproxy downloads to compute it.
-3. **Excluded slow fields.** colorspace/bands/sample_format/alpha/pages_number are
-   not emitted (matches imgproxy defaults; recorded so it's intentional).
+4. **Non-image / video source.** imgproxy returns a comma-format list for video;
+   ImagePipe errors (415/422) — pin the status in a test.
+5. **Excluded slow fields.** colorspace/bands/sample_format/alpha/pages_number not
+   emitted (matches imgproxy defaults).
 
 ## Forward-compatibility notes (not built now)
 
-- **`format:blurhash` / `format:lqip` on the normal path** select `plan.render` via
-  the imgproxy `format` option, on a **full-pipeline** plan → `requires: [:pixels]`.
-  The producer runs the same transform+materialize an image request runs, then forks
-  the terminal to the renderer. `:blurhash`/`:lqip` are **neutral** renderers shared
-  with TwicPics `output=`. **lqip may encode internally** (downscale → encode a tiny
-  image → base64 → data-URI) — a render can call `Output.Encoder` as a sub-step; it
-  still returns a complete `{:rendered}` body. These are additive: a depth value, a
-  neutral renderer module, and a parser `format`-value mapping.
-- **IIIF `info.json`** is header-depth but `SourceInfo` serves only its
-  `width`/`height`; the rest is static constants + the **service base URI** + server
-  capability config (formats/sizes/tiles/profile). The info handler must keep
-  `conn` + `opts` reachable for the renderer to derive those (it does, since the
-  request layer holds both) — but "additive for IIIF" depends on threading that
-  request/mount context into the renderer's inputs; settle the carrier shape when
-  Phase 2 starts rather than assuming `RenderContext` as drawn suffices.
-- **Detector gate + cache identity** will read the render `requires` in addition to
-  `Plan.detect_classes`/`face_assist?` when an info field first needs the detector;
-  route that through a single helper then (preserving the `face_assist?` branch).
-- **Mixed-bag partial-vs-fail** policy (above) is decided when the first
-  pixel/detector/source_bytes field ships.
+- **`format:blurhash` / `format:lqip`** select `plan.render` via the imgproxy
+  `format` option on a **full-pipeline** plan → `requires: [:pixels]`. The render
+  runs in the request layer via `Processor.process_source/3` (fetch+decode+transform+
+  materialize), hands `final_state.image` (plain Vix) to the renderer. `:blurhash`/
+  `:lqip` are **neutral** renderers shared with TwicPics. **lqip may encode
+  internally** (downscale → encode a tiny image → base64 → data-URI) — a render can
+  call `Output.Encoder` as a sub-step. Additive: a `need` union member, a neutral
+  renderer module, a parser `format`-value mapping.
+- **IIIF `info.json`** is header-depth but `SourceInfo` serves only `width`/`height`;
+  the rest is static constants + the **service base URI** + capability config. The
+  render handler holds `conn`/`opts`, but "additive for IIIF" depends on threading
+  that request/mount context into the renderer's inputs — settle the carrier shape
+  (likely a field on `RenderContext`) when Phase 2 starts.
+- **Detector gate + cache identity** will read render `requires` in addition to
+  `Plan.detect_classes`/`face_assist?` when an info field first needs the detector
+  (one helper, preserving the `face_assist?` branch).
+- **Heavy-render cancellation** (above): wrap `:pixels` render compute in a monitored
+  `Task` if disconnect-kill of CPU work matters.
 
 ## Boundaries
 
-- `parser → plan` only: the imgproxy parser emits a neutral `Plan.Render` tag +
-  params; it never names a renderer module.
-- `Plan.SourceInfo`, `Plan.Render` (and `RenderContext` if it lands here) live under
-  `Plan.*`; add them to `Plan`'s `Boundary` exports.
-- `Output.Render` behaviour + renderers live under `Output.*`; add to `Output`'s
-  exports. They depend only on `Plan.*` (+ external Vix for the future `:pixels`
+- `parser → plan` only: the imgproxy parser emits a neutral `Plan.Render` tag; never
+  names a renderer module.
+- `Plan.SourceInfo`, `Plan.Render`, `Plan.RenderContext` live under `Plan.*`; add to
+  `Plan`'s `Boundary` exports **and** the exact-match list in
+  `architecture_boundary_test.exs` (the export assertion is equality, not subset).
+- `Output.Render` behaviour + renderers live under `Output.*` (add to `Output`
+  exports), depending only on `Plan.*` (+ external Vix for the future `:pixels`
   image) — **not** on `Transform.*`.
-- The **request layer** (already deps on `Transform`/`Source`/detector) runs the
-  satisfier stages and fills `RenderContext`; renderers stay pure formatters, so no
-  `output → transform` edge. The satisfier must reach the detector/materialize
-  **through the `Transform` facade**, never a concrete op module (architecture test).
+- The render branch runs in `Request.*` (`Runner`), which already deps on
+  `Output`/`Transform`/`Source`; it reaches decode/materialize through `Processor`
+  (the `Transform` facade), never a concrete op module.
 
 ## Testing
 
 - Wire-level `ImagePipe.call/2` for a signed `/info` URL: 200 + `application/json` +
-  decoded JSON field set; orientation-adjusted dims for an EXIF 5–8 source; a
-  source-only format (e.g. TIFF) returns the correct `mime_type`.
-- Source-safety: an `/info` request that fails validation (bad signature, bad
-  source) returns **before** any source fetch.
-- `expires`: an expired `/info` URL returns 404.
+  the field set; orientation-adjusted dims for an EXIF 5–8 source; a HEIC source
+  yields exactly `"format":"heic","mime_type":"image/heif"` (not just "TIFF works").
+- Source-safety: a bad-signature / bad-source `/info` request returns **before** any
+  source fetch; an expired `/info` URL returns 404.
+- A non-image (e.g. video) source returns a clean 415/422.
 - No `Vary: Accept` on the JSON response.
-- Empty-pipeline header-depth render plan validates (no synthetic `:pixels` plan).
+- Empty-pipeline render plan validates (no synthetic `:pixels` plan).
 - `size` degradation: a length-less source omits `size` rather than downloading.
 - Telemetry: `[:render]` span with `representation` metadata; Logger renders it.
 
 ## Open questions resolved
 
-- **Delivery:** complete-body `{:rendered}` path; renders never touch
-  `PreparedStream`/`Resolved` (no neutralization needed).
-- **Invocation site:** the producer terminal (one site for header and future pixel
-  renders; reuses fetch/decode), not a separate request-layer path.
+- **Invocation site:** the **request layer** (`Runner`) via `Processor.*` —
+  **not** the producer/`SourceSession`. Renders never touch `PreparedStream`/
+  `Resolved`/the cache sink (no neutralization).
+- **Delivery:** complete-body `{:rendered}`.
 - **Plan model:** minimal `Plan.render` selector; `plan.output` untouched.
-- **`size`:** best-effort, omit when absent; download-fallback is a divergence.
+- **`requires`:** `need :: :header` now; union widens at first `:pixels` caller; fold
+  is the documented forward generalization, not Phase-1 code.
+- **`byte_size`:** request-layer-filled from `Source.Response`/`File.stat`, not the
+  header image; omit when absent (download-fallback is a divergence).
 - **Field set:** `format`/`mime_type`/`width`/`height`/`orientation`/`size`;
   exif/iptc/xmp deferred (documented divergence); colorspace group excluded.
-- **info-option grammar:** parse for signature, ignore display toggles, honor
-  `expires`/`cachebuster`; fixed field set.
-- **`requires` mapping:** vendor-neutral (expensive-stage selection only); mixed bags
-  via a fold over the union; `requires/1` is vendor code returning neutral needs.
+- **MIME/format spellings:** owned by the `ImgproxyInfo` renderer (imgproxy wire
+  strings), not `ImagePipe.Format`.
+- **Empty-pipeline gate:** plan-shape predicate (`plan.render` is a render selector).
