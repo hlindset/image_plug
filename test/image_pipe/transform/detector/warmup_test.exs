@@ -57,7 +57,11 @@ defmodule ImagePipe.Transform.Detector.WarmupTest do
       start_supervised!({Warmup, detector: UnavailableDetector, classes: ["face"], opts: []})
 
     ref = Process.monitor(pid)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    # The failed-warmup retries have no backoff, so the worker can terminate
+    # before we monitor it; the monitor then reports :noproc. Either way it ended
+    # cleanly — a never-raising worker under :transient would have been restarted
+    # otherwise.
+    assert_receive {:DOWN, ^ref, :process, ^pid, reason} when reason in [:normal, :noproc]
   end
 
   test "nil detector disables warmup as a clean no-op" do
