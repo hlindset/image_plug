@@ -9,6 +9,7 @@ defmodule ImagePipe.Plan do
     exports: [
       Pipeline,
       Output,
+      Render,
       Response,
       SourceInfo,
       Color,
@@ -42,6 +43,7 @@ defmodule ImagePipe.Plan do
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
+  alias ImagePipe.Plan.Render
   alias ImagePipe.Plan.Response
   alias ImagePipe.Plan.Source
 
@@ -51,7 +53,8 @@ defmodule ImagePipe.Plan do
                 expires: 0,
                 cachebuster: nil,
                 response: %Response{},
-                auto_rotate: false
+                auto_rotate: false,
+                render: :image_encode
               ]
 
   @type t :: %__MODULE__{
@@ -61,7 +64,8 @@ defmodule ImagePipe.Plan do
           expires: non_neg_integer(),
           cachebuster: String.t() | nil,
           response: Response.t(),
-          auto_rotate: boolean()
+          auto_rotate: boolean(),
+          render: :image_encode | ImagePipe.Plan.Render.t()
         }
 
   @type pipeline_error() ::
@@ -76,6 +80,7 @@ defmodule ImagePipe.Plan do
           | {:invalid_cachebuster, term()}
           | {:invalid_response_plan, term()}
           | {:invalid_auto_rotate, term()}
+          | {:invalid_render_plan, term()}
 
   @spec validate_shape(t()) :: {:ok, t()} | {:error, shape_error()}
   def validate_shape(%__MODULE__{} = plan) do
@@ -84,7 +89,8 @@ defmodule ImagePipe.Plan do
          :ok <- validate_expires(plan.expires),
          :ok <- validate_cachebuster(plan.cachebuster),
          :ok <- validate_response(plan.response),
-         :ok <- validate_auto_rotate(plan.auto_rotate) do
+         :ok <- validate_auto_rotate(plan.auto_rotate),
+         :ok <- validate_render(plan.render) do
       {:ok, plan}
     end
   end
@@ -304,4 +310,8 @@ defmodule ImagePipe.Plan do
 
   defp validate_auto_rotate(value) when is_boolean(value), do: :ok
   defp validate_auto_rotate(value), do: {:error, {:invalid_auto_rotate, value}}
+
+  defp validate_render(:image_encode), do: :ok
+  defp validate_render(%Render{module: m}) when is_atom(m), do: :ok
+  defp validate_render(render), do: {:error, {:invalid_render_plan, render}}
 end
