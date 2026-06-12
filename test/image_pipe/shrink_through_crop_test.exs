@@ -293,115 +293,74 @@ defmodule ImagePipe.ShrinkThroughCropTest do
     end
   end
 
-  # Per-stage random-access gate (#146 follow-up). OrientationFlush applies the EXIF
-  # autorotate and the user rotate as SEPARATE libvips ops; EACH that rotates or
-  # vertically flips needs a random-access source. The earlier net-angle predicate
-  # only pre-copied on the COMBINED angle, so when an EXIF quarter/half-turn and a
+  # Per-stage random-access gate (#146). OrientationFlush applies the EXIF autorotate
+  # and the user rotate as SEPARATE libvips ops; EACH stage that rotates 90/180/270 —
+  # or vertically flips — reads out of row order and independently needs a
+  # random-access source. The fixed predicate
+  # (`exif_angle != 0 or user_angle != 0 or user_flip_y`, in
+  # `ImagePipe.Transform.OrientationFlush`) fires on ANY such stage; the earlier
+  # net-angle predicate (`rem(exif_angle + user_angle, 360) != 0 or user_flip_y`)
+  # pre-copied only on the COMBINED angle, so when an EXIF quarter/half-turn and a
   # user rotate cancel (net 0 mod 360) the per-stage rotations still ran on the
   # un-materialized `access: :sequential` decode and copy_memory raised
   # `{:decode, "Failed to memory copy image"}` at large sizes — a user-reachable
   # HTTP 415 on a valid request (e.g. `/_/rot:270/.../EXIF-5 source`).
   #
-  # This drives the full pending-orientation matrix that reaches `flush` at
-  # @big_src (5000) through the NO-GEOMETRY delivery-flush path (a bare rotate/flip
-  # carries the whole orientation to delivery and flushes at full resolution —
-  # there is no crop or resize to reshape libvips' pipeline). That path is what
-  # makes the test non-tautological: a trailing region crop reorganizes the lazy
-  # pipeline and lets libvips SILENTLY BUFFER the random read, masking the wall, so
-  # a crop-driven flush would pass even with the buggy predicate. The bare-rotate
-  # path trips the wall for real (the EXIF-5/7 net-cancel holes raise here under the
-  # old predicate; libvips silently buffers the 6/8/3/4 holes, so those holes do
-  # not crash empirically but the fix pre-copies them anyway since each stage
-  # genuinely rotates). The source is decoded `access: :sequential, fail_on: :error`
-  # by the real processor decode path — a genuinely streamed open, NOT a buffered
-  # `from_binary`. Every case must (a) succeed (no sequential-wall crash) and
-  # (b) match the eager autorotate-first reference (dims ±1px, coarse MAE < 4).
+  # The two predicates DIVERGE on exactly six (orientation, user_rotate) pairs: the
+  # net-cancel holes where `exif_angle != 0` but the angles sum to 0 mod 360 —
+  # EXIF{3,4}+rot:180, EXIF{5,6}+rot:270, EXIF{7,8}+rot:90. Those six are the entire
+  # falsifiable surface of the fix; every other orientation/rotation/flip passes
+  # under both predicates. Composition correctness of the flush across the full
+  # EXIF × rotate × flip space is covered pixel-exact at small size by
+  # `ImagePipe.Transform.DeferredOrientationTest`, so it is not re-tested here — this
+  # guard exists solely to keep the large-size materialization fix non-tautological.
   #
-  # The matrix is an adversarial subset that includes ALL net-cancel holes
-  # (EXIF {5,6,7,8}+quarter, EXIF {3,4}+180) plus streaming-safe cases (EXIF 1/2,
-  # rot 0, hflip-only) and vertical flips, spanning EXIF 1..8 × rot {0,90,180,270}
-  # × flip {none, h, v}.
+  # Each hole drives the NO-GEOMETRY delivery-flush path: a bare rotate carries the
+  # whole orientation to delivery and flushes at full resolution, with no crop/resize
+  # to reshape libvips' lazy pipeline. That matters — a trailing region crop
+  # reorganizes the pipeline and lets libvips SILENTLY BUFFER the random read,
+  # masking the wall, so a crop-driven flush would pass even with the buggy
+  # predicate. The source is decoded `access: :sequential, fail_on: :error` by the
+  # real processor path (a genuinely streamed open, NOT a buffered `from_binary`).
+  # Each hole must (a) succeed (no sequential-wall crash) and (b) match the eager
+  # autorotate-first reference (dims ±1px, coarse MAE < 4).
   #
-  # Non-tautological self-check: with the predicate reverted to the net-angle form
-  # (`rem(exif_angle + user_angle, 360) != 0 or user_flip_y`), the EXIF-5+rot:270
-  # and EXIF-7+rot:90 cases FAIL with `{:decode, "Failed to memory copy image"}`
-  # (verified manually). The fix (`exif_angle != 0 or user_angle != 0 or
-  # user_flip_y`) is what makes them pass.
-  @orient_matrix (for orientation <- 1..8,
-                      {angle, flip} <-
-                        [
-                          {0, :none},
-                          {90, :none},
-                          {180, :none},
-                          {270, :none},
-                          {0, :horizontal},
-                          {0, :vertical}
-                        ] do
-                    {orientation, angle, flip}
-                  end)
+  # Runs at @src (3200), in the previously-failing range. Under the broken predicate
+  # the EXIF-5+rot:270 and EXIF-7+rot:90 holes crash here while libvips silently
+  # buffers 3/4/6/8 (masked, not absent) — keeping all six holds the guard to the
+  # complete divergence surface rather than today's-crashing subset, since a libvips
+  # buffering shift could expose any of them.
+  @net_cancel_holes [{3, 180}, {4, 180}, {5, 270}, {6, 270}, {7, 90}, {8, 90}]
 
-  defp orient_ops(angle, flip) do
-    rotate_ops =
-      case angle do
-        0 -> []
-        a -> [elem(Operation.rotate(a), 1)]
-      end
-
-    flip_ops =
-      case flip do
-        :none -> []
-        axis -> [elem(Operation.flip(axis), 1)]
-      end
-
-    # No crop/resize: a bare rotate/flip (or empty list for the identity case)
-    # defers the whole orientation to the delivery flush at full resolution.
-    rotate_ops ++ flip_ops
-  end
-
-  # 5000px so the sequential wall is reliably tripped by any rotating stage that
-  # runs on the un-materialized decode (the EXIF-5/7 holes crash at 3200 and 5000;
-  # libvips silently buffers the rest, so those do not crash empirically — the bug
-  # is masked, not absent — but the fix pre-copies them defensively).
-  @big_src 5000
-
-  describe "per-stage orientation flush gate over full matrix at large size (#146)" do
-    # Self-check: prove the streamed open at @big_src genuinely LACKS random access,
-    # so the matrix successes below are not tautological. A raw quarter-turn rotate
-    # (transpose) on a source opened `access: :sequential, fail_on: :error` followed
-    # by copy_memory must FAIL the sequential-access wall at this size. If this ever
-    # starts passing, libvips has grown a silent buffer and the matrix proves nothing.
-    test "known-random transpose on the streamed #{@big_src}px decode trips the sequential wall" do
-      # Use the EXACT processor decode path (access: :sequential, fail_on: :error,
-      # over the source-response seekable input — NOT a buffered from_binary), grab
-      # the streamed image, then apply a raw quarter-turn transpose and copy_memory.
-      # It must FAIL the sequential wall at this size; otherwise libvips silently
-      # buffered and the matrix below would prove nothing.
-      body = oriented(@big_src, @big_src, 1, ".png")
+  describe "per-stage orientation flush materialization holes (#146)" do
+    # Non-tautology self-check: prove the streamed open at @src genuinely LACKS random
+    # access, so the hole successes below are not tautological. A raw quarter-turn
+    # rotate (transpose) on a source opened `access: :sequential, fail_on: :error`
+    # followed by copy_memory must FAIL the sequential-access wall at this size. If it
+    # ever starts passing, libvips has grown a silent buffer and the holes prove
+    # nothing — this size must match the holes below.
+    test "known-random transpose on the streamed #{@src}px decode trips the sequential wall" do
+      body = oriented(@src, @src, 1, ".png")
       streamed = decode_streamed(body)
       {:ok, transposed} = Image.rotate(streamed, 90)
 
       assert {:error, _} = VipsImage.copy_memory(transposed),
-             "expected the streamed transpose to trip the sequential wall at #{@big_src}px; " <>
-               "if it succeeded, libvips silently buffered and the matrix is tautological"
+             "expected the streamed transpose to trip the sequential wall at #{@src}px; " <>
+               "if it succeeded, libvips silently buffered and the holes are tautological"
     end
 
-    for {orientation, angle, flip} <- @orient_matrix do
-      test "EXIF #{orientation} rot:#{angle} flip:#{flip} streams+matches eager at #{@big_src}px" do
+    for {orientation, angle} <- @net_cancel_holes do
+      test "EXIF #{orientation} + rot:#{angle} (net-cancel) materializes and matches eager at #{@src}px" do
         orientation = unquote(orientation)
         angle = unquote(angle)
-        flip = unquote(flip)
-        ops = orient_ops(angle, flip)
+        {:ok, rotate} = Operation.rotate(angle)
 
-        body = oriented(@big_src, @big_src, orientation, ".png")
-        assert {final, _shrink} = run_auto_rotate(body, ops)
+        body = oriented(@src, @src, orientation, ".png")
+        assert {final, _shrink} = run_auto_rotate(body, [rotate])
 
-        eager = run_eager_reference(body, ops)
+        eager = run_eager_reference(body, [rotate])
 
-        assert_orientation_equivalent(
-          final,
-          eager,
-          "EXIF #{orientation} rot:#{angle} flip:#{flip}"
-        )
+        assert_orientation_equivalent(final, eager, "EXIF #{orientation} + rot:#{angle}")
       end
     end
   end

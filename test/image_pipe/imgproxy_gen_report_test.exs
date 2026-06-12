@@ -263,6 +263,7 @@ defmodule ImagePipe.ImgproxyGenReportTest do
     end
   end
 
+  @tag :imgproxy_report
   test "gen_report renders every constellation to a self-contained file" do
     out =
       Path.join(System.tmp_dir!(), "imgproxy_report_#{System.unique_integer([:positive])}.html")

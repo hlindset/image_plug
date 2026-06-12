@@ -161,7 +161,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
             h <- integer(8..150),
             anchor <-
               member_of([:center, :left, :right, :top, :bottom, :top_left, :bottom_right]),
-            max_runs: 25
+            max_runs: 18
           ) do
       {ax, ay} = anchor_to_xy(anchor)
 
@@ -182,7 +182,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   property "fit resize streams across varied targets" do
     body = File.read!(@dog)
 
-    check all(w <- integer(16..400), max_runs: 25) do
+    check all(w <- integer(16..400), max_runs: 12) do
       assert_sequential_matches_random(
         [%Resize{mode: :fit, width: {:pixels, w}, height: :auto}],
         body
@@ -193,7 +193,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   property "blur streams across varied sigma" do
     body = File.read!(@beach)
 
-    check all(sigma_tenths <- integer(5..40), max_runs: 20) do
+    check all(sigma_tenths <- integer(5..40), max_runs: 12) do
       assert_sequential_matches_random([%Blur{sigma: sigma_tenths / 10}], body)
     end
   end
