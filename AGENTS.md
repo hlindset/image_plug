@@ -73,8 +73,9 @@
 
 - Use `Boundary` declarations to enforce the namespace ownership described above. When adding or moving a top-level namespace, define its dependency direction explicitly instead of relying on implicit compile-time reachability.
 - Keep `deps:` aligned with architecture direction. One line per namespace:
-  - `parser` → `plan`
-  - `request` → `plan`, `cache`, `source`, `output`, `response`, `telemetry`, generic transform execution contract
+  - `parser` → `plan`, `renderer` (the neutral renderer-behaviour extension point, so a dialect adapter under `parser/*` can implement `ImagePipe.Renderer`; the core stays adapter-ignorant — it never names a dialect)
+  - `renderer` → `plan` (neutral behaviour + dispatch facade; product-neutral renderers live here, dialect renderers live in their adapter)
+  - `request` → `plan`, `cache`, `source`, `output`, `response`, `telemetry`, `renderer`, generic transform execution contract
   - `source` → `plan` only (must not depend on `cache`, `response`, `parser`)
   - `cache` → `plan`, `output`, transform material
   - `output` → `plan`

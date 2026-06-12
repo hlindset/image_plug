@@ -36,11 +36,22 @@ defmodule ImagePipe.Parser.Imgproxy.InfoRendererTest do
     assert jxl["mime_type"] == "image/jxl"
   end
 
-  test "swaps width/height for EXIF orientations 5-8" do
-    info = %SourceInfo{format: :jpeg, width: 4000, height: 3000, orientation: 6}
-    {_ct, json} = render(info)
-    assert json["width"] == 3000
-    assert json["height"] == 4000
+  test "swaps width/height for each quarter-turn EXIF orientation (5-8)" do
+    for orientation <- [5, 6, 7, 8] do
+      info = %SourceInfo{format: :jpeg, width: 4000, height: 3000, orientation: orientation}
+      {_ct, json} = render(info)
+      assert json["width"] == 3000, "orientation #{orientation} should swap width"
+      assert json["height"] == 4000, "orientation #{orientation} should swap height"
+    end
+  end
+
+  test "does not swap width/height for non-quarter-turn orientations (1-4)" do
+    for orientation <- [1, 2, 3, 4] do
+      info = %SourceInfo{format: :jpeg, width: 4000, height: 3000, orientation: orientation}
+      {_ct, json} = render(info)
+      assert json["width"] == 4000, "orientation #{orientation} should not swap"
+      assert json["height"] == 3000, "orientation #{orientation} should not swap"
+    end
   end
 
   test "omits size when byte_size is nil" do

@@ -94,7 +94,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     :execute_plan
   ]
 
-  test "parser boundary declarations stay limited to format, parser, and plan APIs" do
+  test "parser boundary declarations stay limited to format, plan, renderer, and parser APIs" do
     parser = boundary_declaration(ImagePipe.Parser)
     imgproxy = boundary_declaration(ImagePipe.Parser.Imgproxy)
 
