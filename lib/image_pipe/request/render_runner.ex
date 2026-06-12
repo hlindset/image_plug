@@ -6,6 +6,7 @@ defmodule ImagePipe.Request.RenderRunner do
   SourceSession/Producer and never constructs an `%Output.Resolved{}`.
   """
 
+  alias ImagePipe.Error
   alias ImagePipe.Plan
   alias ImagePipe.Plan.RenderContext
   alias ImagePipe.Plan.SourceInfo
@@ -27,7 +28,10 @@ defmodule ImagePipe.Request.RenderRunner do
   defp do_run(plan, resolved_source, opts) do
     with {:ok, decoded} <-
            Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source, opts) do
-      info = build_source_info(decoded, byte_size_of(resolved_source))
+      # Phase 1 omits `size`: byte_size is nil. A later refinement may thread a cheap
+      # Content-Length / File.stat from the source response — never download the body
+      # just to compute size.
+      info = build_source_info(decoded, nil)
       Renderer.run(plan.render, %RenderContext{info: info}, opts)
     end
   end
@@ -52,13 +56,9 @@ defmodule ImagePipe.Request.RenderRunner do
     end
   end
 
-  # Phase 1: byte size is omitted (a later refinement may thread a cheap
-  # Content-Length / File.stat). Never download the body just to compute size.
-  defp byte_size_of(%Source.Resolved{}), do: nil
-
   defp render_stop_metadata({:ok, {content_type, _body}}),
     do: %{result: :ok, content_type: content_type}
 
   defp render_stop_metadata({:error, reason}),
-    do: %{result: :render_error, error: inspect(reason)}
+    do: %{result: :render_error, error: Error.tag(reason)}
 end
