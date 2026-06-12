@@ -112,6 +112,28 @@ behaviours work today. This **replaces** the tag-registry dispatch in Tasks 4/5/
 
 Everything else in the tasks/corrections below stands.
 
+### Architecture-test reality (corrects Tasks 1–5)
+
+`test/image_pipe/architecture_boundary_test.exs` **does** have an exact-match Plan
+exports assertion, in the test `"plan boundary exports canonical modules…"` at
+**line ~490** (`assert_boundary_exports(plan, [ ... ])`). Tasks 1/2/3 must add each
+new `Plan.*` export (`SourceInfo`, `Render`, `RenderContext`) to **both**
+`lib/image_pipe/plan.ex` `exports:` **and** that line-490 list, or the test fails
+with an exact-set mismatch. (It is NOT in the 97–415 range; grep the whole file.)
+
+For the new **`ImagePipe.Renderer` boundary** (Task 4): add it to the
+`@boundary_files` map (around line 43–57: `ImagePipe.Renderer =>
+"lib/image_pipe/renderer.ex"`) and add a deps assertion following the pattern (e.g.
+`assert_boundary_deps(renderer, [ImagePipe.Plan])`).
+
+For **Task 5** (imgproxy gains a `Renderer` dep): the imgproxy boundary test asserts
+its deps are EXACTLY `[Format, Parser, Plan]` (lines ~100 and ~110, both
+`assert_boundary_deps(imgproxy, …)` and `assert_allowed_deps(imgproxy, …)`). Add
+`ImagePipe.Renderer` to **both** lists, or the test fails.
+
+`Response` (Task 8) **does** have an exact-match exports assertion (~line 192) — add
+`Json` there.
+
 ---
 
 ## Plan-review corrections (READ FIRST — applies on top of the tasks below)
