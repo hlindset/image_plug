@@ -45,24 +45,19 @@
 A three-reviewer pass found these code-verified issues. Apply each within the named
 task; they override the task body where they conflict.
 
-**Two decisions to confirm with the maintainer before starting:**
+**Two decisions — RESOLVED by the maintainer:**
 
-- **D1 — JSON library.** Tasks 5/12 use stdlib `JSON` (`JSON.encode_to_iodata!` /
-  `JSON.decode!`). The dev toolchain is Elixir 1.20 (`mise.toml`), but **`mix.exs`
-  declares `~> 1.17`** and there is **no direct `jason` dep** (only transitive).
-  Stdlib `JSON` is 1.18+. Choose ONE before Task 5: (a) bump `mix.exs` to `~> 1.18`
-  and use stdlib `JSON` (no new dep — recommended for a greenfield unreleased lib),
-  or (b) add `jason` to `mix.exs` deps and use `Jason.encode_to_iodata!`/`decode!`.
-  Do not leave it ambiguous — library code can't rely on a transitive dep.
-- **D2 — expired-`/info` status.** imgproxy docs say **404** for an expired URL, and
-  the spec stated 404. But the repo's `Parser.Imgproxy.handle_error/2` has no
-  `{:expired_request, _}` clause, so it falls to the generic **400** (the existing
-  `test/image_pipe/request_safety_test.exs` asserts 400). `handle_error` is shared
-  with the processing endpoint, so changing it to 404 changes that endpoint too.
-  **Default for Phase 1: assert the repo's actual 400** and record the imgproxy-404
-  gap as a divergence (Task 14). If the maintainer wants 404 parity, that's a
-  separate task: add an `{:expired_request, _}` → 404 clause and update the existing
-  400 test — flagged, not done here.
+- **D1 — JSON library → stdlib `JSON`, bump the Elixir floor.** Before Task 5, add a
+  **Task 0**: in `mix.exs` change the `elixir:` requirement from `~> 1.17` to
+  `~> 1.18` (stdlib `JSON` is 1.18+; the dev toolchain is already 1.20). No new dep.
+  Run `mise exec -- mix compile` to confirm, commit
+  `chore: require Elixir ~> 1.18 for stdlib JSON (#252)`. Tasks 5/12 then use
+  `JSON.encode_to_iodata!` / `JSON.decode!` as written.
+- **D2 — expired-`/info` status → keep 400, record the divergence.** Task 12's
+  expired test asserts `conn.status == 400` (the repo's actual shared `handle_error`
+  behavior). Do **not** add a 404 clause (that would change the processing endpoint
+  too — out of scope). Task 14 records "expired URL returns 400; imgproxy returns
+  404" as a known divergence.
 
 **Task 4 + Task 5 — merge into one task (no red commit, no phantom list):**
 - There is **no `assert_boundary_exports(ImagePipe.Output, …)`** in
