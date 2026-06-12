@@ -240,6 +240,27 @@ defmodule ImagePipe.Test.ImgproxyDifferential.SourceInventory do
                    "The blue/gold quadrant layout is load-bearing for the #182 frame-of-reference fixtures " <>
                      "(e.g. smart trim's getpoint(0,0) is frame-sensitive). Do NOT change the base."
                }
+             end) ++
+             Enum.map([2, 3, 4, 5, 6, 7, 8], fn o ->
+               %{
+                 file: "exif_placement_#{o}.jpg",
+                 width: 400,
+                 height: 300,
+                 bands: 3,
+                 format: :VIPS_FORMAT_UCHAR,
+                 interpretation: :VIPS_INTERPRETATION_sRGB,
+                 profile?: false,
+                 produced_by: :gen_sources,
+                 content:
+                   "The 400×300 aperiodic 50px placement grid (each cell a distinct xorshift-hashed color, " <>
+                     "range 40..239) retagged with EXIF Orientation #{o}.",
+                 consumers: [],
+                 invariant:
+                   "Discriminating EXIF inline-crop source (#239 EXIF half): the `crop_no` seam + " <>
+                     "`exif_crop_focal` route here so a placement/fp-rotation bug is maxΔ≈255, not identical " <>
+                     "pixels in exif_base's uniform gold ground. Keep the per-cell-unique aperiodicity; step 50 " <>
+                     "< the smallest EXIF crop dim (120)."
+               }
              end)
 
   @doc "All inventory entries (one per committed source file)."

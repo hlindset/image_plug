@@ -27,6 +27,14 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
   # smallest crop dimension (90, from `c:120:90`) and divides 1600/1200 evenly.
   @placement_step 50
 
+  # EXIF-tagged placement base (#239 EXIF half): a 400×300 sibling of the placement
+  # grid, retagged per orientation for the `crop_no` seam + `exif_crop_focal`. Step
+  # 50 divides 400/300 evenly and is < the smallest EXIF inline-crop dimension (120,
+  # from `c:200:120`), so every crop window crosses cell edges.
+  @exif_placement_w 400
+  @exif_placement_h 300
+  @exif_placement_step 50
+
   @impl Mix.Task
   def run(_args) do
     {:ok, _} = Application.ensure_all_started(:image)
@@ -64,6 +72,24 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
       |> write!("exif_#{o}.jpg", suffix: ".jpg", quality: 95)
     end
 
+    # EXIF-tagged discriminating placement base (#239 EXIF half). The shared
+    # `exif_base` corner-block field is near-uniform gold away from its one blue
+    # quadrant, so a north/focal inline crop whose window lands in the gold ground
+    # has zero discriminating power — a placement bug moves the window within a flat
+    # field and yields identical pixels. The `exif_base` layout is load-bearing for
+    # the #182 frame-of-reference fixtures, so it can't change; instead the `crop_no`
+    # seam + `exif_crop_focal` route to this 400×300 aperiodic grid retagged per
+    # orientation (the same per-cell-unique-color placement grid as `placement.png`,
+    # so a 1px window misplacement → maxΔ≈255). Crop-only (no resample), so each
+    # orientation matches imgproxy at maxΔ=0.
+    exif_placement = placement_image(@exif_placement_w, @exif_placement_h, @exif_placement_step)
+
+    for o <- [2, 3, 4, 5, 6, 7, 8] do
+      exif_placement
+      |> Image.set_orientation!(o)
+      |> write!("exif_placement_#{o}.jpg", suffix: ".jpg", quality: 95)
+    end
+
     icc =
       512
       |> Image.new!(512, color: [200, 50, 50])
@@ -83,7 +109,7 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
 
     write!(cmyk_image(), "cmyk.jpg", suffix: ".jpg", quality: 92)
 
-    placement = placement_image(@w, @h)
+    placement = placement_image(@w, @h, @placement_step)
     write!(placement, "placement.png", suffix: ".png")
 
     rgb16 = rgb16_image()
@@ -142,10 +168,10 @@ defmodule Mix.Tasks.Imgproxy.GenSources do
     cmyk
   end
 
-  defp placement_image(w, h) do
+  defp placement_image(w, h, step) do
     {:ok, img} =
       VipsImage.new_from_binary(
-        placement_pixels(w, h, @placement_step),
+        placement_pixels(w, h, step),
         w,
         h,
         3,
