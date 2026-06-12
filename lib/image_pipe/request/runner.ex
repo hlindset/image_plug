@@ -24,8 +24,7 @@ defmodule ImagePipe.Request.Runner do
           | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
 
   @type error() ::
-          {:cache, term()}
-          | {:processing, term(), [{String.t(), String.t()}]}
+          {:processing, term(), [{String.t(), String.t()}]}
 
   @spec run(
           Plug.Conn.t(),
@@ -94,9 +93,6 @@ defmodule ImagePipe.Request.Runner do
 
       {:miss, %Key{} = key, {:cache_read, _error}} ->
         process_cacheable_miss(conn, plan, resolved_source, key, prepared_http_cache, opts)
-
-      {:error, {:cache_read, error}} ->
-        {:error, {:cache, error}}
     end
   end
 
@@ -229,9 +225,6 @@ defmodule ImagePipe.Request.Runner do
   defp cache_lookup_stop_metadata({:miss, %Key{}}), do: %{result: :ok, cache: :miss}
 
   defp cache_lookup_stop_metadata({:miss, %Key{}, {:cache_read, error}}),
-    do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
-
-  defp cache_lookup_stop_metadata({:error, {:cache_read, error}}),
     do: %{result: :cache_error, cache: :read_error, error: Error.tag(error)}
 
   # When the plan's output depends on the configured detector, fold the

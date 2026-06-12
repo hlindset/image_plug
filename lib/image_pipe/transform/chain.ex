@@ -7,10 +7,13 @@ defmodule ImagePipe.Transform.Chain do
   `ImagePipe.Transform` and stops at the first operation error.
 
   Each operation is wrapped in a `[:transform, :operation]` telemetry span for
-  tracing. The span duration reflects pipeline *construction* time, not pixel
-  work — libvips is lazy and defers/fuses compute to materialization/encode — so
-  per-operation duration is for tracing execution structure, not timing. Honest
-  aggregate timing lives on the coarse `[:transform, :execute]` stage span.
+  tracing. The span duration mostly reflects pipeline *construction* time, not
+  pixel work — libvips is lazy and defers/fuses compute to materialization/encode.
+  The exception is a materializing operation: its `copy_memory` runs inside the
+  operation span, so that span's duration includes a real pixel copy (a nested
+  `[:transform, :materialize]` span isolates that cost). Either way, per-operation
+  duration is for tracing execution structure, not timing; honest aggregate timing
+  lives on the coarse `[:transform, :execute]` stage span.
   """
 
   alias ImagePipe.Telemetry

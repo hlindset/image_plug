@@ -470,8 +470,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform.Operation.ExtendCanvas,
       ImagePipe.Transform.Operation.Padding,
       ImagePipe.Transform.Operation.Background,
-      ImagePipe.Transform.Operation.Rotate,
-      ImagePipe.Transform.Operation.Flip,
       ImagePipe.Transform.Operation.Crop,
       ImagePipe.Transform.Operation.Blur,
       ImagePipe.Transform.Operation.Sharpen,

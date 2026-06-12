@@ -97,24 +97,6 @@ defmodule ImagePipe.CacheTest do
     def open_sink(%Key{}, %Entry.Metadata{}, _opts), do: {:ok, %{}}
   end
 
-  defmodule ShouldNotBeCalledAdapter do
-    @behaviour ImagePipe.Cache
-
-    def get(%Key{}, _opts), do: flunk("adapter should not be called for invalid cache config")
-
-    def open_sink(%Key{}, %Entry.Metadata{}, _opts),
-      do: flunk("adapter should not be called for invalid cache config")
-
-    def write_chunk(_state, _chunk, _opts),
-      do: flunk("adapter should not be called for invalid cache config")
-
-    def commit_sink(_state, _opts),
-      do: flunk("adapter should not be called for invalid cache config")
-
-    def abort_sink(_state, _opts),
-      do: flunk("adapter should not be called for invalid cache config")
-  end
-
   defmodule SinkMissAdapter do
     @behaviour ImagePipe.Cache
 
@@ -637,18 +619,6 @@ defmodule ImagePipe.CacheTest do
 
     assert log =~ "cache sink commit error"
     assert log =~ ":surprise"
-  end
-
-  test "key build errors return cache read errors instead of crashing" do
-    source_identity = [kind: :path, client: self()]
-
-    assert {:error, {:cache_read, {:invalid_source_identity, ^source_identity}}} =
-             Cache.lookup(
-               conn(:get, "/_/f:webp/plain/images/cat.jpg"),
-               plan(),
-               source_identity,
-               cache: {ShouldNotBeCalledAdapter, []}
-             )
   end
 
   def handle_telemetry_event(event, measurements, metadata, test_pid) do

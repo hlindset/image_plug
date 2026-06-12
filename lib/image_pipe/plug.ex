@@ -62,7 +62,7 @@ defmodule ImagePipe.Plug do
         {conn, _send_metadata} =
           send_response(conn, opts, :parser_error, fn -> parser.handle_error(conn, error) end)
 
-        {conn, %{result: :parser_error}}
+        {conn, %{result: :parser_error, error: Error.tag(error)}}
 
       {:error, {:plan_validation, error}} ->
         result = {:error, {:processing, error, []}}
@@ -182,14 +182,10 @@ defmodule ImagePipe.Plug do
   end
 
   defp request_result({:ok, _delivery}), do: :ok
-  defp request_result({:error, {:cache, _error}}), do: :cache_error
   defp request_result({:error, {:processing, reason, _headers}}), do: processing_result(reason)
 
   defp request_result_metadata(:not_modified), do: %{result: :not_modified}
   defp request_result_metadata({:ok, _delivery}), do: %{result: :ok}
-
-  defp request_result_metadata({:error, {:cache, error}}),
-    do: %{result: :cache_error, error: Error.tag(error)}
 
   defp request_result_metadata({:error, {:processing, reason, _headers}}),
     do: %{result: processing_result(reason), error: processing_error_tag(reason)}

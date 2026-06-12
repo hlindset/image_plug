@@ -28,8 +28,7 @@ defmodule ImagePipe.Response.Sender do
           | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
 
   @type error() ::
-          {:cache, term()}
-          | {:processing, term(), [{String.t(), String.t()}]}
+          {:processing, term(), [{String.t(), String.t()}]}
 
   @plan_validation_error_tags [
     :unsupported_source,
@@ -66,10 +65,6 @@ defmodule ImagePipe.Response.Sender do
         opts
       ) do
     send_prepared_stream(conn, prepared_stream, response, prepared, opts)
-  end
-
-  def send_result(conn, {:error, {:cache, error}}, _opts) do
-    send_cache_error(conn, error)
   end
 
   def send_result(
@@ -131,11 +126,6 @@ defmodule ImagePipe.Response.Sender do
 
   defp handle_processing_error(conn, {:encode, :empty_stream}, response_headers) do
     Logger.error("encode_error: empty_stream")
-    send_encode_error(conn, response_headers)
-  end
-
-  defp handle_processing_error(conn, {:invalid_cache_headers, reason}, response_headers) do
-    Logger.error("encode_error: invalid cache headers: #{inspect(reason)}")
     send_encode_error(conn, response_headers)
   end
 

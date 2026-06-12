@@ -11,7 +11,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
-  alias ImagePipe.Transform.Operation.Flip
   alias ImagePipe.Transform.Operation.Monochrome
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
@@ -65,10 +64,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
       [%Resize{mode: :force, width: {:pixels, 100}, height: {:pixels, 100}}],
       File.read!(@beach)
     )
-  end
-
-  test "horizontal flip streams" do
-    assert_sequential_matches_random([%Flip{axis: :horizontal}], File.read!(@beach))
   end
 
   test "blur streams" do
@@ -200,18 +195,6 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
     check all(sigma_tenths <- integer(5..40), max_runs: 20) do
       assert_sequential_matches_random([%Blur{sigma: sigma_tenths / 10}], body)
-    end
-  end
-
-  property "horizontal flip streams across image sizes" do
-    check all(
-            w <- integer(20..200),
-            h <- integer(20..200),
-            max_runs: 20
-          ) do
-      {:ok, image} = Image.new(w, h, color: [10, 120, 200])
-      body = Image.write!(image, :memory, suffix: ".png")
-      assert_sequential_matches_random([%Flip{axis: :horizontal}], body)
     end
   end
 

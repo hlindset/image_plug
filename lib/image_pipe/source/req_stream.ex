@@ -32,7 +32,7 @@ defmodule ImagePipe.Source.ReqStream do
 
   defp open_response(req_options, runtime_opts) do
     validate = Keyword.get(runtime_opts, :validate_target, fn _url -> :ok end)
-    max_redirects = timeout(req_options, runtime_opts, :max_redirects, 0)
+    max_redirects = option(req_options, runtime_opts, :max_redirects, 0)
     redirects_allowed? = max_redirects > 0
     follow(req_options, runtime_opts, validate, max_redirects, redirects_allowed?)
   end
@@ -61,7 +61,7 @@ defmodule ImagePipe.Source.ReqStream do
         %{
           response: response,
           receive_timeout:
-            timeout(req_options, runtime_opts, :receive_timeout, @default_receive_timeout)
+            option(req_options, runtime_opts, :receive_timeout, @default_receive_timeout)
         }
 
       {:ok, %Req.Response{status: status} = response} when status in 300..399 ->
@@ -166,8 +166,8 @@ defmodule ImagePipe.Source.ReqStream do
       retry: false,
       redirect: false,
       receive_timeout:
-        timeout(req_options, runtime_opts, :receive_timeout, @default_receive_timeout),
-      pool_timeout: timeout(req_options, runtime_opts, :pool_timeout, @default_pool_timeout),
+        option(req_options, runtime_opts, :receive_timeout, @default_receive_timeout),
+      pool_timeout: option(req_options, runtime_opts, :pool_timeout, @default_pool_timeout),
       connect_options: connect_options(req_options, runtime_opts)
     )
   end
@@ -177,11 +177,11 @@ defmodule ImagePipe.Source.ReqStream do
     |> Keyword.get(:connect_options, [])
     |> Keyword.put_new(
       :timeout,
-      timeout(req_options, runtime_opts, :connect_timeout, @default_connect_timeout)
+      option(req_options, runtime_opts, :connect_timeout, @default_connect_timeout)
     )
   end
 
-  defp timeout(req_options, runtime_opts, key, default) do
+  defp option(req_options, runtime_opts, key, default) do
     Keyword.get(runtime_opts, key, Keyword.get(req_options, key, default))
   end
 

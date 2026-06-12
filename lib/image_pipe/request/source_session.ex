@@ -38,14 +38,12 @@ defmodule ImagePipe.Request.SourceSession do
 
   @type server() :: GenServer.server()
 
-  @spec start(Request.t(), keyword()) :: GenServer.on_start()
-  def start(%Request{} = request, opts \\ []) do
-    start_server(:start, request, opts, nil)
-  end
-
   @spec start_link(Request.t(), keyword()) :: GenServer.on_start()
   def start_link(%Request{} = request, opts \\ []) do
-    start_server(:start_link, request, opts, self())
+    owner = Keyword.get(opts, :owner, self())
+    trace_context = Keyword.get(opts, :trace_context)
+
+    GenServer.start_link(__MODULE__, {request, owner, self(), trace_context})
   end
 
   @spec child_spec({Request.t(), keyword()}) :: Supervisor.child_spec()
@@ -68,17 +66,6 @@ defmodule ImagePipe.Request.SourceSession do
 
   @spec cancel(server(), timeout()) :: :ok | {:error, term()}
   def cancel(server, timeout \\ @cancel_timeout), do: call_session(server, :cancel, timeout)
-
-  defp start_server(kind, %Request{} = request, opts, default_parent) do
-    owner = Keyword.get(opts, :owner, self())
-    parent = Keyword.get(opts, :parent, default_parent)
-    trace_context = Keyword.get(opts, :trace_context)
-
-    case kind do
-      :start -> GenServer.start(__MODULE__, {request, owner, parent, trace_context})
-      :start_link -> GenServer.start_link(__MODULE__, {request, owner, parent, trace_context})
-    end
-  end
 
   @impl GenServer
   def init({%Request{} = request, owner, parent, trace_context}) when is_pid(owner) do
@@ -183,7 +170,7 @@ defmodule ImagePipe.Request.SourceSession do
     {:stop, :normal, mark_failed(%{state | pending: nil})}
   end
 
-  def handle_info({:EXIT, parent, reason}, %{parent: parent} = state) when is_pid(parent) do
+  def handle_info({:EXIT, parent, reason}, %{parent: parent} = state) do
     state =
       state
       |> reply_pending({:error, {:session, {:shutdown, reason}}})
@@ -347,15 +334,6 @@ defmodule ImagePipe.Request.SourceSession do
       |> clear_producer()
 
     GenServer.reply(from, {:error, reason})
-    {:stop, :normal, mark_failed(%{state | pending: nil})}
-  end
-
-  defp handle_producer_result(_result, state) do
-    state =
-      state
-      |> abort_cache_sink(:stream_error)
-      |> clear_producer()
-
     {:stop, :normal, mark_failed(%{state | pending: nil})}
   end
 
