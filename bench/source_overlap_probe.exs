@@ -26,6 +26,9 @@
 #   # conservative full-res decode instead of the real shrink-on-load path:
 #   mise exec -- mix run bench/source_overlap_probe.exs full
 #
+#   # crop / prefix early-termination phase (bytes pulled per crop region × mode):
+#   mise exec -- mix run bench/source_overlap_probe.exs crop
+#
 #   # machine-readable rows for collation (suppresses the human tables):
 #   mise exec -- mix run bench/source_overlap_probe.exs --csv
 #
@@ -83,6 +86,11 @@ defmodule SourceOverlapProbe do
   # that BEAM timer jitter (~1 ms) is a minor fraction.
   @chunk_target_ms 15
 
+  # `crop` phase: fraction of image height to crop, and the rate to run it at. The
+  # bytes-pulled % is structural (rate-independent); the rate only sets wall time.
+  @crop_fraction 0.10
+  @crop_rate 16
+
   @fixtures [
     {:forward, :jpg, "probe.jpg"},
     {:seek_heavy, :avif, "probe.avif"},
@@ -92,7 +100,7 @@ defmodule SourceOverlapProbe do
   def main(argv) do
     {csv?, argv} = pop_flag(argv, "--csv")
     {regen?, argv} = pop_flag(argv, "--regen")
-    {samples, rates, sink} = parse(argv)
+    {samples, rates, sink, phase} = parse(argv)
 
     # Remove cross-iteration noise from the libvips operation cache.
     Vix.Vips.cache_set_max(0)
@@ -101,6 +109,14 @@ defmodule SourceOverlapProbe do
     assert_vix_fork!()
 
     fixtures = ensure_fixtures(regen?, samples, sink)
+
+    case phase do
+      :crop -> run_crop(fixtures, samples, csv?)
+      :overlap -> run_overlap(fixtures, rates, samples, sink, csv?)
+    end
+  end
+
+  defp run_overlap(fixtures, rates, samples, sink, csv?) do
     results = for fx <- fixtures, rate <- rates, do: measure_cell(fx, rate, samples)
 
     unless csv?, do: IO.puts("\nsink = #{sink} (#{sink_desc(sink)})")
@@ -115,6 +131,134 @@ defmodule SourceOverlapProbe do
     do: "real path: sequential + shrink-on-load to ~#{@target_long}px where supported"
 
   defp sink_desc(:full), do: "conservative: sequential, full-res decode (no shrink-on-load)"
+
+  # ── crop / prefix early-termination phase ─────────────────────────────────
+  #
+  # A different lever from overlap: in sequential mode an operation that depends only
+  # on an early prefix of the stream (a TOP crop of a top-to-bottom forward format)
+  # lets libvips stop reading once it has those rows — so a streamed source never pulls
+  # the rest of the download. The win is bounded by how much download is SKIPPED (not
+  # by decode cost). We tally bytes actually pulled from the throttled source per
+  # (fixture × crop-region × mode); << 100% means early termination fired.
+
+  @crops [:full, :top, :bottom]
+
+  defp run_crop(fixtures, samples, csv?) do
+    bps = rate_bps(@crop_rate)
+    pct = round(@crop_fraction * 100)
+
+    rows =
+      for fx <- fixtures, region <- @crops, mode <- [:pipe, :spool] do
+        pulled =
+          median(
+            for _ <- 1..(samples + 1),
+                do: time_pulled(fn ctr -> crop_run(fx, bps, region, mode, ctr) end)
+          )
+
+        %{fx: fx, region: region, mode: mode, pulled_pct: pulled / fx.size * 100}
+      end
+
+    if csv?, do: crop_csv(rows), else: crop_report(fixtures, rows, pct)
+  end
+
+  # Runs one crop decode under a counting throttle; returns bytes pulled from source.
+  defp crop_run(fx, bps, region, mode, ctr) do
+    {:ok, img} = Vix.Vips.Image.new_from_enum(throttled(fx.bin, bps, ctr), enum_opts(mode, fx))
+    sink(crop(img, region))
+  end
+
+  defp enum_opts(:pipe, _fx), do: [mode: :pipe, access: :VIPS_ACCESS_SEQUENTIAL]
+
+  defp enum_opts(:spool, fx),
+    do: [
+      mode: :spool,
+      content_length: fx.size,
+      max_bytes: fx.size * 2,
+      access: :VIPS_ACCESS_SEQUENTIAL
+    ]
+
+  defp crop(img, :full), do: img
+
+  defp crop(img, :top) do
+    {w, h} = {Vix.Vips.Image.width(img), Vix.Vips.Image.height(img)}
+    Vix.Vips.Operation.extract_area!(img, 0, 0, w, crop_h(h))
+  end
+
+  defp crop(img, :bottom) do
+    {w, h} = {Vix.Vips.Image.width(img), Vix.Vips.Image.height(img)}
+    ch = crop_h(h)
+    Vix.Vips.Operation.extract_area!(img, 0, h - ch, w, ch)
+  end
+
+  defp crop_h(h), do: max(1, round(h * @crop_fraction))
+
+  defp crop_report(fixtures, rows, pct) do
+    IO.puts(
+      "\ncrop / prefix early-termination @ #{rate_label(@crop_rate)}  (% of file pulled from the throttled source; << 100% = early stop)\n"
+    )
+
+    IO.puts(
+      "  " <>
+        col("fixture", 18) <>
+        col("full p/s", 14) <> col("top#{pct}% p/s", 14) <> col("bottom#{pct}% p/s", 14)
+    )
+
+    Enum.each(fixtures, fn fx ->
+      cell = fn region, mode ->
+        r = Enum.find(rows, &(&1.fx.fmt == fx.fmt and &1.region == region and &1.mode == mode))
+        f0(r.pulled_pct)
+      end
+
+      pair = fn region -> "#{cell.(region, :pipe)}/#{cell.(region, :spool)}%" end
+
+      IO.puts(
+        "  " <>
+          col("#{fx.fmt} (#{fx.class})", 18) <>
+          col(pair.(:full), 14) <> col(pair.(:top), 14) <> col(pair.(:bottom), 14)
+      )
+    end)
+
+    crop_verdict(fixtures, rows)
+  end
+
+  defp crop_verdict(fixtures, rows) do
+    pulled = fn fmt, region, mode ->
+      Enum.find(rows, &(&1.fx.fmt == fmt and &1.region == region and &1.mode == mode)).pulled_pct
+    end
+
+    IO.puts("\nverdict (top-crop pull % — low = the rest of the download is skipped):")
+
+    Enum.each(fixtures, fn fx ->
+      top = pulled.(fx.fmt, :top, :pipe)
+
+      read =
+        cond do
+          fx.class == :forward and top < 50 ->
+            "early stop ✓ (forward prefix — skips #{f0(100 - top)}% of download)"
+
+          fx.class == :forward ->
+            "no early stop ✗ (unexpected for a forward format)"
+
+          true ->
+            "no partial read ✗ (seek-heavy reads the whole file)"
+        end
+
+      IO.puts("  #{fx.fmt} (#{fx.class}): top pulls #{f0(top)}% → #{read}")
+    end)
+
+    IO.puts("""
+
+    :pipe and :spool pull the same — the spool adds nothing. The win is a :pipe (read-
+    once, on-demand) property, applies only to forward formats with a top-of-stream
+    crop, and survives shrink-on-load. Same mechanism as a header-only /info answer.
+    """)
+  end
+
+  defp crop_csv(rows) do
+    for r <- rows do
+      IO.puts(Enum.join([r.fx.class, r.fx.fmt, r.region, r.mode, f0(r.pulled_pct)], ","))
+    end
+  end
 
   # ── fork capability gate ──────────────────────────────────────────────────
 
@@ -203,16 +347,12 @@ defmodule SourceOverlapProbe do
   # ── throttled source ──────────────────────────────────────────────────────
 
   # A fresh enum each call; the consumer (feeder / producer / our drain) paces on the
-  # per-chunk sleep. `binary_part/3` returns a sub-binary (no copy).
-  defp throttled(bin, :unlimited), do: chunk_stream(bin, 65_536, 0)
-
-  defp throttled(bin, rate_bps) do
-    chunk = max(4096, round(rate_bps * @chunk_target_ms / 1000))
-    sleep_ms = max(1, round(chunk / rate_bps * 1000))
-    chunk_stream(bin, chunk, sleep_ms)
-  end
-
-  defp chunk_stream(bin, chunk, sleep_ms) do
+  # per-chunk sleep. `binary_part/3` returns a sub-binary (no copy). An optional
+  # `:counters` ref tallies bytes actually pulled — the consumer stops pulling when
+  # libvips stops reading (the crop early-termination signal), so the tally reveals
+  # how much of the source was downloaded.
+  defp throttled(bin, rate_bps, ctr \\ nil) do
+    {chunk, sleep_ms} = throttle_params(rate_bps)
     size = byte_size(bin)
 
     Stream.unfold(0, fn
@@ -222,8 +362,16 @@ defmodule SourceOverlapProbe do
       off ->
         if sleep_ms > 0, do: Process.sleep(sleep_ms)
         len = min(chunk, size - off)
+        if ctr, do: :counters.add(ctr, 1, len)
         {binary_part(bin, off, len), off + len}
     end)
+  end
+
+  defp throttle_params(:unlimited), do: {65_536, 0}
+
+  defp throttle_params(rate_bps) do
+    chunk = max(4096, round(rate_bps * @chunk_target_ms / 1000))
+    {chunk, max(1, round(chunk / rate_bps * 1000))}
   end
 
   # ── the four timed operations ─────────────────────────────────────────────
@@ -544,6 +692,13 @@ defmodule SourceOverlapProbe do
     System.monotonic_time(:microsecond) - t0
   end
 
+  # Runs `fun` with a fresh byte counter; returns bytes pulled from the throttled source.
+  defp time_pulled(fun) do
+    ctr = :counters.new(1, [])
+    _ = fun.(ctr)
+    :counters.get(ctr, 1)
+  end
+
   defp rate_bps(:unlimited), do: :unlimited
   defp rate_bps(mbps) when is_integer(mbps), do: mbps * 125_000
 
@@ -587,8 +742,9 @@ defmodule SourceOverlapProbe do
       end
 
     sink = if "full" in argv, do: :full, else: :shrink
+    phase = if "crop" in argv, do: :crop, else: :overlap
 
-    {samples, rates, sink}
+    {samples, rates, sink, phase}
   end
 
   defp rate_token?(s), do: s == "unlimited"

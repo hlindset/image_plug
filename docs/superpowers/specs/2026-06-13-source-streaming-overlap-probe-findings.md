@@ -1,10 +1,13 @@
 # Source streaming/seekable overlap — synthetic probe findings (#263, Phase 1)
 
-**Status: gate complete — NO-GO for slow-source latency.** The synthetic Vix-level
-probe does not find a slow-source latency win that justifies adopting the forked
-native dependency (`hlindset/vix` `SourceSpool`). Recommendation: document and stay on
-the current drain-to-binary baseline. Phase 2 (the real-`ImagePipe.call` harness,
-single-open resolution, `/info` early-abort) is **not** greenlit by these numbers.
+**Status: gate complete — NO-GO for slow-source *overlap* / the forked spool.** The
+synthetic Vix-level probe does not find a slow-source *overlap* win that justifies
+adopting the forked native dependency (`hlindset/vix` `SourceSpool`). Recommendation:
+document and stay on the current drain-to-binary baseline; do not build the
+overlap-motivated Phase 2 spool harness. **However**, a *different* streaming lever —
+**prefix early-termination** (a top crop, or header-only `/info`, skipping the rest of a
+slow download) — is a real win, and it rides on `new_from_enum(:pipe)`, not the spool
+(see that section below).
 
 Harness: [`bench/source_overlap_probe.exs`](../../../bench/source_overlap_probe.exs).
 
@@ -151,6 +154,55 @@ current drain-to-binary baseline ([`processor.ex`](../../../lib/image_pipe/reque
 The gate (`bench/source_overlap_probe.exs`) requires a material `:spool` saving on a
 seek-heavy fixture (≥100 ms and ≥5% at the slow rate); none is present.
 
+This NO-GO is about *overlap* and about the *forked spool specifically*. It is **not**
+"streaming buys nothing" — see the next section for a real `:pipe` win on a different
+axis.
+
+## A real streaming win the overlap axis missed: prefix early-termination (crop / `/info`)
+
+Probed separately (`bench/source_overlap_probe.exs crop`). A different lever entirely:
+in sequential mode, an operation whose output depends only on an **early prefix** of the
+stream lets libvips stop reading once it has those bytes — so a *streamed* source never
+pulls the rest of the download. Unlike overlap, this win is **not bounded by decode
+cost** — it is bounded by how much download is **skipped**.
+
+Bytes pulled from a throttled source for a 10%-height crop (`probe.*`, 2400×3600):
+
+| fixture | full | **top 10%** | bottom 10% |
+|---|---|---|---|
+| JPEG (forward) | 100% | **10%** | 100% |
+| AVIF (seek-heavy) | 100% | 100% | 100% |
+| TIFF tiled (seek-heavy) | 100% | 100% | 100% |
+
+A top-10% crop of the forward JPEG pulled **10%** of the file and finished in ~10% of
+the download time; libvips decoded only the top scanlines and the rest was never
+downloaded. It is real but **conditional**:
+
+- **Position (storage order).** Top wins; bottom reads the whole file; a middle crop
+  reads up to its bottom edge. This is *storage* order — EXIF auto-orient (deferred and
+  compensated into the storage frame, issue #146) can map a display-top crop to a
+  storage-bottom region and defeat it.
+- **Format/encoding.** Forward, top-to-bottom only: **baseline JPEG ✓** (non-interlaced
+  PNG should match). Seek-heavy gets **nothing** — AVIF (monolithic) and tiled TIFF
+  (tested `:pipe` *and* `:spool` × sequential *and* random) all pull 100%; the
+  spool's seekability does not enable a cheap top-tile read here (the TIFF directory /
+  tile-offset structure forces a full read). Progressive JPEG / interlaced PNG would
+  also lose it (data spans the whole stream).
+- **Survives shrink-on-load.** `shrink: 2` + top crop still pulled 10%, so crop+resize
+  requests get it too, not just crop-alone.
+- **Needs a streamed source.** The current drain-to-binary baseline reads the whole body
+  first, so it *cannot* skip — this is precisely the value `new_from_enum(:pipe)` adds.
+- **`:pipe` is the enabler, not `:spool`.** Both pull identically; the spool (lazy-fill,
+  confirmed — it also stopped at 10% for JPEG) adds nothing and does not rescue
+  seek-heavy.
+
+The general principle: **streaming enables early-termination for any request whose
+output depends only on a prefix of the source.** The strongest, most common instance is
+header-only **`/info`** (the header is at the very start of every format); a top-region
+crop is a narrower demonstrative one. Both ride on `new_from_enum(:pipe)` — no forked
+spool. `/info` is the natural place to pursue this (mind the `size` / full-drain tension,
+#260); it is itself untested here (the probe's sinks decode pixels).
+
 ## Caveats / not measured (deliberately out of scope for the gate)
 
 - **Memory shape, not latency.** The spool holds the encoded bytes in a native buffer
@@ -163,13 +215,10 @@ seek-heavy fixture (≥100 ms and ≥5% at the slow rate); none is present.
   baseline forfeits). It rides on `new_from_enum` itself, not on `SourceSpool`. Whether
   it is worth wiring into the real pipeline depends on whether forward decode is ever a
   meaningful fraction of request latency — these numbers say usually not.
-- **`/info` (header-only) is the one genuine "don't read all pixels" case** and is the
-  most promising place for a streaming win: the header arrives in the first bytes, so a
-  seekable/streamed source could answer and *abort the rest of a slow download*. The
-  probe does **not** measure this (its sink decodes pixels). It is in tension with
-  reporting `size` (which needs the full byte count — see #260) and should get its own
-  header-only / early-abort measurement if pursued. For HEIF specifically the `thumbnail`
-  load flag (embedded preview) is a related untested early-availability path.
+- **`/info` early-abort is covered above** (prefix early-termination) but not directly
+  measured — the probe's sinks decode pixels; a header-only sink + `size`-tension run is
+  the follow-up. For HEIF the `thumbnail` load flag (embedded preview) is a related,
+  untested early-availability path.
 - **Not exercised:** the real `ImagePipe.call`/`Processor` path, the two-open →
   single-open resolution (#170), and a genuinely *expensive* incremental-seek decode
   (e.g. a very large multipage/pyramidal TIFF) — though no common web format offers
