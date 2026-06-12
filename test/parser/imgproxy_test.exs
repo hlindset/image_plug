@@ -90,17 +90,20 @@ defmodule ImagePipe.Parser.ImgproxyTest do
           %{"foobar" => {FoobarTranslator, %{}}}
         ] do
       assert_raise ArgumentError, ~r/invalid imgproxy config/, fn ->
-        Imgproxy.validate_options!(source_schemes: source_schemes)
+        Imgproxy.validate_options!(imgproxy: [source_schemes: source_schemes])
       end
     end
   end
 
   test "validates imgproxy auto_rotate config" do
-    assert Imgproxy.validate_options!(auto_rotate: true)[:auto_rotate] == true
-    assert Imgproxy.validate_options!(auto_rotate: false)[:auto_rotate] == false
+    assert Imgproxy.validate_options!(imgproxy: [auto_rotate: true])[:imgproxy][:auto_rotate] ==
+             true
+
+    assert Imgproxy.validate_options!(imgproxy: [auto_rotate: false])[:imgproxy][:auto_rotate] ==
+             false
 
     assert_raise ArgumentError, ~r/invalid imgproxy config/, fn ->
-      Imgproxy.validate_options!(auto_rotate: "true")
+      Imgproxy.validate_options!(imgproxy: [auto_rotate: "true"])
     end
   end
 
@@ -1895,20 +1898,18 @@ defmodule ImagePipe.Parser.ImgproxyTest do
         signature: [keys: ["746573742d6b6579"], salts: ["746573742d73616c74"]]
       ]
       |> Keyword.merge(overrides)
-      |> Imgproxy.validate_options!()
 
-    [imgproxy: imgproxy_opts]
+    Imgproxy.validate_options!(imgproxy: imgproxy_opts)
   end
 
   defp preset_opts(definitions) do
-    [
-      imgproxy:
-        Imgproxy.validate_options!(
-          auto_rotate: false,
-          strip_color_profile: false,
-          presets: definitions
-        )
-    ]
+    Imgproxy.validate_options!(
+      imgproxy: [
+        auto_rotate: false,
+        strip_color_profile: false,
+        presets: definitions
+      ]
+    )
   end
 
   defp assert_error_status(reason, status) do

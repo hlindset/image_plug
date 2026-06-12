@@ -19,7 +19,7 @@ defmodule ImagePipe.Plug do
   @behaviour Plug
 
   alias ImagePipe.Error
-  alias ImagePipe.Parser.Imgproxy
+  alias ImagePipe.Parser
   alias ImagePipe.Plan
   alias ImagePipe.Request.HTTPCache
   alias ImagePipe.Request.Options
@@ -217,17 +217,6 @@ defmodule ImagePipe.Plug do
   defp validate_parser_options(opts) do
     opts
     |> Keyword.fetch!(:parser)
-    |> validate_parser_options(opts)
+    |> Parser.validate_options!(opts)
   end
-
-  defp validate_parser_options(Imgproxy, opts) do
-    imgproxy_opts =
-      opts
-      |> Keyword.get(:imgproxy, [])
-      |> Imgproxy.validate_options!()
-
-    Keyword.put(opts, :imgproxy, imgproxy_opts)
-  end
-
-  defp validate_parser_options(_parser, opts), do: opts
 end

@@ -5,7 +5,10 @@ defmodule ImagePipe.Parser.Imgproxy.SignatureTest do
   alias ImagePipe.Parser.Imgproxy.Signature
 
   test "imgproxy parser exposes parser-owned option validation" do
-    options = Imgproxy.validate_options!([])
+    options =
+      []
+      |> Imgproxy.validate_options!()
+      |> Keyword.fetch!(:imgproxy)
 
     assert %Signature{mode: :disabled} = Keyword.fetch!(options, :signature)
     assert %ImagePipe.Parser.Imgproxy.Presets{} = Keyword.fetch!(options, :presets)
@@ -251,17 +254,17 @@ defmodule ImagePipe.Parser.Imgproxy.SignatureTest do
   describe "Imgproxy.validate_options!/1" do
     test "rejects unknown top-level imgproxy options" do
       assert_raise ArgumentError, ~r/unknown options.*:trusted_signatures/, fn ->
-        Imgproxy.validate_options!(trusted_signatures: ["local-dev!"])
+        Imgproxy.validate_options!(imgproxy: [trusted_signatures: ["local-dev!"]])
       end
 
       assert_raise ArgumentError, ~r/unknown options.*:keys/, fn ->
-        Imgproxy.validate_options!(keys: ["74657374"], salts: ["73616c74"])
+        Imgproxy.validate_options!(imgproxy: [keys: ["74657374"], salts: ["73616c74"]])
       end
     end
 
     test "rejects explicit nil signature config" do
       assert_raise ArgumentError, ~r/invalid value for :signature option/, fn ->
-        Imgproxy.validate_options!(signature: nil)
+        Imgproxy.validate_options!(imgproxy: [signature: nil])
       end
     end
   end

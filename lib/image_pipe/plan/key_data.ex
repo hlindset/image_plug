@@ -212,7 +212,7 @@ defmodule ImagePipe.Plan.KeyData do
     do: [type: :detect, classes: Enum.sort(classes), weights: weights]
 
   defp resize_rule_data(data, %Resize{mode: :auto}),
-    do: data ++ [rule: :imgproxy_orientation_match_v1]
+    do: data ++ [rule: :auto_orientation_match_v1]
 
   defp resize_rule_data(data, %Resize{}), do: data
 
