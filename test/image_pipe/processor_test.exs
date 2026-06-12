@@ -80,10 +80,12 @@ defmodule ImagePipe.Request.ProcessorTest do
     end
   end
 
-  defp svg_supported? do
-    case VipsImage.supported_loader_suffixes() do
-      {:ok, suffixes} -> ".svg" in suffixes
-      {:error, _reason} -> false
+  defp avif_supported? do
+    with {:ok, loaders} <- VipsImage.supported_loader_suffixes(),
+         {:ok, savers} <- VipsImage.supported_saver_suffixes() do
+      ".avif" in loaders and ".avif" in savers
+    else
+      _other -> false
     end
   end
 
@@ -178,29 +180,108 @@ defmodule ImagePipe.Request.ProcessorTest do
     assert pixel_count > 1
   end
 
-  test "decode_validate_source_response rejects SVG after decode" do
-    if svg_supported?() do
-      source_response = %Response{stream: [svg_body(20, 20)]}
+  test "rejects an SVG source before the libvips open" do
+    test_pid = self()
 
-      assert {:error, {:unsupported_source_format, :svg}} =
-               Processor.decode_validate_source_response(
-                 source_response,
-                 plan(),
-                 opts()
-               )
+    recording_loader = fn binary, vips_opts ->
+      send(test_pid, {:buffer_opened, binary})
+      VipsImage.new_from_buffer(binary, vips_opts)
     end
+
+    response = %Response{stream: [svg_body(20, 20)]}
+
+    assert {:error, {:unsupported_source_format, :svg}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan(),
+               Keyword.put(opts(), :buffer_loader, recording_loader)
+             )
+
+    refute_received {:buffer_opened, _binary}
   end
 
-  test "unsupported decoded source format is reported before input pixel limits" do
-    if svg_supported?() do
-      source_response = %Response{stream: [svg_body(10_000, 10_000)]}
+  test "rejects a GIF source before the libvips open" do
+    test_pid = self()
 
-      assert {:error, {:unsupported_source_format, :svg}} =
-               Processor.decode_validate_source_response(
-                 source_response,
-                 plan(),
-                 Keyword.put(opts(), :max_input_pixels, 1)
-               )
+    recording_loader = fn binary, vips_opts ->
+      send(test_pid, {:buffer_opened, binary})
+      VipsImage.new_from_buffer(binary, vips_opts)
+    end
+
+    response = %Response{stream: [<<"GIF89a", 1, 0, 1, 0>>]}
+
+    assert {:error, {:unsupported_source_format, :gif}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan(),
+               Keyword.put(opts(), :buffer_loader, recording_loader)
+             )
+
+    refute_received {:buffer_opened, _binary}
+  end
+
+  test "rejects a path-sourced GIF before the libvips open" do
+    path =
+      :filename.join(System.tmp_dir!(), "detect_#{System.unique_integer([:positive])}.gif")
+      |> to_string()
+
+    File.write!(path, <<"GIF89a", 1, 0, 1, 0>>)
+    on_exit(fn -> File.rm(path) end)
+
+    response = %Response{path: path}
+
+    assert {:error, {:unsupported_source_format, :gif}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan(),
+               Keyword.put(opts(), :image_open_module, RecordingPathOpen)
+             )
+
+    refute_received {:opened_input, _path}
+  end
+
+  test "a path that cannot be read fails as a decode error before the open" do
+    response = %Response{path: "/nonexistent/detector/source.bin"}
+
+    assert {:error, {:decode, {:peek_failed, _reason}}} =
+             Processor.decode_validate_source_response(response, plan(), opts())
+  end
+
+  test "an unsupported source format is rejected before the input pixel limit" do
+    response = %Response{stream: [svg_body(10_000, 10_000)]}
+
+    assert {:error, {:unsupported_source_format, :svg}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan(),
+               Keyword.put(opts(), :max_input_pixels, 1)
+             )
+  end
+
+  test "a JPEG source resolves its format authoritatively from magic bytes" do
+    response = %Response{stream: [File.read!("priv/static/images/beach.jpg")]}
+
+    assert {:ok, decoded} =
+             Processor.decode_validate_source_response(response, plan(), opts())
+
+    assert decoded.source_format == :jpeg
+    assert decoded.source_format_resolution == :detected
+  end
+
+  test "an AVIF source takes its codec from libvips (resolution :libvips_codec)" do
+    if avif_supported?() do
+      avif =
+        "priv/static/images/beach.jpg"
+        |> Image.thumbnail!(16)
+        |> Image.write!(:memory, suffix: ".avif")
+
+      response = %Response{stream: [avif]}
+
+      assert {:ok, decoded} =
+               Processor.decode_validate_source_response(response, plan(), opts())
+
+      assert decoded.source_format == :avif
+      assert decoded.source_format_resolution == :libvips_codec
     end
   end
 

@@ -3,7 +3,8 @@ defmodule ImagePipe.Format do
 
   use Boundary,
     top_level?: true,
-    deps: []
+    deps: [],
+    exports: [Detector]
 
   @output_formats [:avif, :webp, :jpeg, :png]
   @color_profile_formats [:avif, :webp, :jpeg, :png]

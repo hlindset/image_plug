@@ -4,7 +4,7 @@ defmodule ImagePipe.Request.SourceFormat do
   alias Vix.Vips.Image, as: VipsImage
 
   @type source_format() :: ImagePipe.Format.source_format()
-  @type unsupported_family() :: :svg | :unknown
+  @type unsupported_family() :: :gif | :bmp | :ico | :svg | :unknown
   @type error() :: {:unsupported_source_format, unsupported_family()}
 
   @spec from_image(VipsImage.t()) :: {:ok, source_format()} | {:error, error()}

@@ -3,6 +3,7 @@ defmodule ImagePipe.Request.Processor do
 
   alias Image.Options.Open, as: ImageOpenOptions
   alias ImagePipe.Error
+  alias ImagePipe.Format.Detector
   alias ImagePipe.Plan
   alias ImagePipe.Request.Options
   alias ImagePipe.Request.SourceFormat
@@ -22,8 +23,14 @@ defmodule ImagePipe.Request.Processor do
           required(:source_format) => source_format(),
           optional(:source_dimensions) => {pos_integer(), pos_integer()} | nil,
           optional(:original_dims) => {pos_integer(), pos_integer()},
-          optional(:achieved_shrink) => %{w: float(), h: float()} | nil
+          optional(:achieved_shrink) => %{w: float(), h: float()} | nil,
+          optional(:detected_source_format) => Detector.detected(),
+          optional(:source_format_resolution) => :detected | :libvips_codec | :libvips_fallback
         }
+
+  @peek_bytes 32 * 1024
+  @reject_families [:gif, :bmp, :ico, :svg]
+  @authoritative_formats [:jpeg, :png, :webp, :tiff, :jpeg2000, :jpeg_xl]
 
   @spec process_source(Plan.t(), Source.Resolved.t(), keyword()) ::
           {:ok, State.t()} | {:error, term()}
@@ -61,10 +68,13 @@ defmodule ImagePipe.Request.Processor do
     operations = first_pipeline_operations(plan)
 
     with {:ok, input} <- seekable_input(source_response),
+         {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
+         detected = Detector.detect(peek),
+         :ok <- gate_detected(detected),
          {:ok, header_image} <-
            open_seekable_input(input, [access: :random, fail_on: :error], opts)
            |> wrap_decode_error(),
-         {:ok, source_format} <- SourceFormat.from_image(header_image),
+         {:ok, source_format, resolution} <- resolve_source_format(detected, header_image),
          original_dims = {Image.width(header_image), Image.height(header_image)},
          :ok <- validate_original_pixels(original_dims, opts) |> wrap_input_limit_error(),
          decode_options =
@@ -83,6 +93,8 @@ defmodule ImagePipe.Request.Processor do
          decode_options: decode_options,
          image: image,
          source_format: source_format,
+         detected_source_format: detected,
+         source_format_resolution: resolution,
          source_dimensions: shrink_source_dimensions(decode_options, original_dims),
          original_dims: original_dims,
          achieved_shrink: compute_achieved_shrink(original_dims, image)
@@ -184,6 +196,57 @@ defmodule ImagePipe.Request.Processor do
   end
 
   defp seekable_input(%Source.Response{}), do: {:error, {:source, :invalid_adapter_result}}
+
+  # The bounded header peek that feeds format detection. For a drained buffer this
+  # is a zero-copy sub-binary; for a path it reads at most @peek_bytes without
+  # consuming or seeking the independent libvips open (so the seekable-decode path
+  # is untouched).
+  defp peek_bytes({:buffer, binary}) when is_binary(binary),
+    do: {:ok, binary_part(binary, 0, min(byte_size(binary), @peek_bytes))}
+
+  defp peek_bytes({:path, path}) do
+    case File.open(path, [:read, :binary, :raw]) do
+      {:ok, device} ->
+        result = :file.read(device, @peek_bytes)
+        File.close(device)
+
+        case result do
+          {:ok, data} -> {:ok, data}
+          :eof -> {:ok, ""}
+          {:error, reason} -> {:error, {:peek_failed, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:peek_failed, reason}}
+    end
+  end
+
+  # Reject known-unsupported formats before libvips touches the bytes. The error
+  # shape matches SourceFormat's, which the response sender already handles.
+  defp gate_detected(detected) when detected in @reject_families,
+    do: {:error, {:unsupported_source_format, detected}}
+
+  defp gate_detected(_detected), do: :ok
+
+  # Authoritative where magic is confident; libvips supplies the avif-vs-heif codec
+  # split and the :unknown fallback (the header is opened anyway, and libvips stays
+  # the validator).
+  defp resolve_source_format(detected, _header_image) when detected in @authoritative_formats,
+    do: {:ok, detected, :detected}
+
+  defp resolve_source_format(detected, header_image) when detected in [:avif, :heif] do
+    case SourceFormat.from_image(header_image) do
+      {:ok, source_format} -> {:ok, source_format, :libvips_codec}
+      {:error, _reason} -> {:ok, detected, :libvips_codec}
+    end
+  end
+
+  defp resolve_source_format(:unknown, header_image) do
+    case SourceFormat.from_image(header_image) do
+      {:ok, source_format} -> {:ok, source_format, :libvips_fallback}
+      {:error, _reason} = error -> error
+    end
+  end
 
   # A file path opens through `Image.open/2`, which routes to the libvips file loader and
   # preserves loader options (including `:access`).
