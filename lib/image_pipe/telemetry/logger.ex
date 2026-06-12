@@ -218,6 +218,16 @@ defmodule ImagePipe.Telemetry.Logger do
     "image_pipe render: #{outcome(meta)}#{ct}"
   end
 
+  defp message([:source, :fetch_decode | _], _m, meta) do
+    case meta[:detected_source_format] do
+      nil ->
+        "image_pipe source fetch_decode: #{outcome(meta)}"
+
+      detected ->
+        "image_pipe source fetch_decode: #{outcome(meta)} (detected #{detected}#{resolution_note(meta)})"
+    end
+  end
+
   defp message(suffix, _m, meta) do
     "image_pipe #{label(suffix)}: #{outcome(meta)}"
   end
@@ -230,6 +240,13 @@ defmodule ImagePipe.Telemetry.Logger do
   end
 
   defp outcome(meta), do: meta[:cache] || meta[:result] || :ok
+
+  defp resolution_note(meta) do
+    case meta[:source_format_resolution] do
+      nil -> ""
+      resolution -> " via #{resolution}"
+    end
+  end
 
   defp label(suffix) do
     suffix

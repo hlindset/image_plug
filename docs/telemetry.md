@@ -98,6 +98,12 @@ Success stop metadata:
 - `:achieved_shrink` — `%{w: float, h: float}` realized shrink, when shrink-on-load fired.
 - `:original_dims` — `{w, h}` of the stored image before decode.
 - `:loaded_dims` — `{w, h}` actually decoded.
+- `:detected_source_format` — the format the up-front detector returned from the
+  header peek (`:jpeg`, `:png`, …, or `:unknown`). Product-neutral, non-sensitive.
+- `:source_format_resolution` — how the final `source_format` was decided:
+  `:detected` (authoritative magic), `:libvips_codec` (ISOBMFF avif-vs-heif split
+  from libvips), or `:libvips_fallback` (detector returned `:unknown`; libvips
+  classified).
 
 Failure stop metadata (one of two shapes, by failure mode):
 
@@ -354,7 +360,10 @@ outcome categories in this list.
 Representative stage → result mappings:
 
 - `[:source, :fetch_decode]` → `:ok`, `:source_error` (e.g. `error: :body_too_large`),
-  or `:processing_error` (e.g. `error: :input_limit`, `:decode`).
+  or `:processing_error` (e.g. `error: :input_limit`, `:decode`). An
+  unsupported-format reject (gif/bmp/ico/svg, rejected before the libvips open)
+  reports `:result` `:processing_error` and carries `:detected_source_format` set
+  to the rejected family, so an observer sees why the request was rejected.
 - `[:transform, :execute]` → `:ok` or `:processing_error`.
 - `[:transform, :materialize]` → `:ok` or `:materialize_error`.
 - `[:output, :negotiate]` → `:ok` or a negotiation failure category.

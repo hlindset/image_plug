@@ -380,9 +380,14 @@ defmodule ImagePipe.Request.Processor do
       load_option: load_option,
       achieved_shrink: Map.get(decoded, :achieved_shrink),
       original_dims: Map.get(decoded, :original_dims),
-      loaded_dims: {Image.width(image), Image.height(image)}
+      loaded_dims: {Image.width(image), Image.height(image)},
+      detected_source_format: Map.get(decoded, :detected_source_format),
+      source_format_resolution: Map.get(decoded, :source_format_resolution)
     }
   end
+
+  defp fetch_decode_stop_metadata({:error, {:unsupported_source_format, family} = error}),
+    do: %{result: :processing_error, error: Error.tag(error), detected_source_format: family}
 
   defp fetch_decode_stop_metadata({:error, {:source, error}}),
     do: %{result: :source_error, error: Error.tag(error)}
