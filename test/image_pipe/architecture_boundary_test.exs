@@ -98,7 +98,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     parser = boundary_declaration(ImagePipe.Parser)
     imgproxy = boundary_declaration(ImagePipe.Parser.Imgproxy)
 
-    assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan])
+    assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
     # The Parser behaviour boundary must not export any concrete adapter: the core
     # never names a specific parser, so an adapter (imgproxy/…) can be ripped out
     # without editing the behaviour boundary.
@@ -107,17 +107,19 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert_boundary_deps(imgproxy, [
       ImagePipe.Format,
       ImagePipe.Parser,
-      ImagePipe.Plan
+      ImagePipe.Plan,
+      ImagePipe.Renderer
     ])
 
     assert_boundary_exports(imgproxy, [ImagePipe.Parser.Imgproxy.SourceScheme])
 
-    assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan])
+    assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
 
     assert_allowed_deps(imgproxy, [
       ImagePipe.Format,
       ImagePipe.Parser,
-      ImagePipe.Plan
+      ImagePipe.Plan,
+      ImagePipe.Renderer
     ])
   end
 

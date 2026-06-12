@@ -7,7 +7,8 @@ defmodule ImagePipe.Parser.Imgproxy do
     deps: [
       ImagePipe.Format,
       ImagePipe.Parser,
-      ImagePipe.Plan
+      ImagePipe.Plan,
+      ImagePipe.Renderer
     ],
     exports: [
       SourceScheme
