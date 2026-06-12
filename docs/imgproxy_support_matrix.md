@@ -922,7 +922,7 @@ The endpoint runs as a request-layer render: the transform pipeline is empty (no
 | `exif` | ON | ⭕ Deferred | Part of imgproxy's default response. ImagePipe's default `/info` response omits `exif` (Phase 1). |
 | `iptc` | ON | ⭕ Deferred | Part of imgproxy's default response. ImagePipe's default `/info` response omits `iptc` and `photoshop` (Phase 1). |
 | `xmp` | ON | ⭕ Deferred | Part of imgproxy's default response. ImagePipe's default `/info` response omits `xmp` (Phase 1). |
-| `size` | ON | ⭕ Deferred | imgproxy reads `size` from the source `Content-Length` header. ImagePipe omits `size` in Phase 1 (it does not download to compute it). |
+| `size` | ON | ⭕ Deferred | imgproxy reads `size` from the source `Content-Length` header. ImagePipe omits `size` in Phase 1, but adding it is **free** (not a download cost): the `/info` fetch already drains the whole source — a stream source into the decode buffer (`byte_size/1`), a file source resolvable via `File.stat` — so the authoritative byte count is already in hand. Phase 2 should report that count, **not** `Content-Length` (which can be absent on chunked transfer-encoding, or untrusted). |
 | `colorspace` | OFF (slow) | ⭕ Missing | Requires full download. |
 | `bands` | OFF (slow) | ⭕ Missing | Requires full download. |
 | `sample_format` | OFF (slow) | ⭕ Missing | Requires full download. |
@@ -944,7 +944,7 @@ The endpoint runs as a request-layer render: the transform pipeline is empty (no
 
 **Default response is a strict subset.** imgproxy's default `/info` response includes `format`, `mime_type`, `width`, `height`, `orientation`, `exif`, `iptc`/`photoshop`, and `xmp`. ImagePipe's Phase 1 response returns only `format`, `mime_type`, `width`, `height`, and `orientation` — a strict subset of imgproxy's defaults. Clients that expect `exif`/`iptc`/`xmp` in the default response will see those blocks missing.
 
-**`size` omitted.** imgproxy reads the file size from the source response `Content-Length` header without downloading the full body. ImagePipe does not emit `size` in Phase 1; it does not download the source to compute it.
+**`size` omitted.** imgproxy reads the file size from the source response `Content-Length` header. ImagePipe does not emit `size` in Phase 1 — but adding it is **free**, not a download cost: the `/info` fetch already drains the whole source body to read the header (a stream source into the decode buffer; a file source has `File.stat`), so the authoritative byte length is already in hand. Phase 2 should report that drained/`stat` count rather than reaching for `Content-Length`, which can be absent (chunked transfer-encoding) or untrusted.
 
 **`format`/`mime_type` spellings and detection.** ImagePipe matches imgproxy's format name spellings (`heic`/`image/heif`, `jxl`/`image/jxl`, etc.) but classifies HEIC vs. AVIF by interrogating the libvips loader and the `heif-compression` image header, whereas imgproxy uses magic-byte brand detection — they can disagree on edge-case HEIF files. JPEG 2000 is a deliberate divergence: ImagePipe reports `jp2`/`image/jp2`, which imgproxy has no equivalent type for and would report as unknown.
 

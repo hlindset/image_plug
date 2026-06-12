@@ -32,9 +32,12 @@ defmodule ImagePipe.Request.RenderRunner do
   defp do_run(plan, resolved_source, opts) do
     with {:ok, decoded} <-
            Processor.fetch_decode_validate_source_with_source_format(plan, resolved_source, opts) do
-      # Phase 1 omits `size`: byte_size is nil. A later refinement may thread a cheap
-      # Content-Length / File.stat from the source response — never download the body
-      # just to compute size.
+      # Phase 1 omits `size`: byte_size is nil. Adding it is free, not a download
+      # cost — the fetch above already drains the whole source to read the header (a
+      # stream source into the decode buffer, `byte_size/1`; a file source has
+      # `File.stat`), so the authoritative count is in hand. Do not reach for
+      # `Content-Length`: it can be absent (chunked) or untrusted, and we already
+      # hold the real bytes.
       info = build_source_info(decoded, nil)
       Renderer.run(plan.render, %RenderContext{info: info}, opts)
     end
