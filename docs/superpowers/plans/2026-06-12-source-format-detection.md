@@ -106,6 +106,10 @@ defmodule ImagePipe.Format.DetectorTest do
       assert Detector.detect(<<0xFF>>) == :unknown
       assert Detector.detect(<<>>) == :unknown
     end
+
+    test "a truncated ftyp box with no brand is :unknown (matcher is total over short input)" do
+      assert Detector.detect(<<0, 0, 0, 0x20, "ftyp">>) == :unknown
+    end
   end
 end
 ```
@@ -491,6 +495,32 @@ In `test/image_pipe/processor_test.exs`, **replace** the test `"decode_validate_
     refute_received {:buffer_opened, _binary}
   end
 
+  test "rejects a path-sourced GIF before the libvips open" do
+    path =
+      Path.join(System.tmp_dir!(), "detect_#{System.unique_integer([:positive])}.gif")
+
+    File.write!(path, <<"GIF89a", 1, 0, 1, 0>>)
+    on_exit(fn -> File.rm(path) end)
+
+    response = %Response{path: path}
+
+    assert {:error, {:unsupported_source_format, :gif}} =
+             Processor.decode_validate_source_response(
+               response,
+               plan(),
+               Keyword.put(opts(), :image_open_module, RecordingPathOpen)
+             )
+
+    refute_received {:opened_input, _path}
+  end
+
+  test "a path that cannot be read fails as a decode error before the open" do
+    response = %Response{path: "/nonexistent/detector/source.bin"}
+
+    assert {:error, {:decode, {:peek_failed, _reason}}} =
+             Processor.decode_validate_source_response(response, plan(), opts())
+  end
+
   test "an unsupported source format is rejected before the input pixel limit" do
     response = %Response{stream: [svg_body(10_000, 10_000)]}
 
@@ -585,11 +615,13 @@ In `lib/image_pipe/request/processor.ex`:
   @authoritative_formats [:jpeg, :png, :webp, :tiff, :jpeg2000, :jpeg_xl]
 ```
 
-(c) Extend `@type decoded()` with two required fields:
+(c) Extend `@type decoded()` with two fields, `optional(...)` to match the sibling
+fields (`original_dims`/`achieved_shrink`/`source_dimensions`) and the `Map.get`
+access used in the stop metadata:
 
 ```elixir
-          required(:detected_source_format) => Detector.detected(),
-          required(:source_format_resolution) => :detected | :libvips_codec | :libvips_fallback,
+          optional(:detected_source_format) => Detector.detected(),
+          optional(:source_format_resolution) => :detected | :libvips_codec | :libvips_fallback,
 ```
 
 (d) Replace the body of `decode_validate_source_response/3` (keep the `@spec`) with:
@@ -599,7 +631,7 @@ In `lib/image_pipe/request/processor.ex`:
     operations = first_pipeline_operations(plan)
 
     with {:ok, input} <- seekable_input(source_response),
-         {:ok, peek} <- peek_bytes(input),
+         {:ok, peek} <- peek_bytes(input) |> wrap_decode_error(),
          detected = Detector.detect(peek),
          :ok <- gate_detected(detected),
          {:ok, header_image} <-
@@ -653,13 +685,23 @@ In `lib/image_pipe/request/processor.ex`:
         case result do
           {:ok, data} -> {:ok, data}
           :eof -> {:ok, ""}
-          {:error, reason} -> {:error, {:decode, {:peek_failed, reason}}}
+          {:error, reason} -> {:error, {:peek_failed, reason}}
         end
 
       {:error, reason} ->
-        {:error, {:decode, {:peek_failed, reason}}}
+        {:error, {:peek_failed, reason}}
     end
   end
+```
+
+> Disposition note: a peek read failure is returned untagged and routed through
+> `wrap_decode_error/1` (the `with` clause above), yielding `{:decode,
+> {:peek_failed, reason}}` → 415. This is a deliberate, conscious choice: it
+> preserves today's behavior, where an unreadable path reaches `Image.open` and
+> already surfaces as a decode error → 415. We do **not** retag it as a source
+> error, to avoid changing the observable status for the same input.
+
+```elixir
 
   # Reject known-unsupported formats before libvips touches the bytes. The error
   # shape matches SourceFormat's, which the response sender already handles.
@@ -873,9 +915,18 @@ format where magic is confident.
   falls back to its existing libvips classification, staying as capable as the
   libvips build. Detection is an authoritative-where-confident gate, not a hard
   allowlist.
-- **No ct/ext hints → no RAW-vs-TIFF skip.** ImagePipe does not wire
-  content-type/extension, so a RAW file sharing TIFF magic detects as `:tiff`
-  (its current behavior). Deferred with the dimension-sniffing follow-on (#264).
+- **No ct/ext hints → no RAW-vs-TIFF skip.** imgproxy's TIFF detector skips
+  itself when the (content-type/extension) hint is in its RAW list — so on its
+  real download path, which always passes those hints, a RAW file sharing TIFF
+  magic yields `Unknown` (→ reject). ImagePipe does not wire content-type/extension,
+  so the same RAW file detects as `:tiff` (its current behavior). Deferred with
+  the dimension-sniffing follow-on (#264).
+- **SVG: root-only vs match-anywhere.** imgproxy's XML tokenizer classifies SVG
+  when an `<svg>` start element appears *anywhere* in the prolog-led token stream;
+  ImagePipe's lightweight scan matches only the **root** element. A non-root
+  `<svg>` (e.g. wrapped in another root element) that imgproxy would call `svg`
+  falls to `:unknown` here → libvips `svgload`, which still rejects it — so no
+  wrong-accept, only a label difference on an already-rejected input.
 - **JP2 detection added.** ImagePipe detects JPEG 2000 (signature box + J2K
   codestream); imgproxy's `imagetype` has no JP2 detector. Unmatched JP2 variants
   fall to `:unknown` → libvips `jp2kload`.
@@ -929,6 +980,19 @@ git commit -m "chore: format + lint fixups (#170)" || true
 - Precommit gate → Task 7.
 
 **Out of scope (correctly absent):** dimension/EXIF sniffing (#264), ct/ext wiring, streaming early-abort (#263). No new source images / `SourceInventory` changes — reject bodies are synthetic magic-prefixed blobs.
+
+**Documented coverage gap — `:unknown` → `:libvips_fallback` success branch.** The
+detector's magic table covers 100% of ImagePipe's *supported* source formats, so
+the only way `resolve_source_format(:unknown, …)` can return `{:ok, fmt, :libvips_fallback}`
+is an exotic container variant that libvips classifies as supported but our magic
+misses (e.g. a JP2/JXL container our two signatures don't cover) — impractical to
+fixture without a brittle hand-built file. The `:unknown` **error** sub-path
+(libvips also can't classify → `{:error, {:unsupported_source_format, _}}`) preserves
+prior behavior and is exercised by the existing unknown-input handling. We
+deliberately accept the gap on the rare `:libvips_fallback` *success* branch rather
+than commit a fragile fixture; if a real exotic-variant fixture appears later, add
+the assertion then. The branch itself is trivial (delegates to the unchanged
+`SourceFormat.from_image/1`).
 
 **Type consistency check:**
 

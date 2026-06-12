@@ -259,6 +259,11 @@ For `docs/imgproxy_support_matrix.md` (stage axis + "Diverges" notes):
    variants fall to `:unknown` → libvips `jp2kload`.
 4. **Vocabulary maps to ImagePipe atoms** (`:heif` not `heic`, `:jpeg_xl` not
    `jxl`, `:jpeg2000`).
+5. **SVG root-only vs match-anywhere.** imgproxy's XML tokenizer matches an
+   `<svg>` start element anywhere in the prolog-led token stream; the lightweight
+   scan matches only the root element. A non-root `<svg>` that imgproxy would call
+   `svg` falls to `:unknown` here → libvips `svgload`, which still rejects it (no
+   wrong-accept; only a label difference on an already-rejected input).
 
 ## Boundaries
 
