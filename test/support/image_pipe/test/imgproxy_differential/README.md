@@ -90,7 +90,7 @@ itself: `mise exec -- mix test test/image_pipe/imgproxy_gen_report_test.exs --in
 ## Triage a bake (no Docker)
 
 When a freshly baked case fails the conformance lane, `mix imgproxy.diagnose` prints a
-one-line summary per constellation — output dims, band layout, the maximum band-byte
+one-line summary per constellation — output dims, band layout, the maximum per-sample
 delta, a `>Δ2`/`>Δ16`/`>Δ32` histogram, and PASS/over-budget against the authored tol —
 by rendering ImagePipe live against the committed fixture (the same `Harness` the
 conformance test uses):
@@ -115,7 +115,7 @@ flagged cases — a separate axis from `--failing` (correctness). It measures pe
 **Reading it — skew vs structural.** `maxΔ` is the deciding signal:
 
 - **Diffuse resampling skew** (a libvips-version difference, not a bug) keeps `maxΔ` low —
-  tens of levels — even when many band-bytes exceed Δ2. Absorb it with a tolerance.
+  tens of levels — even when many samples exceed Δ2. Absorb it with a tolerance.
 - **A placement/crop/scale shift** misaligns high-contrast edges, pushing `maxΔ` toward
   ~255. That is a real divergence — never widen a tol to hide it; quarantine (`:triage` +
   a tracking issue) or fix.
@@ -131,6 +131,11 @@ flagged cases — a separate axis from `--failing` (correctness). It measures pe
 - Zone-plate / heavy-downscale sources (`high_freq`, rotated EXIF blocks): the skew is
   diffuse and higher-amplitude, so set the **threshold just above the measured `maxΔ`**
   with a tight budget (Δ32 is typical; the worst cells need more).
+- 16-bit (HDR) sources (`rgb16`/`rgba16`): the comparison reconstructs each 16-bit
+  sample and normalizes deltas to **8-bit-equivalent levels**, so the same `Δ2`/budget
+  vocabulary applies across bit depths — author a 16-bit fixture's tol in levels, not in
+  raw 16-bit units. (Comparing raw bytes would split a sample into hi/lo halves and read
+  a hair of 16-bit noise as a low-byte blow-out.)
 
 After changing only a `tol`, refresh the authored hashes with `mix imgproxy.reauthor`
 (no Docker) rather than re-baking.

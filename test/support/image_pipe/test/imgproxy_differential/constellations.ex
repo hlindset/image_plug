@@ -424,37 +424,14 @@ defmodule ImagePipe.Test.ImgproxyDifferential.Constellations do
       # RGBA path.
       c("rgb16_preserve_hdr", :rgb16, "ph:1/rs:fit:200:200"),
       c("rgb16_tonemap_8bit", :rgb16, "ph:0/rs:fit:200:200"),
-      # rgba16_preserve_hdr DIVERGES (quarantined → #229). The source alpha is
-      # uniformly fully opaque (min=max=65535); ImagePipe preserves it pristine
-      # (live alpha a constant 65535), while imgproxy's ph:1 16-bit RGBA path
-      # perturbs it (fixture alpha down to 65311 — maxΔ 224/65535 ≈ 0.34%). imgproxy
-      # premultiplies the RGB by that perturbed alpha before the resize, so with the
-      # full-range source (#240) the RGB bands now also shift (maxΔ ~2240/65535 ≈
-      # 3.4%) — a downstream consequence of the same alpha quirk, not an independent
-      # divergence (the rgb16 no-alpha preserve case above is byte-identical, so the
-      # RGB resample itself matches imgproxy; the prior near-black source merely hid
-      # this because the premultiplied RGB stayed near zero). ImagePipe is the
-      # more-correct side (it leaves a fully-opaque alpha untouched). The conformance
-      # tol model can't fairly judge it either: it decomposes the 16-bit USHORT band
-      # into hi/lo bytes, so the real deltas surface as large LOW-byte deltas across
-      # the band — an 8-bit Δ-threshold/budget can't express a 16-bit tolerance (a
-      # harness limitation independent of the alpha quirk). Tracked under #229;
-      # imgproxy still bakes the fixture so the gap stays measured — distinct from
-      # #222 (a metadata/band-LAYOUT contract layer, blind to pixel values) and #220
-      # (a spurious alpha CHANNEL). The rgb16 (no alpha) preserve case above is a
-      # clean PASS, covering the core 16-bit PNG round-trip; the rgba16 TONEMAP case
-      # below also PASSES (8-bit, alpha 255 both sides).
-      %{
-        c("rgba16_preserve_hdr", :rgba16, "ph:1/rs:fit:200:200")
-        | verdict: :diverges,
-          divergence: %{metric: :fraction_over, threshold: 32, floor: 0.05},
-          triage: %{
-            reason:
-              "imgproxy perturbs a fully-opaque 16-bit alpha (maxΔ 224/65535); ImagePipe " <>
-                "preserves it. 8-bit band-byte tol can't express a 16-bit-channel tolerance.",
-            issue: "#229"
-          }
-      },
+      # rgba16_preserve_hdr is the rgb16 preserve case plus a 16-bit alpha band — the
+      # 16-bit RGBA preserve-HDR path. The source alpha is uniformly opaque (65535);
+      # ImagePipe leaves it untouched, while imgproxy premultiplies the RGB by the
+      # alpha before the resize and rounds the alpha a hair off 65535, nudging a few
+      # RGB(A) samples. The decoded footprint is a handful of sub-tolerance skew
+      # samples (maxΔ ~9 levels, well inside the default Δ2/64 tol), on par with the
+      # rgba16 tonemap sibling below — so it passes :equal.
+      c("rgba16_preserve_hdr", :rgba16, "ph:1/rs:fit:200:200"),
       c("rgba16_tonemap_8bit", :rgba16, "ph:0/rs:fit:200:200"),
 
       # --- stage-interaction probes: compositions verified alone but never crossed.

@@ -646,7 +646,7 @@
       kind: :transform
     },
     "rgba16_preserve_hdr" => %{
-      authored_sha256: "3e74791885feb327fd58bd3607bff74bf1fc66959118cdc0286cac3171cbfb0d",
+      authored_sha256: "9d32615d0aa1fe406341cc06e536ea2feb2183b1b8f18b421d22599e80fa5ff2",
       fixture_filename: "rgba16_preserve_hdr.png",
       fixture_sha256: "2eed28ab08e3dfb2fd4441fbe6570fa2b5c0cf94a3611a5ad547add2c0c043ee",
       kind: :transform
