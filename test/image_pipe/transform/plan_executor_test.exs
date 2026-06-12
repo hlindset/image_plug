@@ -500,7 +500,10 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
         {{1600, 900}, {300, 200}, {300, 200}, true},
         {{1600, 900}, {200, 300}, {200, 113}, false},
         {{1000, 1000}, {300, 300}, {300, 300}, false},
-        {{1000, 1000}, {300, 200}, {200, 200}, false}
+        # #233: square source into a landscape target shares the non-negative bucket
+        # (src_d == 0, dst_d > 0), so auto fills (cover) to {300, 200} rather than fitting
+        # to {200, 200}.
+        {{1000, 1000}, {300, 200}, {300, 200}, false}
       ] do
     test "resize auto #{inspect(source)} to #{inspect(target)} returns #{inspect(expected_dimensions)}" do
       source = unquote(Macro.escape(source))
