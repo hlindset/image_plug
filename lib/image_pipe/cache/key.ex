@@ -7,6 +7,7 @@ defmodule ImagePipe.Cache.Key do
 
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Plan
+  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.KeyData
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
@@ -108,7 +109,8 @@ defmodule ImagePipe.Cache.Key do
        strip_metadata: output.strip_metadata,
        color_profile: output.color_profile,
        keep_copyright: output.keep_copyright,
-       hdr: output.hdr
+       hdr: output.hdr,
+       flatten_background: Color.key_data(output.flatten_background)
      ]}
   end
 
@@ -122,7 +124,8 @@ defmodule ImagePipe.Cache.Key do
        strip_metadata: output.strip_metadata,
        color_profile: output.color_profile,
        keep_copyright: output.keep_copyright,
-       hdr: output.hdr
+       hdr: output.hdr,
+       flatten_background: Color.key_data(output.flatten_background)
      ]}
   end
 
@@ -142,7 +145,8 @@ defmodule ImagePipe.Cache.Key do
        strip_metadata: output.strip_metadata,
        color_profile: output.color_profile,
        keep_copyright: output.keep_copyright,
-       hdr: output.hdr
+       hdr: output.hdr,
+       flatten_background: Color.key_data(output.flatten_background)
      ]}
   end
 

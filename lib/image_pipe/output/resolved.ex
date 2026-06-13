@@ -1,6 +1,8 @@
 defmodule ImagePipe.Output.Resolved do
   @moduledoc false
 
+  alias ImagePipe.Plan.Color
+
   @enforce_keys [
     :format,
     :quality,
@@ -9,7 +11,7 @@ defmodule ImagePipe.Output.Resolved do
     :keep_copyright,
     :color_profile
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [flatten_background: Color.white()]
 
   @type format :: ImagePipe.Format.output_format()
   @type quality :: :default | {:quality, 1..100}
@@ -19,6 +21,7 @@ defmodule ImagePipe.Output.Resolved do
           response_headers: [{String.t(), String.t()}],
           strip_metadata: boolean(),
           keep_copyright: boolean(),
-          color_profile: ImagePipe.Plan.Output.color_profile()
+          color_profile: ImagePipe.Plan.Output.color_profile(),
+          flatten_background: Color.t()
         }
 end

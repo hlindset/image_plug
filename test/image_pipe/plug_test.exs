@@ -1157,7 +1157,14 @@ defmodule ImagePipe.PlugTest do
              strip_metadata: true,
              color_profile: :strip,
              keep_copyright: true,
-             hdr: :tone_map
+             hdr: :tone_map,
+             flatten_background: [
+               space: :srgb,
+               red: 255,
+               green: 255,
+               blue: 255,
+               alpha: [unit: :ratio, numerator: 1, denominator: 1]
+             ]
            ]
 
     refute inspect(key_a.data) =~ "image/webp"
@@ -1472,7 +1479,14 @@ defmodule ImagePipe.PlugTest do
       strip_metadata: true,
       color_profile: :strip,
       keep_copyright: true,
-      hdr: :tone_map
+      hdr: :tone_map,
+      flatten_background: [
+        space: :srgb,
+        red: 255,
+        green: 255,
+        blue: 255,
+        alpha: [unit: :ratio, numerator: 1, denominator: 1]
+      ]
     )
 
     refute_received :origin_was_called
@@ -1504,7 +1518,14 @@ defmodule ImagePipe.PlugTest do
           strip_metadata: true,
           color_profile: :strip,
           keep_copyright: true,
-          hdr: :tone_map
+          hdr: :tone_map,
+          flatten_background: [
+            space: :srgb,
+            red: 255,
+            green: 255,
+            blue: 255,
+            alpha: [unit: :ratio, numerator: 1, denominator: 1]
+          ]
         ] ->
           {:hit, cached_entry}
 
@@ -1534,7 +1555,14 @@ defmodule ImagePipe.PlugTest do
       strip_metadata: true,
       color_profile: :strip,
       keep_copyright: true,
-      hdr: :tone_map
+      hdr: :tone_map,
+      flatten_background: [
+        space: :srgb,
+        red: 255,
+        green: 255,
+        blue: 255,
+        alpha: [unit: :ratio, numerator: 1, denominator: 1]
+      ]
     )
 
     refute_received :origin_was_called
@@ -1566,7 +1594,14 @@ defmodule ImagePipe.PlugTest do
           strip_metadata: true,
           color_profile: :strip,
           keep_copyright: true,
-          hdr: :tone_map
+          hdr: :tone_map,
+          flatten_background: [
+            space: :srgb,
+            red: 255,
+            green: 255,
+            blue: 255,
+            alpha: [unit: :ratio, numerator: 1, denominator: 1]
+          ]
         ] ->
           {:hit, cached_entry}
 
@@ -1598,7 +1633,14 @@ defmodule ImagePipe.PlugTest do
       strip_metadata: true,
       color_profile: :strip,
       keep_copyright: true,
-      hdr: :tone_map
+      hdr: :tone_map,
+      flatten_background: [
+        space: :srgb,
+        red: 255,
+        green: 255,
+        blue: 255,
+        alpha: [unit: :ratio, numerator: 1, denominator: 1]
+      ]
     )
 
     refute_received :origin_was_called
@@ -1630,7 +1672,14 @@ defmodule ImagePipe.PlugTest do
           strip_metadata: true,
           color_profile: :strip,
           keep_copyright: true,
-          hdr: :tone_map
+          hdr: :tone_map,
+          flatten_background: [
+            space: :srgb,
+            red: 255,
+            green: 255,
+            blue: 255,
+            alpha: [unit: :ratio, numerator: 1, denominator: 1]
+          ]
         ] ->
           {:hit, cached_entry}
 
@@ -1662,7 +1711,14 @@ defmodule ImagePipe.PlugTest do
       strip_metadata: true,
       color_profile: :strip,
       keep_copyright: true,
-      hdr: :tone_map
+      hdr: :tone_map,
+      flatten_background: [
+        space: :srgb,
+        red: 255,
+        green: 255,
+        blue: 255,
+        alpha: [unit: :ratio, numerator: 1, denominator: 1]
+      ]
     )
 
     refute_received :origin_was_called

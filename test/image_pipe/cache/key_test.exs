@@ -8,6 +8,7 @@ defmodule ImagePipe.Cache.KeyTest do
   alias ImagePipe.Cache.KeyTest.ForwardingProbe
   alias ImagePipe.Parser.Imgproxy
   alias ImagePipe.Plan
+  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
@@ -215,7 +216,14 @@ defmodule ImagePipe.Cache.KeyTest do
                strip_metadata: true,
                color_profile: :strip,
                keep_copyright: true,
-               hdr: :tone_map
+               hdr: :tone_map,
+               flatten_background: [
+                 space: :srgb,
+                 red: 255,
+                 green: 255,
+                 blue: 255,
+                 alpha: [unit: :ratio, numerator: 1, denominator: 1]
+               ]
              ],
              auto_rotate: false,
              representation: [version: 1],
@@ -857,6 +865,26 @@ defmodule ImagePipe.Cache.KeyTest do
     refute off.hash == on.hash
   end
 
+  test "flatten_background participates in the cache key" do
+    conn = conn(:get, "/_/plain/images/cat.jpg")
+    {:ok, red} = Color.rgb(255, 0, 0)
+
+    white = build_key!(conn, plan(output: %Output{mode: {:explicit, :jpeg}}), source_identity())
+
+    red_key =
+      build_key!(
+        conn,
+        plan(output: %Output{mode: {:explicit, :jpeg}, flatten_background: red}),
+        source_identity()
+      )
+
+    assert white.data[:output][:flatten_background] ==
+             Color.key_data(Color.white())
+
+    assert red_key.data[:output][:flatten_background] == Color.key_data(red)
+    refute white.hash == red_key.hash
+  end
+
   test "response delivery metadata is excluded from cache key data" do
     one = plan(response: %ImagePipe.Plan.Response{disposition: :attachment})
     two = plan(response: %ImagePipe.Plan.Response{disposition: :inline})
@@ -931,7 +959,14 @@ defmodule ImagePipe.Cache.KeyTest do
              strip_metadata: true,
              color_profile: :strip,
              keep_copyright: true,
-             hdr: :tone_map
+             hdr: :tone_map,
+             flatten_background: [
+               space: :srgb,
+               red: 255,
+               green: 255,
+               blue: 255,
+               alpha: [unit: :ratio, numerator: 1, denominator: 1]
+             ]
            ]
 
     refute inspect(key_one.data) =~ "image/webp"
@@ -965,7 +1000,14 @@ defmodule ImagePipe.Cache.KeyTest do
                strip_metadata: true,
                color_profile: :strip,
                keep_copyright: true,
-               hdr: :tone_map
+               hdr: :tone_map,
+               flatten_background: [
+                 space: :srgb,
+                 red: 255,
+                 green: 255,
+                 blue: 255,
+                 alpha: [unit: :ratio, numerator: 1, denominator: 1]
+               ]
              ]
 
       refute inspect(key.data) =~ "*/*"
@@ -1015,7 +1057,14 @@ defmodule ImagePipe.Cache.KeyTest do
              strip_metadata: true,
              color_profile: :strip,
              keep_copyright: true,
-             hdr: :tone_map
+             hdr: :tone_map,
+             flatten_background: [
+               space: :srgb,
+               red: 255,
+               green: 255,
+               blue: 255,
+               alpha: [unit: :ratio, numerator: 1, denominator: 1]
+             ]
            ]
   end
 
@@ -1067,7 +1116,14 @@ defmodule ImagePipe.Cache.KeyTest do
              strip_metadata: true,
              color_profile: :strip,
              keep_copyright: true,
-             hdr: :tone_map
+             hdr: :tone_map,
+             flatten_background: [
+               space: :srgb,
+               red: 255,
+               green: 255,
+               blue: 255,
+               alpha: [unit: :ratio, numerator: 1, denominator: 1]
+             ]
            ]
 
     refute inspect(key.data) =~ "image/jpeg"
