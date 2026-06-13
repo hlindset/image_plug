@@ -214,6 +214,24 @@ defmodule ImagePipe.Parser.IIIFWireTest do
   end
 
   # ---------------------------------------------------------------------------
+  # Contract 2b: bitonal quality (Level 2) → every sampled value is 0 or 255
+  # ---------------------------------------------------------------------------
+
+  test "contract 2b: bitonal quality on opaque source → pixels are 0 or 255" do
+    conn = call_iiif("/img/full/max/0/bitonal.png", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    {w, h} = {Image.width(img), Image.height(img)}
+
+    for {x, y} <- [{div(w, 4), div(h, 4)}, {div(w, 2), div(h, 2)}, {w - 1, h - 1}] do
+      [v | _] = Image.get_pixel!(img, x, y)
+      assert v in [0, 255], "pixel at (#{x},#{y}) not bitonal: #{v}"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
   # Contract 3: gray + RGBA source + JPG output → valid JPEG (no crash)
   # ---------------------------------------------------------------------------
 

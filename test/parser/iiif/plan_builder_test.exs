@@ -3,7 +3,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
 
   alias ImagePipe.Parser.IIIF.PlanBuilder
   alias ImagePipe.Plan
-  alias ImagePipe.Plan.Operation.{CropGuided, CropRegion, Gray, Resize, Rotate}
+  alias ImagePipe.Plan.Operation.{Bitonal, CropGuided, CropRegion, Gray, Resize, Rotate}
   alias ImagePipe.Plan.Source.Path, as: SourcePath
 
   @source %SourcePath{segments: ["images", "beach.jpg"]}
@@ -51,6 +51,11 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilderTest do
       build(%{region: :full, size: {:max, false}, rotation: 0, quality: :default, format: :jpg})
 
     assert out.mode == {:explicit, :jpeg}
+  end
+
+  test "quality bitonal emits a Bitonal op last (after size)" do
+    {:ok, %Plan{pipelines: [%{operations: [%Resize{}, %Bitonal{}]}]}} =
+      build(%{region: :full, size: {:max, false}, rotation: 0, quality: :bitonal, format: :jpg})
   end
 
   test "square region emits crop_guided with aspect_ratio 1:1" do

@@ -30,7 +30,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
       max_height: Keyword.get(opts, :max_height),
       max_area: Keyword.get(opts, :max_area),
       formats: Keyword.get(opts, :formats, [:jpg, :png, :webp, :avif]),
-      qualities: Keyword.get(opts, :qualities, [:default, :color, :gray])
+      qualities: Keyword.get(opts, :qualities, [:default, :color, :gray, :bitonal])
     }
 
     {:ok,

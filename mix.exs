@@ -31,6 +31,7 @@ defmodule ImagePipe.MixProject do
           {"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"},
           "docs/imgproxy_path_api.md",
           "docs/imgproxy_support_matrix.md",
+          "docs/iiif_3_support_matrix.md",
           "docs/transform_operations.md"
         ],
         groups_for_modules: [
@@ -94,6 +95,7 @@ defmodule ImagePipe.MixProject do
         "docs/assets/demo-fiddle-desktop.png",
         "docs/imgproxy_path_api.md",
         "docs/imgproxy_support_matrix.md",
+        "docs/iiif_3_support_matrix.md",
         "docs/operational_notes.md",
         "docs/telemetry.md",
         "docs/cookbook/opentelemetry-jaeger.md",
