@@ -78,25 +78,23 @@ defmodule ImagePipe.Transform.Operation.Resize do
         source_height: src_h
       )
 
-    cond do
-      operation.reject_enlargement and dimensions.upscale_required ->
-        {:error, {:bad_request, :upscale_required}}
+    if operation.reject_enlargement and dimensions.upscale_required do
+      {:error, {:bad_request, :upscale_required}}
+    else
+      case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
+        {:ok, image} ->
+          # The residual resize has finished the downscale: the image is now at its
+          # final resolution, so neither the stored original extent (source_dimensions)
+          # nor the realized shrink-on-load factor (decode_shrink) applies any longer.
+          # Clearing decode_shrink confines the preshrink coordinate rescale to the
+          # pipeline whose decode produced it, so an absolute crop in a later chained
+          # pipeline is sized against that pipeline's input, not divided by a stale
+          # factor (#180). See the scaleOnLoad row in docs/imgproxy_support_matrix.md.
+          {:ok, %State{set_image(state, image) | source_dimensions: nil, decode_shrink: nil}}
 
-      true ->
-        case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
-          {:ok, image} ->
-            # The residual resize has finished the downscale: the image is now at its
-            # final resolution, so neither the stored original extent (source_dimensions)
-            # nor the realized shrink-on-load factor (decode_shrink) applies any longer.
-            # Clearing decode_shrink confines the preshrink coordinate rescale to the
-            # pipeline whose decode produced it, so an absolute crop in a later chained
-            # pipeline is sized against that pipeline's input, not divided by a stale
-            # factor (#180). See the scaleOnLoad row in docs/imgproxy_support_matrix.md.
-            {:ok, %State{set_image(state, image) | source_dimensions: nil, decode_shrink: nil}}
-
-          {:error, reason} ->
-            {:error, {__MODULE__, reason}}
-        end
+        {:error, reason} ->
+          {:error, {__MODULE__, reason}}
+      end
     end
   end
 
