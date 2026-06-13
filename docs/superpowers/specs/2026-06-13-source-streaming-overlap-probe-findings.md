@@ -203,6 +203,18 @@ crop is a narrower demonstrative one. Both ride on `new_from_enum(:pipe)` — no
 spool. `/info` is the natural place to pursue this (mind the `size` / full-drain tension,
 #260); it is itself untested here (the probe's sinks decode pixels).
 
+**The remaining work is single-open, not the spool.** Today the source-open drains to a
+binary and opens twice: a libvips header read for dims (feeding `DecodePlanner`'s shrink
+factor) then the shrink decode — and a `:pipe` enum is consume-once, so it cannot be
+opened twice. #170 (closed) added Elixir-side *format* detection but **not dims**, so it
+does not by itself collapse the two opens. Two routes to single-open over a stream: (a)
+peek dims from the prefix for the formats where that is cheap/reliable (PNG `IHDR` is
+trivial; JPEG `SOF` usually within a bounded peek) and fall back to the current
+drain/two-open path otherwise; or (b) let libvips do header+shrink in one pass
+(`thumbnail_source`), format-agnostic but moving shrink planning into libvips. Note the
+fallback in (a) loses nothing: the formats whose dims are hard to peek (TIFF/HEIC/AVIF)
+are exactly the seek-heavy formats that get no streaming win anyway.
+
 ## Caveats / not measured (deliberately out of scope for the gate)
 
 - **Memory shape, not latency.** The spool holds the encoded bytes in a native buffer
@@ -220,7 +232,7 @@ spool. `/info` is the natural place to pursue this (mind the `size` / full-drain
   the follow-up. For HEIF the `thumbnail` load flag (embedded preview) is a related,
   untested early-availability path.
 - **Not exercised:** the real `ImagePipe.call`/`Processor` path, the two-open →
-  single-open resolution (#170), and a genuinely *expensive* incremental-seek decode
+  single-open resolution (see the prefix section above), and a genuinely *expensive* incremental-seek decode
   (e.g. a very large multipage/pyramidal TIFF) — though no common web format offers
   expensive-and-incrementally-decodable, which is what the spool would need.
 
