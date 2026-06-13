@@ -124,6 +124,10 @@ defmodule ImagePipe.Output.NegotiationPropertyTest do
     ])
   end
 
+  # Only well-formed in-range weights: this property pins order/preference
+  # invariants over valid input. Malformed weights (`q=1.5`, `q=abc`) are covered
+  # by the example suite — don't add them here, the oracle's `String.to_float/1`
+  # would raise on them.
   defp media_range_with_optional_quality do
     one_of([
       media_range(),

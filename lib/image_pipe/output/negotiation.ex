@@ -110,10 +110,13 @@ defmodule ImagePipe.Output.Negotiation do
     |> parse_quality()
   end
 
+  # An invalid or out-of-range weight (`q=1.5`, `q=abc`) is ignored, not treated
+  # as an explicit `q=0` exclusion: drop the parameter and fall back to the
+  # default q=1 (RFC 9110 §12.4.2). Only a well-formed in-range `q=0` excludes.
   defp parse_quality(value) do
     case value |> String.trim() |> Float.parse() do
       {quality, ""} when quality >= 0.0 and quality <= 1.0 -> quality
-      _ -> 0.0
+      _ -> 1.0
     end
   end
 
