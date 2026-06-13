@@ -142,9 +142,9 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     opts = Keyword.put(@opts, :max_result_pixels, 1_000_000)
     conn = call("/images/beach.jpg?twic=v1/resize=4s/resize=4s/output=jpeg", opts)
     # The 16x chained upscale of a 4000px source overshoots the host pixel cap.
-    # ImagePipe clamps an oversized result down to the caps (imgproxy fixSize
-    # parity, #150/#165) rather than rejecting it — a 200 with the result pinned
-    # under the cap proves the request reached the post-fetch result-size guard.
+    # ImagePipe clamps an oversized result down to the host caps (imgproxy
+    # limitScale parity, #165) rather than rejecting it — a 200 with the result
+    # pinned under the cap proves the request reached the post-fetch result guard.
     assert conn.status == 200
     {w, h} = dimensions(conn)
     assert w * h <= 1_000_000
