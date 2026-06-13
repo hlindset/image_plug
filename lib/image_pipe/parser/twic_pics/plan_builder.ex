@@ -18,7 +18,8 @@ defmodule ImagePipe.Parser.TwicPics.PlanBuilder do
        %Plan{
          source: source,
          pipelines: [%Pipeline{operations: Enum.reverse(acc.ops)}],
-         output: output
+         output: output,
+         auto_rotate: true
        }}
     end
   end

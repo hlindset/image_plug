@@ -4,6 +4,7 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
   import Plug.Test
 
   alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias TwicPicsWireConformanceTest.ExifOrientedOrigin
   alias TwicPicsWireConformanceTest.OriginImage
   alias TwicPicsWireConformanceTest.OriginShouldNotFetch
 
@@ -21,6 +22,30 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
   defp dimensions(%Plug.Conn{} = conn) do
     image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
     {Image.width(image), Image.height(image)}
+  end
+
+  defp exif_opts do
+    Keyword.put(@opts, :sources,
+      path:
+        {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: ExifOrientedOrigin]}
+    )
+  end
+
+  test "auto-orients an EXIF-tagged source by default, without any geometry" do
+    conn = call("/images/oriented.jpg?twic=v1/output=jpeg", exif_opts())
+    assert conn.status == 200
+    # Stored 40x80 portrait tagged EXIF orientation 6 displays as 80x40. Real
+    # TwicPics bakes EXIF orientation into the output by default, so the served
+    # frame is the upright 80x40 landscape, not the stored 40x80 portrait.
+    assert dimensions(conn) == {80, 40}
+  end
+
+  test "a chained resize composes against the auto-oriented (upright) frame" do
+    conn = call("/images/oriented.jpg?twic=v1/resize=40/output=jpeg", exif_opts())
+    assert conn.status == 200
+    # Auto-orient runs first, so resize fits width 40 against the upright 80x40
+    # frame -> 40x20 (landscape), not the stored 40x80 portrait.
+    assert dimensions(conn) == {40, 20}
   end
 
   test "single resize reaches the intermediate dimension (not clamped on a large source)" do

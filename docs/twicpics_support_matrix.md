@@ -115,6 +115,14 @@ Mapped against [API Parameters](https://www.twicpics.com/docs/reference/paramete
 | `quality=1..100` | ✅ Supported | `Plan.Output` quality. |
 | `quality-max` / `quality-min` | 🚫 Rejected | Conditional variants deferred. |
 
+## Metadata and orientation
+
+Mapped against [Path Configuration](https://www.twicpics.com/docs/essentials/path-configuration.md), which notes that "EXIF orientation and color profiles may be changed or removed [...] since they are used for generating the transformed image" — TwicPics bakes EXIF orientation into the pixels by default.
+
+| TwicPics behavior | Status | Notes |
+| --- | --- | --- |
+| EXIF auto-orientation (default) | ✅ Supported | Input conditioning, not a URL transform: the parser sets `Plan.auto_rotate: true`, so an EXIF-tagged source is rendered upright and the orientation tag is dropped. Applied before chained transforms, which therefore see the upright frame. No URL option toggles it in v1. |
+
 ## Parameter types
 
 Mapped against [API Parameters](https://www.twicpics.com/docs/reference/parameters.md). These are the value grammars the transformations above consume.
