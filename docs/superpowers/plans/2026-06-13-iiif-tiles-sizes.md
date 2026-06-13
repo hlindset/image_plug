@@ -478,10 +478,10 @@ Add a new test after contract 5 in `test/parser/iiif_wire_test.exs`. The `iiif_o
   end
 ```
 
-- [ ] **Step 2: Run to verify it fails (then passes)**
+- [ ] **Step 2: Run to verify the end-to-end path**
 
 Run: `mise exec -- mix test test/parser/iiif_wire_test.exs`
-Expected: the two new tests PASS (Task 3 already wired the behavior); run confirms the end-to-end path. If `iiif_opts_tile` collides with an existing name, rename it.
+Expected: the two new tests PASS — this is an end-to-end confirmation of behavior wired in Task 3, not a red step (the consumer already exists). If `iiif_opts_tile` collides with an existing name, rename it.
 
 - [ ] **Step 3: Commit**
 
@@ -508,8 +508,14 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
   @moduledoc """
   Replicates OpenSeadragon's IIIF v3 getTileUrl algorithm (src/iiiftilesource.js)
   to drive a full pan/zoom tile traversal against a live ImagePipe IIIF endpoint,
-  then verifies the served tiles. The OSD replica generates requests; an
-  independent 2D-gradient expectation (NOT the ImagePipe planner) is the oracle.
+  then verifies the served tiles. The OSD replica is the STIMULUS generator; an
+  independent 2D-gradient expectation (NOT the ImagePipe planner / resize path)
+  is the ORACLE.
+
+  Note on fidelity: the replica computes `level_w = ceil(W*scale)`. The real OSD,
+  once it adopts our `sizes` as `levelSizes`, reads the level dims from `sizes`
+  instead — but the two coincide at every level for this fixture, so the replica
+  is behaviorally faithful here.
   """
   use ExUnit.Case, async: true
 
@@ -525,9 +531,8 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
   @h 768
 
   # --- 2D-gradient origin: pixel(x,y) ~ [255*x/(w-1), 0, 255*y/(h-1)] ----------
-  # A served tile from source region (xr,yr,wr,hr) must decode so its top-left
-  # red≈255*xr/(w-1)/blue≈255*yr/(h-1) and its bottom-right red/blue track the
-  # region's far corner — independent of any resize kernel.
+  # A served tile from source region (xr,yr,wr,hr) decodes so its corners track
+  # the region's source corners — independent of any resize kernel.
   defmodule GradientOrigin do
     def init(opts), do: opts
 
@@ -562,17 +567,18 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
     if cors.halted, do: cors, else: ImagePipe.Plug.call(cors, initialized)
   end
 
-  # --- OSD getTileUrl replica (verbatim from iiiftilesource.js, v3) -----------
-  # Returns {region_str, size_str, expected_w, expected_h} per tile.
+  # --- OSD getTileUrl replica (per iiiftilesource.js, v3) ----------------------
+  # Each tile -> a uniform map: %{region, size, w, h, src: {xr,yr,wr,hr}} where
+  # (w,h) is the served output size and `src` is the SOURCE region the tile covers
+  # (full image for the single-tile branch). Uniform maps avoid fragile
+  # positional tuples.
   defp osd_tiles(info) do
     [%{"width" => tile_w} = tile] = info["tiles"]
     tile_h = Map.get(tile, "height", tile_w)
     factors = tile["scaleFactors"]
     max_level = round(:math.log2(Enum.max(factors)))
 
-    for level <- 0..max_level, request <- level_requests(level, max_level, tile_w, tile_h) do
-      request
-    end
+    Enum.flat_map(0..max_level, &level_requests(&1, max_level, tile_w, tile_h))
   end
 
   defp level_requests(level, max_level, tile_w, tile_h) do
@@ -581,9 +587,11 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
     level_h = ceil(@h * scale)
 
     if level_w < tile_w and level_h < tile_h do
-      # Single-tile branch: region full, size max only if level is full-res.
+      # Single-tile branch: whole (downscaled) image fits one tile -> region full.
+      # The `max` arm is unreachable for sources LARGER than the tile (level_w<tile_w
+      # implies level_w<@w); it mirrors OSD's guard for sub-tile sources.
       size = if level_w == @w and level_h == @h, do: "max", else: "#{level_w},#{level_h}"
-      [{"full", size, level_w, level_h}]
+      [%{region: "full", size: size, w: level_w, h: level_h, src: {0, 0, @w, @h}}]
     else
       iiif_tile_w = round(tile_w / scale)
       iiif_tile_h = round(tile_h / scale)
@@ -604,7 +612,7 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
         size_w = min(tile_w, level_w - x * tile_w)
         size_h = min(tile_h, level_h - y * tile_h)
         size = if size_w == @w and size_h == @h, do: "max", else: "#{size_w},#{size_h}"
-        {region, size, size_w, size_h, tile_x, tile_y, region_w, region_h}
+        %{region: region, size: size, w: size_w, h: size_h, src: {tile_x, tile_y, region_w, region_h}}
       end
     end
   end
@@ -614,57 +622,46 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
     {:ok, info: info}
   end
 
-  test "every OSD tile request is served 200 with the requested pixel dimensions", %{info: info} do
-    # Full grid, status + dims only (cheap). Covers both OSD branches.
-    for req <- osd_tiles(info) do
-      {region, size, exp_w, exp_h} =
-        case req do
-          {r, s, w, h} -> {r, s, w, h}
-          {r, s, w, h, _, _, _, _} -> {r, s, w, h}
-        end
-
+  # Single gate loop: fire each tile ONCE; assert status + served dims + the
+  # independent pixel oracle (TL, center, BR). Covers both OSD branches and the
+  # full pan/zoom traversal. For 1024x768/512 (factors [1,2,4,8], maxLevel=3):
+  #   level 0 (sf8): single-tile full / 128,96
+  #   level 1 (sf4): single-tile full / 256,192
+  #   level 2 (sf2): TILED, 1x1 grid, region=full / 512,384  (full region, downscaled)
+  #   level 3 (sf1): TILED, 2x2 grid -> (0,0) interior, (1,0) right edge,
+  #                  (0,1) bottom edge, (1,1) bottom-right corner (512,256 clamps)
+  test "OSD traversal: every tile served 200 with correct dims + source geometry",
+       %{info: info} do
+    for %{region: region, size: size, w: sw, h: sh, src: {xr, yr, wr, hr}} <- osd_tiles(info) do
       conn = call_iiif("/grad/#{region}/#{size}/0/default.png")
       assert conn.status == 200, "#{region}/#{size} -> #{conn.status}"
+
       img = Image.open!(conn.resp_body, access: :random, fail_on: :error)
-      assert {Image.width(img), Image.height(img)} == {exp_w, exp_h}
-    end
-  end
+      assert {Image.width(img), Image.height(img)} == {sw, sh},
+             "#{region}/#{size}: served #{Image.width(img)}x#{Image.height(img)}, expected #{sw}x#{sh}"
 
-  test "single-tile branch returns region=full with a downscaled w,h size", %{info: info} do
-    # For 1024x768/512, level 2 (sf=2) is the tiled-branch full case; levels 0-1
-    # (sf 8,4) are the single-tile branch. Assert a single-tile coarse level.
-    requests = osd_tiles(info)
-    # sf=8 -> level 0 -> 128x96 single tile, region full.
-    assert Enum.any?(requests, fn
-             {"full", "128,96", 128, 96} -> true
-             _ -> false
-           end)
-  end
-
-  test "pixel oracle: representative interior/edge/corner tiles map to the right region",
-       %{info: info} do
-    tiled = for {_, _, _, _, _, _, _, _} = t <- osd_tiles(info), do: t
-    # At sf=1 (level=max), 1024x768/512 -> 2x2 grid:
-    #   (0,0) interior, (1,0) right edge, (0,1) bottom edge, (1,1) bottom-right corner
-    for {region, size, sw, sh, xr, yr, wr, hr} <- tiled do
-      conn = call_iiif("/grad/#{region}/#{size}/0/default.png")
-      assert conn.status == 200
-      img = Image.open!(conn.resp_body, access: :random, fail_on: :error)
-
-      # Oracle: expected gradient values at the served tile's corners, derived
-      # from the SOURCE region geometry (no resize involved).
+      # Oracle: expected gradient values at TL / center / BR, derived from the
+      # SOURCE region geometry (red tracks x, blue tracks y). No resize involved.
       [tl_r, _, tl_b | _] = Image.get_pixel!(img, 0, 0)
+      [c_r, _, c_b | _] = Image.get_pixel!(img, div(sw, 2), div(sh, 2))
       [br_r, _, br_b | _] = Image.get_pixel!(img, sw - 1, sh - 1)
 
-      assert_close(tl_r, 255 * xr / (@w - 1), "tl red @ region #{region}")
-      assert_close(tl_b, 255 * yr / (@h - 1), "tl blue @ region #{region}")
-      assert_close(br_r, 255 * (xr + wr - 1) / (@w - 1), "br red @ region #{region}")
-      assert_close(br_b, 255 * (yr + hr - 1) / (@h - 1), "br blue @ region #{region}")
+      assert_close(tl_r, 255 * xr / (@w - 1), "tl red @ #{region}")
+      assert_close(tl_b, 255 * yr / (@h - 1), "tl blue @ #{region}")
+      assert_close(c_r, 255 * (xr + wr / 2) / (@w - 1), "center red @ #{region}")
+      assert_close(c_b, 255 * (yr + hr / 2) / (@h - 1), "center blue @ #{region}")
+      assert_close(br_r, 255 * (xr + wr - 1) / (@w - 1), "br red @ #{region}")
+      assert_close(br_b, 255 * (yr + hr - 1) / (@h - 1), "br blue @ #{region}")
 
-      # Edge/corner tiles must NOT be the full tile size.
+      # Edge/corner tiles must be clamped, not the full tile size.
       if wr < 512, do: assert(sw < 512)
       if hr < 512, do: assert(sh < 512)
     end
+  end
+
+  test "single-tile branch yields region=full with a downscaled w,h size", %{info: info} do
+    # level 0 (sf=8) -> 128x96 single tile, region full (no HTTP call needed).
+    assert Enum.any?(osd_tiles(info), &match?(%{region: "full", size: "128,96"}, &1))
   end
 
   # Downscale averaging shifts corner samples inward; ±24 catches off-by-a-tile
@@ -695,25 +692,25 @@ git commit -m "test(iiif): OpenSeadragon viewer-simulation gate (tile pan/zoom)"
 **Files:**
 - Create: `test/transform/iiif_tile_decode_test.exs`
 
-This is an **investigation** task: call the pure planner with a tile-shaped chain, observe the real decode load options, pin them, and document honestly.
+This task verifies the perf claim by testing the in-repo producer (`DecodePlanner`) directly — no telemetry hook. The plan review **ran** this probe: for the tile shape, `open_options` returns `[access: :sequential, fail_on: :error, shrink: 4]` — shrink-on-load **engages** (factor 4). Pin that.
 
-- [ ] **Step 1: Write a probe test that prints the planner output**
+- [ ] **Step 1: Write the failing test**
 
 Create `test/transform/iiif_tile_decode_test.exs`:
 
 ```elixir
 defmodule ImagePipe.Transform.IIIFTileDecodeTest do
   @moduledoc """
-  Characterizes whether a IIIF tile request (region crop + downscale) engages
-  shrink-on-load. DecodePlanner is the in-repo producer of the decode load
-  options; we assert its actual output rather than inventing a telemetry hook.
+  Verifies a IIIF tile request (region crop + downscale) engages shrink-on-load.
+  DecodePlanner is the in-repo producer of the decode load options; we assert its
+  actual output rather than inventing a telemetry hook.
   """
   use ExUnit.Case, async: true
 
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Transform.DecodePlanner
 
-  test "tile region+downscale: observe decode load options" do
+  test "tile region+downscale engages shrink-on-load" do
     # OSD tile at scale factor 8 against a 6000x4000 source: crop a 4096x4096
     # region, downscale to a 512x512 tile.
     {:ok, crop} = Operation.crop_region({:px, 0}, {:px, 0}, {:px, 4096}, {:px, 4096})
@@ -721,41 +718,20 @@ defmodule ImagePipe.Transform.IIIFTileDecodeTest do
 
     opts = DecodePlanner.open_options([crop, resize], :jpeg, {6000, 4000})
 
-    IO.inspect(opts, label: "tile decode open_options")
-    assert Keyword.fetch!(opts, :access) == :sequential
+    assert Keyword.get(opts, :access) == :sequential
+    # Shrink-on-load fires for the crop-then-downscale tile shape: the source is
+    # decoded at 1/4 resolution rather than full-res. (Observed factor: 4.)
+    assert Keyword.get(opts, :shrink) == 4
   end
 end
 ```
 
-- [ ] **Step 2: Run and record the observed options**
+- [ ] **Step 2: Run to verify it passes**
 
 Run: `mise exec -- mix test test/transform/iiif_tile_decode_test.exs`
-Record the printed `open_options` keyword list (does it contain `:shrink`/`:scale`, or only `[access: :sequential, fail_on: :error]`?).
+Expected: PASS. If the observed `:shrink` value differs from 4 (e.g. a planner change), pin the actual observed value and update the comment — do not assert a value you did not observe.
 
-- [ ] **Step 3: Pin the observed behavior**
-
-Replace the `IO.inspect` line with an exact assertion on the observed list. Two outcomes:
-
-- **If shrink-on-load engages** (a `:shrink` or `:scale` key is present), assert it, e.g.:
-  ```elixir
-  assert Keyword.has_key?(opts, :shrink) or Keyword.has_key?(opts, :scale)
-  ```
-  and add a comment with the concrete value observed.
-
-- **If it does NOT engage** for region+resize, assert the exact list, e.g.:
-  ```elixir
-  assert opts == [access: :sequential, fail_on: :error]
-  ```
-  and add a comment: shrink-on-load does not currently fire for a crop-then-resize chain; the optimization is tracked in the perf follow-up.
-
-Remove the `IO.inspect`.
-
-- [ ] **Step 4: Run to verify the pinned assertion passes**
-
-Run: `mise exec -- mix test test/transform/iiif_tile_decode_test.exs`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add test/transform/iiif_tile_decode_test.exs
@@ -792,7 +768,7 @@ Emitted from the **display** dimensions (`SourceInfo.display_dimensions/1`, so E
 In the `## HTTP behavior` / pipeline area (or the processing-order section), add a row/note:
 
 ```markdown
-- **Tiled region extraction** — tiled `{x,y,w,h}/{w,h}` requests reuse the existing region-crop + resize path (`regionByPx` + `sizeByWh` → `:stretch`); there is no IIIF-specific tiling stage. Decode load options for the crop+downscale shape are characterized in `test/transform/iiif_tile_decode_test.exs` (shrink-on-load reuse / follow-up noted there).
+- **Tiled region extraction** — tiled `{x,y,w,h}/{w,h}` requests reuse the existing region-crop + resize path (`regionByPx` + `sizeByWh` → `:stretch`); there is no IIIF-specific tiling stage. Shrink-on-load **engages** for the crop+downscale tile shape (verified: a deep-scale-factor tile decodes the source at reduced resolution — `DecodePlanner` returns `shrink: 4` for a 4096-region→512 tile from a 6000×4000 source; see `test/transform/iiif_tile_decode_test.exs`). End-to-end memory high-water + info/derivative caching are tracked as a follow-up.
 ```
 
 - [ ] **Step 3: Update Verification**
