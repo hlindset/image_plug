@@ -18,12 +18,15 @@ defmodule ImagePipe.Parser.IIIF do
   alias ImagePipe.Parser.IIIF.Path
   alias ImagePipe.Parser.IIIF.PlanBuilder
 
+  # Note: IIIF `maxWidth`/`maxHeight`/`maxArea` are intentionally NOT a config
+  # surface yet — advertising them in info.json without enforcing the limit in the
+  # size pipeline would be a conformance lie (and `maxHeight` without `maxWidth` is
+  # spec-invalid). We shrink the unsupported surface rather than advertise it; a
+  # future change can wire them through `image_plan/3`'s size mapping + add the
+  # cross-field validation.
   @schema NimbleOptions.new!(
             resolver: [type: {:custom, __MODULE__, :validate_resolver, []}, required: true],
             auto_rotate: [type: :boolean, default: true],
-            max_width: [type: {:or, [:pos_integer, nil]}, default: nil],
-            max_height: [type: {:or, [:pos_integer, nil]}, default: nil],
-            max_area: [type: {:or, [:pos_integer, nil]}, default: nil],
             formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
             qualities: [type: {:list, :atom}, default: [:default, :color, :gray, :bitonal]]
           )

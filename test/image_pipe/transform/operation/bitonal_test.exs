@@ -24,4 +24,23 @@ defmodule ImagePipe.Transform.Operation.BitonalTest do
       assert lum in [0, 255], "pixel at (#{x},#{y}) not bitonal: #{lum}"
     end
   end
+
+  @rgba "test/support/image_pipe/test/imgproxy_differential/sources/alpha.png"
+
+  test "preserves the alpha band untouched (does not threshold alpha)" do
+    {:ok, src} = Image.open(@rgba, access: :random)
+    assert Image.has_alpha?(src)
+
+    {:ok, %State{image: out}} = Bitonal.execute(%Bitonal{}, %State{image: src})
+    assert Image.has_alpha?(out)
+
+    {w, h} = {Image.width(out), Image.height(out)}
+
+    for {x, y} <- [{0, 0}, {div(w, 2), div(h, 2)}, {w - 1, h - 1}] do
+      [lum | _] = out_px = Image.get_pixel!(out, x, y)
+      # luminance band thresholded to 0/255; alpha band identical to the source.
+      assert lum in [0, 255]
+      assert List.last(out_px) == List.last(Image.get_pixel!(src, x, y))
+    end
+  end
 end

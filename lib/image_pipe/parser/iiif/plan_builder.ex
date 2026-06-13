@@ -26,9 +26,6 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
         {"application/ld+json;profile=\"http://iiif.io/api/image/3/context.json\"",
          ["application/ld+json"]}
       ],
-      max_width: Keyword.get(opts, :max_width),
-      max_height: Keyword.get(opts, :max_height),
-      max_area: Keyword.get(opts, :max_area),
       formats: Keyword.get(opts, :formats, [:jpg, :png, :webp, :avif]),
       qualities: Keyword.get(opts, :qualities, [:default, :color, :gray, :bitonal])
     }

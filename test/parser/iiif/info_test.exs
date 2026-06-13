@@ -9,11 +9,8 @@ defmodule ImagePipe.Parser.IIIF.InfoTest do
     id: "http://x/iiif/abc",
     level: "level2",
     offers: [],
-    max_width: nil,
-    max_height: nil,
-    max_area: nil,
     formats: [:jpg, :png],
-    qualities: [:default, :gray]
+    qualities: [:default, :color, :gray, :bitonal]
   }
 
   test "document has required IIIF 3.0 fields with display dims" do
@@ -24,6 +21,14 @@ defmodule ImagePipe.Parser.IIIF.InfoTest do
     assert doc["protocol"] == "http://iiif.io/api/image"
     assert doc["profile"] == "level2"
     assert doc["width"] == 1000 and doc["height"] == 600
+  end
+
+  test "extra* lists exclude baseline (default quality; jpg/png formats)" do
+    doc = Info.document(@info, %{@params | formats: [:jpg, :png, :webp, :avif]})
+    # extraQualities lists qualities beyond `default`
+    assert doc["extraQualities"] == ["color", "gray", "bitonal"]
+    # extraFormats lists formats beyond the Level-2 baseline jpg/png
+    assert doc["extraFormats"] == ["webp", "avif"]
   end
 
   test "quarter-turn orientation swaps width/height in info" do

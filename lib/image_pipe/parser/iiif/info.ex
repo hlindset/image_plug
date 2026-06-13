@@ -33,16 +33,13 @@ defmodule ImagePipe.Parser.IIIF.Info do
       "profile" => params.level,
       "width" => w,
       "height" => h,
-      "extraQualities" => Enum.map(params.qualities, &to_string/1),
+      # `extraQualities`/`extraFormats` list what is supported *beyond* the baseline
+      # (`default` quality; `jpg`/`png` formats at Level 2), per the IIIF spec.
+      "extraQualities" =>
+        params.qualities |> Enum.reject(&(&1 == :default)) |> Enum.map(&to_string/1),
       "extraFormats" =>
         params.formats |> Enum.reject(&(&1 in [:jpg, :png])) |> Enum.map(&to_string/1),
       "extraFeatures" => @extra_features
     }
-    |> maybe_put("maxWidth", params.max_width)
-    |> maybe_put("maxHeight", params.max_height)
-    |> maybe_put("maxArea", params.max_area)
   end
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

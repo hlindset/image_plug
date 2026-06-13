@@ -59,7 +59,7 @@ A leading `^` enables upscaling. Without `^`, an explicit-size form that would u
 | `gray` | `gray` quality | ✅ | `Plan.Operation.Gray` — **true desaturation** via `Image.to_colorspace(:bw)` (luminance only), *not* a color tint (`Monochrome`). Preserves alpha for alpha-capable output formats. |
 | `bitonal` | `bitonal` quality (Level 2 required) | ✅ | `Plan.Operation.Bitonal` — `:bw` colourspace + a `>= 128` threshold (each band → 0/255). The validator's `quality_bitonal` is a **Level-2** test (same level as `color`/`gray`), so it is required for the gate. |
 
-> Note: `default`/`color`/`gray`/`bitonal` are all baseline at Level 2; we list `color`/`gray`/`bitonal` in `extraQualities` (harmless over-listing — the validator does not reject it).
+> Note: `default` is the implicit baseline quality and is **not** listed in `extraQualities`; `color`/`gray`/`bitonal` are listed there (qualities supported in addition to `default`, per the spec).
 
 ## Format
 
@@ -80,8 +80,8 @@ Served via the cross-dialect render mechanism (`render: {:custom, ImagePipe.Pars
 | `@context`, `type` (`ImageService3`), `protocol`, `profile` (`"level2"`) | ✅ | Exact strings per the 3.0 spec; `info_json` validator-checked. |
 | `id` | ✅ | Absolute base URI reconstructed from the request (`scheme://host[:port]/{mount}/{identifier}`), no spurious default-port suffix. |
 | `width` / `height` | ✅ | **Display** dimensions (post-EXIF-orientation) via `ImagePipe.Plan.SourceInfo.display_dimensions/1` — a quarter-turn source (EXIF 5–8) reports swapped dims. |
-| `maxWidth` / `maxHeight` / `maxArea` | ✅ | Emitted only when configured (omitted when nil — never `null`). |
-| `extraQualities` / `extraFormats` / `extraFeatures` | ✅ | Reflect what is implemented; spelled per the IIIF feature registry. |
+| `maxWidth` / `maxHeight` / `maxArea` | ➖ | **Not advertised** — server-side size limits aren't enforced in the size pipeline yet, so emitting the fields would be a conformance lie (and `maxHeight` without `maxWidth` is spec-invalid). The config surface was removed rather than advertised unenforced; a future change can wire them through the `max`/`^max` size mapping + add the cross-field validation. |
+| `extraQualities` / `extraFormats` / `extraFeatures` | ✅ | List what is supported **beyond the baseline** (`default` quality; `jpg`/`png` formats at Level 2), spelled per the IIIF feature registry. |
 | **Content negotiation** | ✅ | `Accept: application/ld+json` → `Content-Type: application/ld+json;profile="…/context.json"` with `Vary: Accept`; otherwise `application/json`. Body is byte-identical (cache identity stays Accept-independent). Validator-checked by `jsonld`. |
 
 ## HTTP behavior
