@@ -28,7 +28,8 @@
 | `lib/image_pipe/parser/iiif/plan_builder.ex` | ParsedRequest → Plan / render / redirect | B4 |
 | `lib/image_pipe/parser/iiif/info.ex` | builds the info.json document map | B6 |
 | `lib/image_pipe/parser/iiif/info_renderer.ex` | `@behaviour Renderer` | B6 |
-| `lib/image_pipe/parser/iiif.ex` | `@behaviour Parser`: `parse/2`, `handle_error/2`, `validate_options!/1`; CORS | B5, B7 |
+| `lib/image_pipe/parser/iiif.ex` | `@behaviour Parser`: `parse/2`, `handle_error/2`, `validate_options!/1` | B5 |
+| `lib/image_pipe/parser/iiif/cors.ex` | mount-level CORS + `OPTIONS` preflight `Plug` (host mounts ahead of `ImagePipe.Plug`) | B5/B7 |
 | `docs/iiif_3_support_matrix.md` | conformance matrix | B9 |
 | `test/parser/iiif_test.exs`, `test/parser/iiif/*_test.exs` | parser unit + property | B2–B6 |
 | `test/parser/iiif_wire_test.exs` | wire-level Plug tests | B8 |
@@ -211,8 +212,10 @@ defmodule ImagePipe.Parser.IIIF.Path do
     end
   end
 
-  defp port_suffix("http", 80), do: ""
-  defp port_suffix("https", 443), do: ""
+  # conn.scheme is an ATOM (:http | :https), not a string — match atoms or every
+  # default-port URL wrongly gets a :80/:443 suffix (breaking info.json id + 303 Location).
+  defp port_suffix(:http, 80), do: ""
+  defp port_suffix(:https, 443), do: ""
   defp port_suffix(_scheme, port), do: ":#{port}"
 
   defp decode(segment), do: URI.decode(segment)
@@ -508,6 +511,8 @@ end
 
 `parsed_request.ex` — a thin struct holding `id`, `source`, the typed grammar values, `offers`, `auto_rotate`, and the absolute `id` URI for info. Keep it minimal; the PlanBuilder is where the work is.
 
+> **Compile-order (B4 vs B6):** `info_plan/3` references `ImagePipe.Parser.IIIF.InfoRenderer`, which is created in **B6**. To keep the repo compiling after the B4 commit, **B4 ships only `image_plan/3`** (alias only `Operation`/`Output`/`Pipeline`/`Response`/`Gray`); add the `InfoRenderer` alias + `info_plan/3` to `plan_builder.ex` in **B6**, right after `InfoRenderer` exists. The B4 test only exercises `image_plan/3`.
+
 `plan_builder.ex` (core; mirror `imgproxy/plan_builder.ex` for `Plan` assembly, source/response defaults):
 
 ```elixir
@@ -517,7 +522,8 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
   alias ImagePipe.Plan
   alias ImagePipe.Plan.{Operation, Output, Pipeline, Response}
   alias ImagePipe.Plan.Operation.Gray
-  alias ImagePipe.Parser.IIIF.{Info, InfoRenderer}
+  # NOTE: `alias ImagePipe.Parser.IIIF.InfoRenderer` + the `info_plan/3` function
+  # below are added in B6 (InfoRenderer doesn't exist until then) — omit from the B4 commit.
 
   @spec image_plan(Plan.Source.t(), map(), keyword()) :: {:ok, Plan.t()} | {:error, term()}
   def image_plan(source, %{} = t, opts) do
@@ -615,7 +621,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
 end
 ```
 
-> Confirm `Operation.crop_guided/4` accepts `aspect_ratio:` and `Operation.resize/4` accepts `zoom_x:`/`zoom_y:`/`enlargement:` (read `lib/image_pipe/plan/operation.ex:167,327`). If `Operation.resize/4` doesn't expose `zoom_*`, express `pct` as a derived scale via the supported opts; otherwise keep zoom. Confirm `%Output{}` defaults (quality `:default`) are acceptable when only `mode` is set.
+> Confirm `Operation.crop_guided/4` accepts `aspect_ratio:` and `Operation.resize/4` accepts `zoom_x:`/`zoom_y:`/`enlargement:` (read `lib/image_pipe/plan/operation.ex:167,327`). **`pct:n` is gate-blocking, not cosmetic:** the validator's `size_percent.py` is **Level 2** for 3.0 and asserts exact `img.size == (s*10, s*10)` for `pct:10..90`. So `pct:n` must produce the exact scaled dimensions — if `Operation.resize/4` doesn't expose `zoom_*`, express `pct` as whatever supported opt yields exact dims (do not leave it approximate). Confirm `%Output{}` defaults (quality `:default`) are acceptable when only `mode` is set.
 
 - [ ] **Step 4: Run it (PASS). Commit.**
 
@@ -626,7 +632,7 @@ git commit -m "feat(iiif): plan builder (region/size/rotation/quality/format -> 
 
 ---
 
-## Task B5: Main parser module — `parse/2`, `handle_error/2`, `validate_options!/1`, CORS
+## Task B5: Main parser module — `parse/2`, `handle_error/2`, `validate_options!/1` (+ mount-level CORS plug)
 
 **Files:**
 - Create: `lib/image_pipe/parser/iiif.ex`
@@ -634,7 +640,15 @@ git commit -m "feat(iiif): plan builder (region/size/rotation/quality/format -> 
 
 `parse/2` ties Path → Grammar → Resolver → PlanBuilder. `handle_error/2` maps parse errors to status (per the spec's status table): grammar `{:invalid_*}` → **400**, resolver miss / `:not_found` / shape → **404**.
 
-**CORS (revised after Phase 2A review):** `Sender.send_redirect/3` is product-neutral and does **not** set CORS, and the 303 redirect short-circuits in the Plug before the parser can touch the response conn — so CORS must be applied at the **mount level**, not per-response in the parser. Apply `Access-Control-Allow-Origin: *` (and handle the `OPTIONS` preflight → 200 with `Access-Control-Allow-Methods`) via a thin CORS step that runs on **every** IIIF request — e.g. a small CORS plug the host mounts ahead of `ImagePipe.Plug`, or a `Plug.Conn.register_before_send/2` hook installed at the very start of `parse/2` (which fires for the image, info.json, redirect, *and* error responses uniformly). Do **not** rely on `handle_error/2` alone (it misses image/info/redirect responses). Decide the exact mechanism during B5 implementation and add a wire test (B8) asserting CORS on an image response, an info response, and the 303 redirect.
+**CORS + `OPTIONS` are a MOUNT-LEVEL plug, not a parser concern (revised after the Phase 2A and 2B reviews):**
+
+The IIIF parser **cannot** add CORS to the image/info/**redirect** responses: `parse/2` returns a *tuple*, not a conn, so any header it sets (or any `register_before_send/2` it installs) is on a conn that is **discarded** — those responses are sent on `ImagePipe.Plug`'s own conn, which the parser never sees. Only `handle_error/2` receives a conn, and only for errors. (`Sender.send_redirect/3` is also product-neutral and sets no CORS.) So `register_before_send` inside `parse/2` does **not** work.
+
+Therefore CORS lives in a **mount-level plug that wraps `ImagePipe.Plug`** and operates on the real request conn:
+- Ship a tiny `ImagePipe.Parser.IIIF.CORS` plug (or document using `Corsica`). It `register_before_send/2`s `Access-Control-Allow-Origin: *` onto the conn — which fires for **every** response `ImagePipe.Plug` then produces (image via `{:prepared_stream}`/`{:cache_entry}`, info via `{:rendered}`, the 303 redirect, and `handle_error` errors) — and short-circuits `OPTIONS` → `200` with `Access-Control-Allow-Methods: GET, OPTIONS` before delegating.
+- Mount order: `plug ImagePipe.Parser.IIIF.CORS` then `plug ImagePipe.Plug, parser: ImagePipe.Parser.IIIF, …`. The validator gate (B10) and the wire tests (B8) mount it the same way.
+- The validator's `cors.py` asserts the header on an **image** request — confirm the `register_before_send` fires on the streamed image-delivery path (it does, because it's on the outer conn). The B8 CORS wire test must assert CORS on an image response, an info response, AND the 303 redirect, plus `OPTIONS` → 200.
+- The IIIF parser's `handle_error/2` therefore does **not** set CORS (the mount plug covers errors too).
 
 - [ ] **Step 1: Write the failing test** (parser-level; wire tests are B8)
 
@@ -690,16 +704,16 @@ defmodule ImagePipe.Parser.IIIF do
 
   use Boundary, deps: [ImagePipe.Format, ImagePipe.Parser, ImagePipe.Plan, ImagePipe.Renderer]
 
-  import Plug.Conn, only: [put_resp_header: 3, send_resp: 3]
+  import Plug.Conn, only: [send_resp: 3]
 
   alias ImagePipe.Parser.IIIF.{Grammar, Path, PlanBuilder, Resolver}
 
   @schema NimbleOptions.new!(
             resolver: [type: {:custom, __MODULE__, :validate_resolver, []}, required: true],
             auto_rotate: [type: :boolean, default: true],
-            max_width: [type: {:or, [:pos_integer, nil]}, default: nil],
-            max_height: [type: {:or, [:pos_integer, nil]}, default: nil],
-            max_area: [type: {:or, [:pos_integer, nil]}, default: nil],
+            max_width: [type: {:or, [:pos_integer, {:literal, nil}]}, default: nil],
+            max_height: [type: {:or, [:pos_integer, {:literal, nil}]}, default: nil],
+            max_area: [type: {:or, [:pos_integer, {:literal, nil}]}, default: nil],
             formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
             qualities: [type: {:list, :atom}, default: [:default, :color, :gray]]
           )
@@ -721,8 +735,6 @@ defmodule ImagePipe.Parser.IIIF do
   def validate_resolver(_), do: {:error, "resolver must be {Module, opts}"}
 
   @impl true
-  def parse(%Plug.Conn{method: "OPTIONS"} = conn, _opts), do: {:redirect, 303, ""} |> preflight(conn)
-
   def parse(%Plug.Conn{} = conn, opts) do
     iiif = Keyword.fetch!(opts, :iiif)
 
@@ -746,13 +758,14 @@ defmodule ImagePipe.Parser.IIIF do
     end
   end
 
+  # The Plug calls handle_error with the WRAPPED parse error, i.e. `{:error, reason}`
+  # (see lib/image_pipe/parser/imgproxy.ex — imgproxy matches `{:error, _}`). Unwrap
+  # before mapping to a status, or every error falls through to 400 and the 404 cases
+  # become unreachable.
   @impl true
-  def handle_error(%Plug.Conn{} = conn, error) do
-    {status, body} = status_for(error)
-
-    conn
-    |> put_resp_header("access-control-allow-origin", "*")
-    |> send_resp(status, body)
+  def handle_error(%Plug.Conn{} = conn, {:error, reason}) do
+    {status, body} = status_for(reason)
+    send_resp(conn, status, body)
   end
 
   defp resolve(id, iiif) do
@@ -775,19 +788,21 @@ defmodule ImagePipe.Parser.IIIF do
   end
 
   defp status_for(:not_found), do: {404, "not found"}
-  defp status_for({tag, _raw}) when tag in [:invalid_region, :invalid_size, :invalid_rotation, :invalid_quality, :invalid_format], do: {400, "bad request"}
-  defp status_for(_), do: {400, "bad request"}
 
-  defp preflight({_r}, conn) do
-    conn
-    |> put_resp_header("access-control-allow-origin", "*")
-    |> put_resp_header("access-control-allow-methods", "GET, OPTIONS")
-    |> send_resp(200, "")
-  end
+  defp status_for({tag, _raw})
+       when tag in [:invalid_region, :invalid_size, :invalid_rotation, :invalid_quality, :invalid_format],
+       do: {400, "bad request"}
+
+  defp status_for(_), do: {400, "bad request"}
 end
 ```
 
-> The `OPTIONS` handling above is sketched as returning a sent conn from `parse/2`, which doesn't fit the `parse/2` contract — instead, handle `OPTIONS` in the IIIF mount/router or add a dedicated `:preflight` parse outcome. Simplest: detect `OPTIONS` in `parse/2` and return `{:error, {:preflight, conn}}`, then `handle_error/2` sends the 200 preflight. Decide during implementation and add a wire test (B8). Confirm the imgproxy parser's `validate_options!/1` + `Boundary` shape and mirror exactly.
+> **CORS and `OPTIONS` are NOT handled in this module** — see the CORS section above. `parse/2` returns a *tuple*, not a conn, so it cannot set headers on the image/info/**redirect** responses (those are sent on the Plug's own conn, which the parser never sees); only `handle_error/2` gets a conn, and only for errors. CORS + preflight therefore live in a mount-level plug.
+
+> **Architecture-test additions (required in this task):** mirror the imgproxy parser's `validate_options!/1` + `use Boundary` shape exactly, and update `test/image_pipe/architecture_boundary_test.exs`:
+> - register `ImagePipe.Parser.IIIF` in `@boundary_files` with an `assert_boundary_deps(iiif, [Format, Parser, Plan, Renderer])` assertion mirroring imgproxy's;
+> - **extend the "core code does not name the imgproxy parser" scan** — it currently only catches `Imgproxy` references. Generalize it (or add a parallel check) to also forbid core code (plug/request/source/response/cache/output/plan) from naming `ImagePipe.Parser.IIIF`. Without this, an accidental core→IIIF reference goes undetected.
+> The generic "parser code must not name concrete `Transform.Operation.*`" scan already globs the new `lib/image_pipe/parser/iiif/**` files, so it auto-covers the boundary rule — just make sure the plan-builder emits `%ImagePipe.Plan.Operation.Gray{}` (a **Plan** module, allowed), never a `Transform.Operation.*`.
 
 - [ ] **Step 4: Run it (PASS). Commit.**
 
@@ -1012,9 +1027,9 @@ RUN pip install --no-cache-dir iiif-validator
 ENTRYPOINT ["iiif-validate.py"]
 ```
 
-- [ ] **Step 3:** `validator/docker-compose.yml` — two services on a shared network: the ImagePipe IIIF endpoint and the validator, the validator's `--server` pointing at the ImagePipe service name. Command: `iiif-validate.py -s <imagepipe-service> -p <prefix> -i 67352ccc-d1b0-11e1-89ae-279075081939 --version=3.0` at Level 2.
+- [ ] **Step 3:** `validator/docker-compose.yml` — two services on a shared network: the ImagePipe IIIF endpoint and the validator, the validator's `--server` pointing at the ImagePipe service name. Command: `iiif-validate.py -s <imagepipe-service> -p <prefix> -i 67352ccc-d1b0-11e1-89ae-279075081939 --version=3.0 --level 2`. **The `--level 2` flag is mandatory** — `iiif-validate.py` defaults to `--level 1` and silently *skips* every level-2 test (`quality_grey`, `quality_color`, `region_percent`, `size_bwh`, `size_percent`), so omitting it turns the gate into a vacuous Level-1 pass. The mount must include the `ImagePipe.Parser.IIIF.CORS` plug (B5/B7) so `cors.py` (checked on an image request) passes.
 
-- [ ] **Step 4:** `mise.toml` task `validator` that builds + runs the compose and asserts the validator exits `0`. Wire it into the CI workflow (a job that runs the compose and fails the build on non-zero exit). Note in the task/CI comment that the gate goes green only once info.json is in place (B6).
+- [ ] **Step 4:** `mise.toml` task `validator` that builds + runs the compose and asserts the validator exits `0`. Begin the task with a `docker info >/dev/null 2>&1 || { echo "validator gate needs Docker"; exit 1; }` pre-check so a Docker-less environment fails fast with a clear message instead of hanging. Wire it into the CI workflow (a job that runs the compose and fails the build on non-zero exit; the CI runner needs Docker). Note in the task/CI comment that the gate goes green only once info.json is in place (B6).
 
 - [ ] **Step 5: Run locally** (Docker required): `mise run validator`. Expected: exit 0. **Commit.**
 
@@ -1048,7 +1063,8 @@ git commit -m "ci(iiif): Level 2 image-validator gate (docker-compose)"
 
 ## Open confirmations for the implementer (resolve while coding; none block the design)
 
-1. `Operation.resize/4` opts surface (`zoom_x`/`zoom_y`/`enlargement`) and `Operation.crop_guided/4` `aspect_ratio:` — confirm against `lib/image_pipe/plan/operation.ex` and adjust the `pct`/`square` construction if the opt names differ.
+1. `Operation.resize/4` opts surface (`zoom_x`/`zoom_y`/`enlargement`) and `Operation.crop_guided/4` `aspect_ratio:` — confirm against `lib/image_pipe/plan/operation.ex`. **Gate-relevant for `pct:n`** (`size_percent.py` is Level 2 and checks exact dims): if `zoom_*` isn't exposed, pick a supported opt that yields exact `pct` dimensions, don't approximate.
 2. `%Output{}` minimal construction (only `mode` set) vs an imgproxy-style `output_plan` builder — match whatever `Plan.validate_shape/1` requires.
-3. `OPTIONS` preflight routing — via a `:preflight` parse outcome through `handle_error/2`, or at the mount; pick one and wire the B8 test to it.
-4. Reference-image licensing for committing the fixture vs fetching it in CI (B10).
+3. Reference-image licensing for committing the fixture vs fetching it in CI (B10) — confirm before B10 step 1.
+
+(Resolved by the 2B review and baked into the plan: the `handle_error/2` error-shape unwrap; `port_suffix` atom matching; CORS + `OPTIONS` as a mount-level plug — **not** parser-handled, since `parse/2` returns a tuple; the `--level 2` validator flag; the B4→B6 compile order; and the architecture-test core-scan extension for `Parser.IIIF`.)
