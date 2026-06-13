@@ -59,6 +59,25 @@ defmodule ImagePipe.Output.NegotiationTest do
     end
   end
 
+  describe "modern_candidates/2 malformed q-values" do
+    test "an out-of-range q-value is ignored, not treated as an exclusion" do
+      # q=1.5 is invalid; it must not veto a duplicate valid webp entry.
+      assert Negotiation.modern_candidates("image/webp;q=1.5,image/webp", []) == [:webp]
+      # ...nor make webp unacceptable on its own.
+      assert Negotiation.modern_candidates("image/webp;q=1.5", []) == [:webp]
+    end
+
+    test "an unparseable q-value is ignored, not treated as an exclusion" do
+      assert Negotiation.modern_candidates("image/avif;q=abc", []) == [:avif]
+      assert Negotiation.modern_candidates("image/avif;q=abc,image/avif", []) == [:avif]
+    end
+
+    test "a genuine in-range q=0 still excludes, unlike a malformed weight" do
+      assert Negotiation.modern_candidates("image/webp;q=0,image/webp;q=1", []) == []
+      assert Negotiation.modern_candidates("image/avif;q=0", []) == []
+    end
+  end
+
   describe "modern_candidates/2 capability filtering" do
     test "drops avif when the build cannot write it" do
       opts = [output_capabilities: %{avif: false}]
