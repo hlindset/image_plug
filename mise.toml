@@ -40,7 +40,7 @@ run = [
   "mix test",
 ]
 
-[tasks."precommit:demo"]
+[tasks."precommit:fiddle"]
 description = "Library checks plus the fiddle verify suite"
 depends = ["precommit"]
 run = [

@@ -16,7 +16,7 @@ defmodule ImagePipeFiddleWeb.Endpoint do
   #   longpoll: [connect_info: [session: @session_options]]
 
   # Serve at "/" the static files from "priv/static": the Vite-built assets
-  # (manifested by PhoenixVite) and the demo's sample images.
+  # (manifested by PhoenixVite) and the fiddle's sample images.
   plug Plug.Static,
     at: "/",
     from: :image_pipe_fiddle,

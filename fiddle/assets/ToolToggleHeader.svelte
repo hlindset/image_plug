@@ -1,8 +1,12 @@
 <script lang="ts">
-  export let title: string;
-  export let summary: string;
-  export let checked: boolean;
-  export let onCheckedChange: ((checked: boolean) => void) | undefined = undefined;
+  type Props = {
+    title: string;
+    summary: string;
+    checked: boolean;
+    onCheckedChange?: ((checked: boolean) => void) | undefined;
+  };
+
+  let { title, summary, checked = $bindable(), onCheckedChange = undefined }: Props = $props();
 
   function toggleChecked(): void {
     const nextChecked = !checked;

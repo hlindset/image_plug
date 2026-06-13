@@ -6,7 +6,7 @@ import { mount } from "svelte";
 const target = document.getElementById("fiddle-app");
 
 if (!(target instanceof HTMLElement)) {
-  throw new Error("Demo root element is missing");
+  throw new Error("Fiddle root element is missing");
 }
 
 applyThemeMode(readStoredThemeMode());

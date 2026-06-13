@@ -11,8 +11,8 @@ const currentDirectory = dirname(fileURLToPath(import.meta.url));
 const sampleImagesModuleId = "virtual:sample-images";
 const resolvedSampleImagesModuleId = `\0${sampleImagesModuleId}.ts`;
 const sampleImageExtensions = new Set([".avif", ".jpeg", ".jpg", ".png", ".webp"]);
-const maxDemoOriginBytes = 10_000_000;
-const maxDemoInputPixels = 40_000_000;
+const maxFiddleOriginBytes = 10_000_000;
+const maxFiddleInputPixels = 40_000_000;
 
 function sampleImagesPlugin(
   imagesDirectory = resolve(currentDirectory, "../priv/static/images"),
@@ -54,12 +54,12 @@ function buildSampleImagesModule(imagesDirectory: string): string {
     .flatMap((fileName) => {
       const filePath = join(imagesDirectory, fileName);
       const fileSize = statSync(filePath).size;
-      if (fileSize > maxDemoOriginBytes) return [];
+      if (fileSize > maxFiddleOriginBytes) return [];
       const dimensions = imageSize(readFileSync(filePath));
       if (dimensions.width === undefined || dimensions.height === undefined) {
         throw new Error(`Could not read image dimensions for ${filePath}`);
       }
-      if (dimensions.width * dimensions.height > maxDemoInputPixels) return [];
+      if (dimensions.width * dimensions.height > maxFiddleInputPixels) return [];
       return [
         {
           path: `images/${encodeURIComponent(fileName)}`,

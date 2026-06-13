@@ -2,7 +2,7 @@ export const themeModes = ["light", "dark", "system"] as const;
 
 export type ThemeMode = (typeof themeModes)[number];
 
-export const themeStorageKey = "image-pipe-demo-theme";
+export const themeStorageKey = "image-pipe-fiddle-theme";
 
 export function storedThemeMode(value: string | null): ThemeMode {
   return themeModes.includes(value as ThemeMode) ? (value as ThemeMode) : "system";
@@ -23,7 +23,7 @@ export function persistThemeMode(
   try {
     storage.setItem(themeStorageKey, mode);
   } catch {
-    // Theme persistence is cosmetic; private browsing storage failures should not break the demo.
+    // Theme persistence is cosmetic; private browsing storage failures should not break the fiddle.
   }
 }
 

@@ -2,10 +2,14 @@
   import { Slider } from "bits-ui";
   import { controlLimits, type ResizeDimensionUnit } from "./processing-path";
 
-  export let label: string;
-  export let unit: ResizeDimensionUnit = "px";
-  export let pixels: number;
-  export let maxPixels = 1600;
+  type Props = {
+    label: string;
+    unit?: ResizeDimensionUnit;
+    pixels: number;
+    maxPixels?: number;
+  };
+
+  let { label, unit = $bindable("px"), pixels = $bindable(), maxPixels = 1600 }: Props = $props();
 
   const min = controlLimits.resize.width.min;
 

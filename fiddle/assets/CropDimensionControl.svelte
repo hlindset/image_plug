@@ -2,21 +2,26 @@
   import { Slider } from "bits-ui";
   import { controlLimits, type CropDimensionUnit } from "./processing-path";
 
-  export let label: string;
-  export let unit: CropDimensionUnit = "px";
-  export let pixels: number;
-  export let percent: number;
-  export let maxPixels = 1200;
+  type Props = {
+    label: string;
+    unit?: CropDimensionUnit;
+    pixels: number;
+    percent: number;
+    maxPixels?: number;
+  };
 
-  let activeValue = unit === "percent" ? percent : pixels;
-  let min = unit === "percent" ? controlLimits.crop.percent.min : 1;
-  let max = unit === "percent" ? controlLimits.crop.percent.max : maxPixels;
-  let suffix = unit === "percent" ? "%" : "px";
+  let {
+    label,
+    unit = $bindable("px"),
+    pixels = $bindable(),
+    percent = $bindable(),
+    maxPixels = 1200,
+  }: Props = $props();
 
-  $: activeValue = unit === "percent" ? percent : pixels;
-  $: min = unit === "percent" ? controlLimits.crop.percent.min : 1;
-  $: max = unit === "percent" ? controlLimits.crop.percent.max : maxPixels;
-  $: suffix = unit === "percent" ? "%" : "px";
+  const activeValue = $derived(unit === "percent" ? percent : pixels);
+  const min = $derived(unit === "percent" ? controlLimits.crop.percent.min : 1);
+  const max = $derived(unit === "percent" ? controlLimits.crop.percent.max : maxPixels);
+  const suffix = $derived(unit === "percent" ? "%" : "px");
 
   function clamp(value: number): number {
     return Math.min(Math.max(value, min), max);
