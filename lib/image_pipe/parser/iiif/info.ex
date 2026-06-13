@@ -1,0 +1,48 @@
+defmodule ImagePipe.Parser.IIIF.Info do
+  @moduledoc "Builds the IIIF Image API 3.0 info.json document map."
+
+  alias ImagePipe.Plan.SourceInfo
+
+  @context "http://iiif.io/api/image/3/context.json"
+
+  @extra_features [
+    "regionByPx",
+    "regionByPct",
+    "regionSquare",
+    "sizeByW",
+    "sizeByH",
+    "sizeByWh",
+    "sizeByPct",
+    "sizeByConfinedWh",
+    "sizeUpscaling",
+    "rotationBy90s",
+    "baseUriRedirect",
+    "cors",
+    "jsonldMediaType"
+  ]
+
+  @spec document(SourceInfo.t(), map()) :: map()
+  def document(%SourceInfo{} = info, params) do
+    {w, h} = SourceInfo.display_dimensions(info)
+
+    %{
+      "@context" => @context,
+      "id" => params.id,
+      "type" => "ImageService3",
+      "protocol" => "http://iiif.io/api/image",
+      "profile" => params.level,
+      "width" => w,
+      "height" => h,
+      "extraQualities" => Enum.map(params.qualities, &to_string/1),
+      "extraFormats" =>
+        params.formats |> Enum.reject(&(&1 in [:jpg, :png])) |> Enum.map(&to_string/1),
+      "extraFeatures" => @extra_features
+    }
+    |> maybe_put("maxWidth", params.max_width)
+    |> maybe_put("maxHeight", params.max_height)
+    |> maybe_put("maxArea", params.max_area)
+  end
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+end

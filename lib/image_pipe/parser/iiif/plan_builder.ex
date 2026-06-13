@@ -1,12 +1,47 @@
 defmodule ImagePipe.Parser.IIIF.PlanBuilder do
   @moduledoc false
 
+  alias ImagePipe.Parser.IIIF.InfoRenderer
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
   alias ImagePipe.Plan.Operation.Gray
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Response
+
+  @doc """
+  Builds an `%ImagePipe.Plan{}` for a IIIF info.json request.
+
+  `source` is an `ImagePipe.Plan.Source.*` struct already resolved by the caller.
+  `id_uri` is the absolute base URI for the image identifier (the IIIF `id` field).
+  `opts` accepts `max_width`, `max_height`, `max_area`, `formats`, `qualities`.
+  """
+  @spec info_plan(Plan.Source.t(), String.t(), keyword()) :: {:ok, Plan.t()}
+  def info_plan(source, id_uri, opts) do
+    params = %{
+      id: id_uri,
+      level: "level2",
+      offers: [
+        {"application/ld+json;profile=\"http://iiif.io/api/image/3/context.json\"",
+         ["application/ld+json"]}
+      ],
+      max_width: Keyword.get(opts, :max_width),
+      max_height: Keyword.get(opts, :max_height),
+      max_area: Keyword.get(opts, :max_area),
+      formats: Keyword.get(opts, :formats, [:jpg, :png, :webp, :avif]),
+      qualities: Keyword.get(opts, :qualities, [:default, :color, :gray])
+    }
+
+    {:ok,
+     %Plan{
+       source: source,
+       pipelines: [],
+       output: nil,
+       auto_rotate: false,
+       response: %Response{},
+       render: {:custom, InfoRenderer, params}
+     }}
+  end
 
   @doc """
   Builds an `%ImagePipe.Plan{}` for a IIIF image request.

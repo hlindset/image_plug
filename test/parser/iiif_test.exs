@@ -41,6 +41,19 @@ defmodule ImagePipe.Parser.IIIFTest do
     assert IIIF.handle_error(conn(:get, "/"), {:error, :not_found}).status == 404
     assert IIIF.handle_error(conn(:get, "/"), {:error, {:invalid_size, "x"}}).status == 400
   end
+
+  test "info request -> render plan with InfoRenderer + id param" do
+    {:ok,
+     %Plan{
+       render: {:custom, ImagePipe.Parser.IIIF.InfoRenderer, params},
+       output: nil,
+       pipelines: []
+     }} =
+      IIIF.parse(conn(:get, "/abc/info.json"), validated(@opts))
+
+    assert params.id =~ "/abc"
+    assert params.offers != []
+  end
 end
 
 defmodule ImagePipe.Parser.IIIF.CORSTest do

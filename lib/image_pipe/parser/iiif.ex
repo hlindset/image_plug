@@ -51,9 +51,10 @@ defmodule ImagePipe.Parser.IIIF do
       {:redirect, _id, location} ->
         {:redirect, 303, location}
 
-      {:info, _id} ->
-        # info.json wired in B6 (needs InfoRenderer + PlanBuilder.info_plan/3).
-        {:error, :not_found}
+      {:info, id} ->
+        with {:ok, source} <- resolve(id, iiif) do
+          PlanBuilder.info_plan(source, Path.base_uri(conn) <> "/" <> URI.encode(id), iiif)
+        end
 
       {:image, id, tokens} ->
         with {:ok, source} <- resolve(id, iiif),
