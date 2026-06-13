@@ -181,10 +181,15 @@ defmodule ImagePipe.Parser.IIIF.OpenSeadragonSimTest do
     assert Enum.any?(osd_tiles(info), &match?(%{region: "full", size: "128,96"}, &1))
   end
 
-  # Downscale averaging shifts corner samples inward; ±24 catches off-by-a-tile
-  # (which shifts by ~128) and unclamped edges while tolerating resize blur.
+  # Tolerance is calibrated to the measured worst-case resize/encode blur across
+  # every served tile in the traversal (~1.4 units). ±6 comfortably passes that
+  # blur while bounding the region-origin blind spot: the gradient slope is
+  # 255/(@w-1) ≈ 0.249 red units/source-px in x and 255/(@h-1) ≈ 0.333 blue
+  # units/source-px in y, so ±6 only tolerates a region-origin error of ~24
+  # source px in x / ~18 source px in y. That fails on a sub-tile region bug, on
+  # any whole-tile (~128px) shift, and on a missed edge clamp.
   defp assert_close(actual, expected, label) do
-    assert abs(actual - expected) <= 24,
+    assert abs(actual - expected) <= 6,
            "#{label}: got #{actual}, expected ~#{Float.round(expected * 1.0, 1)}"
   end
 end

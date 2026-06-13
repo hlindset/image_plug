@@ -55,6 +55,13 @@ defmodule ImagePipe.Parser.IIIF.TilingTest do
   # `round(W/size.width) == sf` round-trip — that is FALSE for some inputs (round
   # then inverse-round can land on sf±1); OSD treats sizes as an optional hint and
   # falls back gracefully. Adoption is checked on fixtures below.
+  #
+  # Honesty note: the `sizes_match_factors` clause in ok?/4 recomputes
+  # `round(w/sf)` exactly as the implementation does, so it is an algorithm-SHAPE
+  # pin (catches floor/ceil/trunc or wrong-dimension regressions), NOT an
+  # independent oracle of round-vs-floor correctness. The independent correctness
+  # anchors are the hardcoded Cantaloupe reference-value tests above and the
+  # tautology self-check below — not this clause.
   property "scale factors and sizes obey the universal invariants" do
     check all(
             w <- integer(1..8000),
@@ -106,6 +113,10 @@ defmodule ImagePipe.Parser.IIIF.TilingTest do
     largest_is_full = List.last(sizes) == %{width: w, height: h}
     tile_clamped = tile == %{width: min(t, w), height: min(t, h)}
 
+    # Algorithm-SHAPE pin only (recomputes round(w/sf) identically to the
+    # implementation): catches floor/ceil/trunc/wrong-dimension regressions.
+    # Independent round-vs-floor correctness is pinned by the hardcoded reference
+    # tests and the tautology self-check, NOT by this clause.
     sizes_match_factors =
       sizes ==
         factors

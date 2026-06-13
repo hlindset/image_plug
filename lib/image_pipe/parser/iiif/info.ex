@@ -39,6 +39,8 @@ defmodule ImagePipe.Parser.IIIF.Info do
       "height" => h,
       "tiles" => [%{"width" => tile.width, "height" => tile.height, "scaleFactors" => factors}],
       "sizes" => Enum.map(sizes, &%{"width" => &1.width, "height" => &1.height}),
+      # `extraQualities`/`extraFormats` list what is supported *beyond* the baseline
+      # (`default` quality; `jpg`/`png` formats at Level 2), per the IIIF spec.
       "extraQualities" =>
         params.qualities |> Enum.reject(&(&1 == :default)) |> Enum.map(&to_string/1),
       "extraFormats" =>
