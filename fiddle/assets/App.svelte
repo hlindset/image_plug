@@ -46,28 +46,32 @@
   // "all" is offered only in weighted sub-mode to set the baseline weight.
   const demoObjClassesForPicker = demoObjClasses as readonly string[];
 
-  let copyLabel = "Copy URL";
-  let drawerOpen = false;
-  let mobileTools = false;
-  let orientationOpen = true;
-  let scaleOptionsOpen = true;
-  let requestOpen = true;
-  let effectsOpen = true;
-  let themeMode: ThemeMode = readStoredThemeMode();
-  let state: DemoState = initialDemoState();
-  let path = buildProcessingPath(state);
+  let copyLabel = $state("Copy URL");
+  let drawerOpen = $state(false);
+  let mobileTools = $state(false);
+  let orientationOpen = $state(true);
+  let scaleOptionsOpen = $state(true);
+  let requestOpen = $state(true);
+  let effectsOpen = $state(true);
+  let themeMode: ThemeMode = $state(readStoredThemeMode());
+  const initialState = initialDemoState();
+  let demoState: DemoState = $state(initialState);
+  let path = $state(buildProcessingPath(initialState));
+  let previewImageUrl: string | null = $state(null);
+  let previewLoading = $state(true);
+  let previewError: string | null = $state(null);
+  let processedMetadata: ProcessedImageMetadata | null = $state(null);
+  let signingError: string | null = $state(null);
+  // Element references bound via bind:this.
+  let focalPickerSurface: HTMLSpanElement | null = $state(null);
+  let toolsSidebar: HTMLElement | null = $state(null);
+  let menuButton: HTMLButtonElement | null = $state(null);
+  let drawerCloseButton: HTMLButtonElement | null = $state(null);
+  // Internal, non-reactive bookkeeping: request-id guards, timers and the
+  // abort/object-url handles. Nothing reactive reads these, so they stay plain locals.
   let previewPath = "";
-  let previewImageUrl: string | null = null;
-  let previewLoading = true;
-  let previewError: string | null = null;
-  let processedMetadata: ProcessedImageMetadata | null = null;
   let metadataRequestId = 0;
   let pathRequestId = 0;
-  let signingError: string | null = null;
-  let focalPickerSurface: HTMLSpanElement | null = null;
-  let toolsSidebar: HTMLElement | null = null;
-  let menuButton: HTMLButtonElement | null = null;
-  let drawerCloseButton: HTMLButtonElement | null = null;
   let copyLabelResetTimeout: number | null = null;
   let activePreviewObjectUrl: string | null = null;
   let previewAbortController: AbortController | null = null;
@@ -109,58 +113,87 @@
     };
   });
 
-  $: updateProcessingPath(state);
-  $: updatePreviewPath(path);
-  $: updateDemoLocation(demoPathForState(state));
-  $: ensureActiveToolboxesOpen(state);
-  $: applyThemeMode(themeMode);
-  $: persistThemeMode(themeMode);
-  $: previewParameters = path.replace(/^\/[^/]+\/[^/]+\//, "");
-  $: outputLabel = resolvedOutputLabel(state, processedMetadata);
-  $: sizeLabel = previewError ?? processedSizeLabel(processedMetadata);
-  $: requestSummary = `${state.source.replace(/^images\//, "")} / ${requestSignatureLabel(
-    state,
-    signingError,
-  )}`;
-  $: orientationSummary =
+  $effect(() => {
+    updateProcessingPath(demoState);
+  });
+  $effect(() => {
+    updatePreviewPath(path);
+  });
+  $effect(() => {
+    updateDemoLocation(demoPathForState(demoState));
+  });
+  $effect(() => {
+    ensureActiveToolboxesOpen(demoState);
+  });
+  $effect(() => {
+    applyThemeMode(themeMode);
+  });
+  $effect(() => {
+    persistThemeMode(themeMode);
+  });
+
+  const previewParameters = $derived(path.replace(/^\/[^/]+\/[^/]+\//, ""));
+  const outputLabel = $derived(resolvedOutputLabel(demoState, processedMetadata));
+  const sizeLabel = $derived(previewError ?? processedSizeLabel(processedMetadata));
+  const requestSummary = $derived(
+    `${demoState.source.replace(/^images\//, "")} / ${requestSignatureLabel(demoState, signingError)}`,
+  );
+  const orientationSummary = $derived(
     [
-      state.autoRotateEnabled ? "ar:1" : null,
-      flipSegment(state.flip),
-      state.rotate === 0 ? null : `rot:${state.rotate}`,
+      demoState.autoRotateEnabled ? "ar:1" : null,
+      flipSegment(demoState.flip),
+      demoState.rotate === 0 ? null : `rot:${demoState.rotate}`,
     ]
       .filter(Boolean)
-      .join("/") || "Off";
-  $: trimSummary = state.trimEnabled ? (trimOptionSegment(state) ?? "Off") : "Off";
-  $: resizeSummary = state.resizeEnabled ? (resizeOptionSegment(state) ?? "Off") : "Off";
-  $: aspectCanvasSummary = state.aspectCanvasEnabled
-    ? state.aspectCanvasGravity === "ce"
-      ? "exar:1"
-      : `exar:1:${state.aspectCanvasGravity}`
-    : "Off";
-  $: paddingSummary = state.paddingEnabled
-    ? `pd:${state.paddingTop}:${state.paddingRight}:${state.paddingBottom}:${state.paddingLeft}`
-    : "Off";
-  $: backgroundSummary = state.backgroundEnabled
-    ? `bg:${state.backgroundColor.replace(/^#/, "")}${backgroundOpacitySummary(state.backgroundAlpha)}`
-    : "Off";
-  $: effectsSummary = effectSegments(state).join("/") || "Off";
-  $: metadataSummary = metadataSegments(state).join("/") || "On";
-  $: cropSummary = state.cropEnabled ? (cropOptionSegment(state) ?? "Off") : "Off";
-  $: cropAspectRatioSummary = state.cropAspectRatioEnabled
-    ? state.cropAspectRatioEnlarge
-      ? `car:${state.cropAspectRatio}:1`
-      : `car:${state.cropAspectRatio}`
-    : "Off";
-  $: resizeExtras = [
-    state.zoomEnabled ? `z:${state.zoom}` : null,
-    state.dprEnabled ? `dpr:${state.dpr}` : null,
-    state.minWidthEnabled ? `mw:${state.minWidth}` : null,
-    state.minHeightEnabled ? `mh:${state.minHeight}` : null,
-  ]
-    .filter(Boolean)
-    .join("/");
-  $: cropWidthLimit = cropPixelLimit(state.source, "width");
-  $: cropHeightLimit = cropPixelLimit(state.source, "height");
+      .join("/") || "Off",
+  );
+  const trimSummary = $derived(
+    demoState.trimEnabled ? (trimOptionSegment(demoState) ?? "Off") : "Off",
+  );
+  const resizeSummary = $derived(
+    demoState.resizeEnabled ? (resizeOptionSegment(demoState) ?? "Off") : "Off",
+  );
+  const aspectCanvasSummary = $derived(
+    demoState.aspectCanvasEnabled
+      ? demoState.aspectCanvasGravity === "ce"
+        ? "exar:1"
+        : `exar:1:${demoState.aspectCanvasGravity}`
+      : "Off",
+  );
+  const paddingSummary = $derived(
+    demoState.paddingEnabled
+      ? `pd:${demoState.paddingTop}:${demoState.paddingRight}:${demoState.paddingBottom}:${demoState.paddingLeft}`
+      : "Off",
+  );
+  const backgroundSummary = $derived(
+    demoState.backgroundEnabled
+      ? `bg:${demoState.backgroundColor.replace(/^#/, "")}${backgroundOpacitySummary(demoState.backgroundAlpha)}`
+      : "Off",
+  );
+  const effectsSummary = $derived(effectSegments(demoState).join("/") || "Off");
+  const metadataSummary = $derived(metadataSegments(demoState).join("/") || "On");
+  const cropSummary = $derived(
+    demoState.cropEnabled ? (cropOptionSegment(demoState) ?? "Off") : "Off",
+  );
+  const cropAspectRatioSummary = $derived(
+    demoState.cropAspectRatioEnabled
+      ? demoState.cropAspectRatioEnlarge
+        ? `car:${demoState.cropAspectRatio}:1`
+        : `car:${demoState.cropAspectRatio}`
+      : "Off",
+  );
+  const resizeExtras = $derived(
+    [
+      demoState.zoomEnabled ? `z:${demoState.zoom}` : null,
+      demoState.dprEnabled ? `dpr:${demoState.dpr}` : null,
+      demoState.minWidthEnabled ? `mw:${demoState.minWidth}` : null,
+      demoState.minHeightEnabled ? `mh:${demoState.minHeight}` : null,
+    ]
+      .filter(Boolean)
+      .join("/"),
+  );
+  const cropWidthLimit = $derived(cropPixelLimit(demoState.source, "width"));
+  const cropHeightLimit = $derived(cropPixelLimit(demoState.source, "height"));
 
   function initialDemoState(): DemoState {
     if (typeof window === "undefined") {
@@ -171,8 +204,8 @@
   }
 
   function restoreStateFromLocation(): void {
-    state = parseDemoPath(window.location.pathname);
-    ensureActiveToolboxesOpen(state);
+    demoState = parseDemoPath(window.location.pathname);
+    ensureActiveToolboxesOpen(demoState);
   }
 
   function ensureActiveToolboxesOpen(currentState: DemoState): void {
@@ -444,8 +477,8 @@
       focalPickerSurface.getBoundingClientRect(),
     );
 
-    state.gravityFocalX = focalPoint.x;
-    state.gravityFocalY = focalPoint.y;
+    demoState.gravityFocalX = focalPoint.x;
+    demoState.gravityFocalY = focalPoint.y;
   }
 
   function startFocalPointDrag(event: PointerEvent): void {
@@ -463,20 +496,20 @@
 
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      state.gravityFocalX = Math.max(0, roundedFocalPoint(state.gravityFocalX - step));
+      demoState.gravityFocalX = Math.max(0, roundedFocalPoint(demoState.gravityFocalX - step));
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      state.gravityFocalX = Math.min(1, roundedFocalPoint(state.gravityFocalX + step));
+      demoState.gravityFocalX = Math.min(1, roundedFocalPoint(demoState.gravityFocalX + step));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      state.gravityFocalY = Math.max(0, roundedFocalPoint(state.gravityFocalY - step));
+      demoState.gravityFocalY = Math.max(0, roundedFocalPoint(demoState.gravityFocalY - step));
     } else if (event.key === "ArrowDown") {
       event.preventDefault();
-      state.gravityFocalY = Math.min(1, roundedFocalPoint(state.gravityFocalY + step));
+      demoState.gravityFocalY = Math.min(1, roundedFocalPoint(demoState.gravityFocalY + step));
     } else if (event.key === "Home") {
       event.preventDefault();
-      state.gravityFocalX = 0.5;
-      state.gravityFocalY = 0.5;
+      demoState.gravityFocalX = 0.5;
+      demoState.gravityFocalY = 0.5;
     }
   }
 
@@ -493,10 +526,10 @@
   }
 
   function updateCropEnabled(enabled: boolean): void {
-    state.cropEnabled = enabled;
+    demoState.cropEnabled = enabled;
 
     if (enabled) {
-      state = resetCropPixelsToSource(state);
+      demoState = resetCropPixelsToSource(demoState);
     }
   }
 
@@ -507,8 +540,8 @@
       return;
     }
 
-    state = resetCropPixelsToSource({
-      ...state,
+    demoState = resetCropPixelsToSource({
+      ...demoState,
       source: select.value as SourceImage,
     });
   }
@@ -518,18 +551,18 @@
   }
 
   function updateStripMetadata(checked: boolean): void {
-    state.stripMetadata = checked;
+    demoState.stripMetadata = checked;
 
     if (!checked) {
-      state.keepCopyright = false;
+      demoState.keepCopyright = false;
     }
   }
 
   function syncObjClasses(nextClasses: string[]): void {
     // Add default weight for newly selected classes; remove weight for deselected ones.
-    const prev = new Set(state.objSelectedClasses);
+    const prev = new Set(demoState.objSelectedClasses);
     const next = new Set(nextClasses);
-    let weights = { ...state.objWeights };
+    let weights = { ...demoState.objWeights };
 
     for (const cls of next) {
       if (!prev.has(cls)) {
@@ -545,8 +578,8 @@
       }
     }
 
-    state.objSelectedClasses = nextClasses;
-    state.objWeights = weights;
+    demoState.objSelectedClasses = nextClasses;
+    demoState.objWeights = weights;
   }
 
   function objClassTriggerLabel(selected: string[]): string {
@@ -562,7 +595,7 @@
   }
 
   function resetSettings(): void {
-    state = resetDemoSettings(state);
+    demoState = resetDemoSettings(demoState);
   }
 
   function closeTools(): void {
@@ -674,7 +707,7 @@
           <Collapsible.Content class="collapsible-content">
             <label class="field">
               <span>Source image</span>
-              <select value={state.source} onchange={updateSource}>
+              <select value={demoState.source} onchange={updateSource}>
                 {#each sampleImages as image}
                   <option value={image.path}>{image.label}</option>
                 {/each}
@@ -683,19 +716,19 @@
 
             <label class="field">
               <span>Signature</span>
-              <select bind:value={state.signatureMode}>
+              <select bind:value={demoState.signatureMode}>
                 <option value="unsigned">unsigned</option>
                 <option value="signed">signed</option>
               </select>
             </label>
 
-            {#if state.signatureMode === "signed"}
+            {#if demoState.signatureMode === "signed"}
               <div class="signature-secret-grid">
                 <label class="field">
                   <span>Key</span>
                   <input
                     class="text-input text-input-mono"
-                    bind:value={state.signatureKey}
+                    bind:value={demoState.signatureKey}
                     spellcheck="false"
                     autocomplete="off"
                   />
@@ -705,7 +738,7 @@
                   <span>Salt</span>
                   <input
                     class="text-input text-input-mono"
-                    bind:value={state.signatureSalt}
+                    bind:value={demoState.signatureSalt}
                     spellcheck="false"
                     autocomplete="off"
                   />
@@ -724,26 +757,26 @@
         <ToolToggleHeader
           title="Resize"
           summary={resizeSummary}
-          bind:checked={state.resizeEnabled}
+          bind:checked={demoState.resizeEnabled}
         />
 
-        {#if state.resizeEnabled}
+        {#if demoState.resizeEnabled}
           <ResizeDimensionControl
             label="Width"
-            bind:unit={state.resizeWidthUnit}
-            bind:pixels={state.width}
+            bind:unit={demoState.resizeWidthUnit}
+            bind:pixels={demoState.width}
             maxPixels={controlLimits.resize.width.max}
           />
           <ResizeDimensionControl
             label="Height"
-            bind:unit={state.resizeHeightUnit}
-            bind:pixels={state.height}
+            bind:unit={demoState.resizeHeightUnit}
+            bind:pixels={demoState.height}
             maxPixels={controlLimits.resize.height.max}
           />
 
           <label class="field">
             <span>Type</span>
-            <select bind:value={state.resizeMode}>
+            <select bind:value={demoState.resizeMode}>
               <option value="fit">fit</option>
               <option value="fill">fill</option>
               <option value="fill-down">fill-down</option>
@@ -753,14 +786,14 @@
           </label>
 
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.enlarge}>
+            <Switch.Root class="switch-root" bind:checked={demoState.enlarge}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Allow enlargement</span>
           </label>
 
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.resizeExtendEnabled}>
+            <Switch.Root class="switch-root" bind:checked={demoState.resizeExtendEnabled}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Extend result</span>
@@ -772,29 +805,29 @@
         <ToolToggleHeader
           title="Crop"
           summary={cropSummary}
-          checked={state.cropEnabled}
+          checked={demoState.cropEnabled}
           onCheckedChange={updateCropEnabled}
         />
 
-        {#if state.cropEnabled}
+        {#if demoState.cropEnabled}
           <CropDimensionControl
             label="Width"
-            bind:unit={state.cropWidthUnit}
-            bind:pixels={state.cropWidth}
-            bind:percent={state.cropWidthPercent}
+            bind:unit={demoState.cropWidthUnit}
+            bind:pixels={demoState.cropWidth}
+            bind:percent={demoState.cropWidthPercent}
             maxPixels={cropWidthLimit.max}
           />
           <CropDimensionControl
             label="Height"
-            bind:unit={state.cropHeightUnit}
-            bind:pixels={state.cropHeight}
-            bind:percent={state.cropHeightPercent}
+            bind:unit={demoState.cropHeightUnit}
+            bind:pixels={demoState.cropHeight}
+            bind:percent={demoState.cropHeightPercent}
             maxPixels={cropHeightLimit.max}
           />
 
           <label class="field">
             <span>Gravity</span>
-            <select bind:value={state.cropGravity}>
+            <select bind:value={demoState.cropGravity}>
               <option value="inherit">&lt;inherit&gt;</option>
               <option value="ce">center</option>
               <option value="no">north</option>
@@ -818,19 +851,19 @@
         <ToolToggleHeader
           title="Crop aspect ratio"
           summary={cropAspectRatioSummary}
-          bind:checked={state.cropAspectRatioEnabled}
+          bind:checked={demoState.cropAspectRatioEnabled}
         />
 
-        {#if state.cropAspectRatioEnabled}
+        {#if demoState.cropAspectRatioEnabled}
           <RangeNumber
             label="Ratio"
-            bind:value={state.cropAspectRatio}
+            bind:value={demoState.cropAspectRatio}
             min={0}
             max={10}
             step={0.1}
           />
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.cropAspectRatioEnlarge}>
+            <Switch.Root class="switch-root" bind:checked={demoState.cropAspectRatioEnlarge}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Enlarge</span>
@@ -841,14 +874,14 @@
       <section class="tool-section">
         <ToolToggleHeader
           title="Gravity"
-          summary={state.gravityEnabled ? gravitySegment(state) : "Off"}
-          bind:checked={state.gravityEnabled}
+          summary={demoState.gravityEnabled ? gravitySegment(demoState) : "Off"}
+          bind:checked={demoState.gravityEnabled}
         />
 
-        {#if state.gravityEnabled}
+        {#if demoState.gravityEnabled}
           <label class="field">
             <span>Mode</span>
-            <select bind:value={state.gravityMode}>
+            <select bind:value={demoState.gravityMode}>
               <option value="anchor">anchor</option>
               <option value="focalPoint">focal point</option>
               <option value="offset">anchor + offset</option>
@@ -858,10 +891,10 @@
             </select>
           </label>
 
-          {#if state.gravityMode === "anchor" || state.gravityMode === "offset"}
+          {#if demoState.gravityMode === "anchor" || demoState.gravityMode === "offset"}
             <label class="field">
               <span>Anchor</span>
-              <select bind:value={state.gravity}>
+              <select bind:value={demoState.gravity}>
                 <option value="ce">center</option>
                 <option value="no">north</option>
                 <option value="so">south</option>
@@ -875,23 +908,23 @@
             </label>
           {/if}
 
-          {#if state.gravityMode === "focalPoint"}
+          {#if demoState.gravityMode === "focalPoint"}
             <div class="focal-picker-field">
               <span>Focal point</span>
               <button
                 class="focal-picker"
                 type="button"
-                aria-label={`Set focal point, currently ${state.gravityFocalX}, ${state.gravityFocalY}`}
+                aria-label={`Set focal point, currently ${demoState.gravityFocalX}, ${demoState.gravityFocalY}`}
                 onclick={updateFocalPoint}
                 onkeydown={moveFocalPoint}
                 onpointerdown={startFocalPointDrag}
                 onpointermove={dragFocalPoint}
               >
                 <span class="focal-image-surface" bind:this={focalPickerSurface}>
-                  <img src={`/${state.source}`} alt="" draggable="false" />
+                  <img src={`/${demoState.source}`} alt="" draggable="false" />
                   <span
                     class="focal-marker"
-                    style={`left: ${state.gravityFocalX * 100}%; top: ${state.gravityFocalY * 100}%;`}
+                    style={`left: ${demoState.gravityFocalX * 100}%; top: ${demoState.gravityFocalY * 100}%;`}
                   ></span>
                 </span>
               </button>
@@ -899,47 +932,47 @@
 
             <RangeNumber
               label="Focal X"
-              bind:value={state.gravityFocalX}
+              bind:value={demoState.gravityFocalX}
               min={controlLimits.focalPoint.min}
               max={controlLimits.focalPoint.max}
               step={controlLimits.focalPoint.step}
             />
             <RangeNumber
               label="Focal Y"
-              bind:value={state.gravityFocalY}
+              bind:value={demoState.gravityFocalY}
               min={controlLimits.focalPoint.min}
               max={controlLimits.focalPoint.max}
               step={controlLimits.focalPoint.step}
             />
           {/if}
 
-          {#if state.gravityMode === "offset"}
+          {#if demoState.gravityMode === "offset"}
             <RangeNumber
               label="Offset X"
-              bind:value={state.gravityOffsetX}
+              bind:value={demoState.gravityOffsetX}
               min={controlLimits.gravityOffset.min}
               max={controlLimits.gravityOffset.max}
               step={controlLimits.gravityOffset.step}
             />
             <RangeNumber
               label="Offset Y"
-              bind:value={state.gravityOffsetY}
+              bind:value={demoState.gravityOffsetY}
               min={controlLimits.gravityOffset.min}
               max={controlLimits.gravityOffset.max}
               step={controlLimits.gravityOffset.step}
             />
           {/if}
 
-          {#if state.gravityMode === "object"}
+          {#if demoState.gravityMode === "object"}
             <!-- Object-gravity mode: filter detection to named classes + optional weights.
                  Simple = g:obj:<classes> (filters but no weight bias).
                  Weighted = g:objw:<class>:<weight>... (filters AND weights).
                  Empty selection = bare g:obj (all objects, no filter). -->
             <Tabs.Root
               class="obj-submode-tabs"
-              value={state.objSubMode}
+              value={demoState.objSubMode}
               onValueChange={(v) => {
-                state.objSubMode = v as "simple" | "weighted";
+                demoState.objSubMode = v as "simple" | "weighted";
               }}
             >
               <Tabs.List class="obj-submode-list">
@@ -950,7 +983,7 @@
 
             <div class="field">
               <span>
-                {state.gravityMode === "object" && state.objSubMode === "weighted"
+                {demoState.gravityMode === "object" && demoState.objSubMode === "weighted"
                   ? "Classes + weights"
                   : "Classes"}
               </span>
@@ -959,16 +992,16 @@
                    In weighted mode "all" is offered as a baseline option. -->
               <Select.Root
                 type="multiple"
-                value={state.objSelectedClasses}
+                value={demoState.objSelectedClasses}
                 onValueChange={syncObjClasses}
               >
                 <Select.Trigger class="obj-class-trigger">
-                  {objClassTriggerLabel(state.objSelectedClasses)}
+                  {objClassTriggerLabel(demoState.objSelectedClasses)}
                   <span class="obj-class-trigger-chevron" aria-hidden="true"></span>
                 </Select.Trigger>
                 <Select.Content class="obj-class-content" sideOffset={4}>
                   <Select.Viewport class="obj-class-viewport">
-                    {#if state.objSubMode === "weighted"}
+                    {#if demoState.objSubMode === "weighted"}
                       <Select.Item class="obj-class-item" value="all" label="all">
                         {#snippet children({ selected })}
                           <span class="obj-class-item-check" aria-hidden="true">
@@ -991,22 +1024,22 @@
                   </Select.Viewport>
                 </Select.Content>
               </Select.Root>
-              {#if state.objSelectedClasses.length === 0}
+              {#if demoState.objSelectedClasses.length === 0}
                 <p class="field-hint">No classes selected — detects all objects.</p>
               {/if}
             </div>
 
-            {#if state.objSubMode === "weighted" && state.objSelectedClasses.length > 0}
-              {#each state.objSelectedClasses as cls (cls)}
+            {#if demoState.objSubMode === "weighted" && demoState.objSelectedClasses.length > 0}
+              {#each demoState.objSelectedClasses as cls (cls)}
                 <RangeNumber
                   label={cls === "all" ? "Baseline weight (all)" : `${cls} weight`}
-                  value={state.objWeights[cls] ?? 1}
+                  value={demoState.objWeights[cls] ?? 1}
                   min={0.1}
                   max={10}
                   step={0.1}
                   inputStep="any"
                   onValueChange={(w) => {
-                    state.objWeights = { ...state.objWeights, [cls]: w };
+                    demoState.objWeights = { ...demoState.objWeights, [cls]: w };
                   }}
                 />
               {/each}
@@ -1034,15 +1067,15 @@
 
           <Collapsible.Content class="collapsible-content">
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.zoomEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.zoomEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Zoom</span>
             </label>
-            {#if state.zoomEnabled}
+            {#if demoState.zoomEnabled}
               <RangeNumber
                 label="Zoom"
-                bind:value={state.zoom}
+                bind:value={demoState.zoom}
                 min={controlLimits.scale.zoom.min}
                 max={controlLimits.scale.zoom.max}
                 step={controlLimits.scale.zoom.step}
@@ -1050,15 +1083,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.dprEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.dprEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>DPR</span>
             </label>
-            {#if state.dprEnabled}
+            {#if demoState.dprEnabled}
               <RangeNumber
                 label="DPR"
-                bind:value={state.dpr}
+                bind:value={demoState.dpr}
                 min={controlLimits.scale.dpr.min}
                 max={controlLimits.scale.dpr.max}
                 step={controlLimits.scale.dpr.step}
@@ -1066,15 +1099,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.minWidthEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.minWidthEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Minimum width</span>
             </label>
-            {#if state.minWidthEnabled}
+            {#if demoState.minWidthEnabled}
               <RangeNumber
                 label="Min width"
-                bind:value={state.minWidth}
+                bind:value={demoState.minWidth}
                 min={controlLimits.scale.minWidth.min}
                 max={controlLimits.scale.minWidth.max}
                 step={controlLimits.scale.minWidth.step}
@@ -1083,15 +1116,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.minHeightEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.minHeightEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Minimum height</span>
             </label>
-            {#if state.minHeightEnabled}
+            {#if demoState.minHeightEnabled}
               <RangeNumber
                 label="Min height"
-                bind:value={state.minHeight}
+                bind:value={demoState.minHeight}
                 min={controlLimits.scale.minHeight.min}
                 max={controlLimits.scale.minHeight.max}
                 step={controlLimits.scale.minHeight.step}
@@ -1117,7 +1150,7 @@
 
           <Collapsible.Content class="collapsible-content">
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.autoRotateEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.autoRotateEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Auto rotate from EXIF</span>
@@ -1125,7 +1158,7 @@
 
             <label class="field">
               <span>Flip</span>
-              <select bind:value={state.flip}>
+              <select bind:value={demoState.flip}>
                 <option value="none">none</option>
                 <option value="horizontal">horizontal</option>
                 <option value="vertical">vertical</option>
@@ -1135,7 +1168,7 @@
 
             <label class="field">
               <span>Rotate</span>
-              <select bind:value={state.rotate}>
+              <select bind:value={demoState.rotate}>
                 <option value={0}>none</option>
                 <option value={90}>90°</option>
                 <option value={180}>180°</option>
@@ -1147,12 +1180,12 @@
       </section>
 
       <section class="tool-section">
-        <ToolToggleHeader title="Trim" summary={trimSummary} bind:checked={state.trimEnabled} />
+        <ToolToggleHeader title="Trim" summary={trimSummary} bind:checked={demoState.trimEnabled} />
 
-        {#if state.trimEnabled}
+        {#if demoState.trimEnabled}
           <RangeNumber
             label="Threshold"
-            bind:value={state.trimThreshold}
+            bind:value={demoState.trimThreshold}
             min={0}
             max={100}
             step={1}
@@ -1160,28 +1193,28 @@
 
           <label class="field">
             <span>Background</span>
-            <select bind:value={state.trimBackgroundMode}>
+            <select bind:value={demoState.trimBackgroundMode}>
               <option value="auto">auto (smart detect)</option>
               <option value="color">color</option>
             </select>
           </label>
 
-          {#if state.trimBackgroundMode === "color"}
+          {#if demoState.trimBackgroundMode === "color"}
             <label class="field trim-color-field">
               <span>Color</span>
-              <input class="color-input" type="color" bind:value={state.trimColor} />
+              <input class="color-input" type="color" bind:value={demoState.trimColor} />
             </label>
           {/if}
 
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.trimEqualHor}>
+            <Switch.Root class="switch-root" bind:checked={demoState.trimEqualHor}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Equal horizontal</span>
           </label>
 
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={state.trimEqualVer}>
+            <Switch.Root class="switch-root" bind:checked={demoState.trimEqualVer}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Equal vertical</span>
@@ -1193,13 +1226,13 @@
         <ToolToggleHeader
           title="Aspect canvas"
           summary={aspectCanvasSummary}
-          bind:checked={state.aspectCanvasEnabled}
+          bind:checked={demoState.aspectCanvasEnabled}
         />
 
-        {#if state.aspectCanvasEnabled}
+        {#if demoState.aspectCanvasEnabled}
           <label class="field">
             <span>Gravity</span>
-            <select bind:value={state.aspectCanvasGravity}>
+            <select bind:value={demoState.aspectCanvasGravity}>
               <option value="ce">center</option>
               <option value="no">north</option>
               <option value="so">south</option>
@@ -1218,13 +1251,13 @@
         <ToolToggleHeader
           title="Padding"
           summary={paddingSummary}
-          bind:checked={state.paddingEnabled}
+          bind:checked={demoState.paddingEnabled}
         />
 
-        {#if state.paddingEnabled}
+        {#if demoState.paddingEnabled}
           <RangeNumber
             label="Top"
-            bind:value={state.paddingTop}
+            bind:value={demoState.paddingTop}
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
@@ -1232,7 +1265,7 @@
           />
           <RangeNumber
             label="Right"
-            bind:value={state.paddingRight}
+            bind:value={demoState.paddingRight}
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
@@ -1240,7 +1273,7 @@
           />
           <RangeNumber
             label="Bottom"
-            bind:value={state.paddingBottom}
+            bind:value={demoState.paddingBottom}
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
@@ -1248,7 +1281,7 @@
           />
           <RangeNumber
             label="Left"
-            bind:value={state.paddingLeft}
+            bind:value={demoState.paddingLeft}
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
@@ -1261,20 +1294,20 @@
         <ToolToggleHeader
           title="Background"
           summary={backgroundSummary}
-          bind:checked={state.backgroundEnabled}
+          bind:checked={demoState.backgroundEnabled}
         />
 
-        {#if state.backgroundEnabled}
+        {#if demoState.backgroundEnabled}
           <div class="background-controls">
             <label class="field background-color-field">
               <span>Color</span>
-              <input class="color-input" type="color" bind:value={state.backgroundColor} />
+              <input class="color-input" type="color" bind:value={demoState.backgroundColor} />
             </label>
 
             <div class="background-opacity-field">
               <RangeNumber
                 label="Opacity"
-                bind:value={state.backgroundAlpha}
+                bind:value={demoState.backgroundAlpha}
                 min={controlLimits.alpha.min}
                 max={controlLimits.alpha.max}
                 step={controlLimits.alpha.step}
@@ -1300,15 +1333,15 @@
 
           <Collapsible.Content class="collapsible-content">
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.blurEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.blurEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Blur</span>
             </label>
-            {#if state.blurEnabled}
+            {#if demoState.blurEnabled}
               <RangeNumber
                 label="Blur sigma"
-                bind:value={state.blur}
+                bind:value={demoState.blur}
                 min={controlLimits.effects.blur.min}
                 max={controlLimits.effects.blur.max}
                 step={controlLimits.effects.blur.step}
@@ -1317,15 +1350,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.sharpenEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.sharpenEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Sharpen</span>
             </label>
-            {#if state.sharpenEnabled}
+            {#if demoState.sharpenEnabled}
               <RangeNumber
                 label="Sharpen sigma"
-                bind:value={state.sharpen}
+                bind:value={demoState.sharpen}
                 min={controlLimits.effects.sharpen.min}
                 max={controlLimits.effects.sharpen.max}
                 step={controlLimits.effects.sharpen.step}
@@ -1334,15 +1367,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.pixelateEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.pixelateEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Pixelate</span>
             </label>
-            {#if state.pixelateEnabled}
+            {#if demoState.pixelateEnabled}
               <RangeNumber
                 label="Block size"
-                bind:value={state.pixelate}
+                bind:value={demoState.pixelate}
                 min={controlLimits.effects.pixelate.min}
                 max={controlLimits.effects.pixelate.max}
                 step={controlLimits.effects.pixelate.step}
@@ -1351,16 +1384,16 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.monochromeEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.monochromeEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Monochrome</span>
             </label>
-            {#if state.monochromeEnabled}
+            {#if demoState.monochromeEnabled}
               <div class="monochrome-control-row">
                 <RangeNumber
                   label="Intensity"
-                  bind:value={state.monochromeIntensity}
+                  bind:value={demoState.monochromeIntensity}
                   min={controlLimits.effects.intensity.min}
                   max={controlLimits.effects.intensity.max}
                   step={controlLimits.effects.intensity.step}
@@ -1368,22 +1401,22 @@
                 />
                 <label class="field monochrome-color-field">
                   <span>Color</span>
-                  <input class="color-input" type="color" bind:value={state.monochromeColor} />
+                  <input class="color-input" type="color" bind:value={demoState.monochromeColor} />
                 </label>
               </div>
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.duotoneEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.duotoneEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Duotone</span>
             </label>
-            {#if state.duotoneEnabled}
+            {#if demoState.duotoneEnabled}
               <div class="duotone-control-row">
                 <RangeNumber
                   label="Intensity"
-                  bind:value={state.duotoneIntensity}
+                  bind:value={demoState.duotoneIntensity}
                   min={controlLimits.effects.intensity.min}
                   max={controlLimits.effects.intensity.max}
                   step={controlLimits.effects.intensity.step}
@@ -1392,26 +1425,30 @@
                 <div class="duotone-color-controls">
                   <label class="field">
                     <span>Shadow</span>
-                    <input class="color-input" type="color" bind:value={state.duotoneShadow} />
+                    <input class="color-input" type="color" bind:value={demoState.duotoneShadow} />
                   </label>
                   <label class="field">
                     <span>Highlight</span>
-                    <input class="color-input" type="color" bind:value={state.duotoneHighlight} />
+                    <input
+                      class="color-input"
+                      type="color"
+                      bind:value={demoState.duotoneHighlight}
+                    />
                   </label>
                 </div>
               </div>
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.brightnessEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.brightnessEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Brightness</span>
             </label>
-            {#if state.brightnessEnabled}
+            {#if demoState.brightnessEnabled}
               <RangeNumber
                 label="Brightness"
-                bind:value={state.brightness}
+                bind:value={demoState.brightness}
                 min={controlLimits.effects.brightness.min}
                 max={controlLimits.effects.brightness.max}
                 step={controlLimits.effects.brightness.step}
@@ -1420,15 +1457,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.contrastEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.contrastEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Contrast</span>
             </label>
-            {#if state.contrastEnabled}
+            {#if demoState.contrastEnabled}
               <RangeNumber
                 label="Contrast"
-                bind:value={state.contrast}
+                bind:value={demoState.contrast}
                 min={controlLimits.effects.contrast.min}
                 max={controlLimits.effects.contrast.max}
                 step={controlLimits.effects.contrast.step}
@@ -1437,15 +1474,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={state.saturationEnabled}>
+              <Switch.Root class="switch-root" bind:checked={demoState.saturationEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Saturation</span>
             </label>
-            {#if state.saturationEnabled}
+            {#if demoState.saturationEnabled}
               <RangeNumber
                 label="Saturation"
-                bind:value={state.saturation}
+                bind:value={demoState.saturation}
                 min={controlLimits.effects.saturation.min}
                 max={controlLimits.effects.saturation.max}
                 step={controlLimits.effects.saturation.step}
@@ -1459,14 +1496,14 @@
       <section class="tool-section">
         <ToolToggleHeader
           title="Format"
-          summary={state.formatEnabled ? `f:${state.format}` : "Off"}
-          bind:checked={state.formatEnabled}
+          summary={demoState.formatEnabled ? `f:${demoState.format}` : "Off"}
+          bind:checked={demoState.formatEnabled}
         />
 
-        {#if state.formatEnabled}
+        {#if demoState.formatEnabled}
           <label class="field">
             <span>Format</span>
-            <select bind:value={state.format}>
+            <select bind:value={demoState.format}>
               <option value="webp">webp</option>
               <option value="avif">avif</option>
               <option value="jpeg">jpeg</option>
@@ -1479,14 +1516,14 @@
       <section class="tool-section">
         <ToolToggleHeader
           title="Quality"
-          summary={state.qualityEnabled ? `q:${state.quality}` : "Off"}
-          bind:checked={state.qualityEnabled}
+          summary={demoState.qualityEnabled ? `q:${demoState.quality}` : "Off"}
+          bind:checked={demoState.qualityEnabled}
         />
 
-        {#if state.qualityEnabled}
+        {#if demoState.qualityEnabled}
           <RangeNumber
             label="Quality"
-            bind:value={state.quality}
+            bind:value={demoState.quality}
             min={controlLimits.quality.min}
             max={controlLimits.quality.max}
             step={controlLimits.quality.step}
@@ -1505,7 +1542,7 @@
         <label class="switch-field">
           <Switch.Root
             class="switch-root"
-            checked={state.stripMetadata}
+            checked={demoState.stripMetadata}
             onCheckedChange={updateStripMetadata}
           >
             <Switch.Thumb class="switch-thumb" />
@@ -1516,16 +1553,16 @@
         <label class="switch-field">
           <Switch.Root
             class="switch-root"
-            bind:checked={state.keepCopyright}
-            disabled={!state.stripMetadata}
+            bind:checked={demoState.keepCopyright}
+            disabled={!demoState.stripMetadata}
           >
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
-          <span class:muted-label={!state.stripMetadata}>Keep copyright (kcr)</span>
+          <span class:muted-label={!demoState.stripMetadata}>Keep copyright (kcr)</span>
         </label>
 
         <label class="switch-field">
-          <Switch.Root class="switch-root" bind:checked={state.stripColorProfile}>
+          <Switch.Root class="switch-root" bind:checked={demoState.stripColorProfile}>
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
           <span>Strip color profile (scp)</span>
@@ -1533,7 +1570,7 @@
 
         <label class="field">
           <span>Color profile (cp)</span>
-          <select bind:value={state.colorProfile}>
+          <select bind:value={demoState.colorProfile}>
             <option value="none">none</option>
             <option value="srgb">srgb</option>
             <option value="display-p3">display-p3</option>
@@ -1542,7 +1579,7 @@
         </label>
 
         <label class="switch-field">
-          <Switch.Root class="switch-root" bind:checked={state.preserveHdr}>
+          <Switch.Root class="switch-root" bind:checked={demoState.preserveHdr}>
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
           <span>Preserve HDR (ph)</span>

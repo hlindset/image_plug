@@ -18,6 +18,33 @@ This is a web application written using the Phoenix web framework.
 - If you override the default input classes (`<.input class="myclass px-2 py-1 rounded-lg">)`) class with your own values, no default classes are inherited, so your
 custom classes must fully style the input
 
+## Svelte frontend guidelines (`assets/`)
+
+- The demo's Svelte components run in **runes mode only**. **Never** write legacy-mode
+  components. Specifically, do not use:
+  - `export let` for props — use `let { foo, bar = default }: Props = $props()`.
+  - `$:` reactive statements — use `$derived` (pure values) or `$effect` (side effects).
+    Classify deliberately: a `$:` that *computes a value* is `$derived`; one that *does
+    something* (fetch, history, DOM, persistence, debounced work) is `$effect`.
+  - `on:event` directives — use event attributes (`onclick`, `oninput`, …).
+  - `createEventDispatcher`, `<slot>`, `$$props`/`$$restProps`/`$$slots` — use callback
+    props and `{#snippet}`/`{@render}` instead.
+  Mixing a rune with any of the above in one component is a compile error, so a single
+  legacy construct forces the whole component legacy. Keep new components fully runes.
+- Mutable component-local values that the template/`$derived`/`$effect` read must be
+  `$state(...)`. Element references bound with `bind:this` are `$state(...)` too. Purely
+  internal bookkeeping that nothing reactive reads (request-id guards, timers, abort
+  controllers) stays a plain `let`.
+- Make a child prop `$bindable()` only when a parent actually `bind:`s it.
+- **Naming gotcha:** do not name a variable `state` in a component that uses the `$state`
+  rune. `svelte-check`'s TS layer parses the `$state` token as `$`-store-access of the
+  local `state` variable and fails type-checking (the runtime compiler is fine, so this
+  bites `pnpm check`, not `pnpm build`). Name it `demoState`/`formState`/etc. instead.
+- Verify frontend changes with `pnpm -C fiddle/assets run test`, `… run check`,
+  `… run format:check`, `… run lint`, and `… run build` (all bundled into
+  `mise run precommit:demo`). Keep the existing `assets/*.test.ts` pure-function tests
+  green and untouched unless the behavior they pin actually changes.
+
 
 <!-- usage-rules-start -->
 

@@ -1,21 +1,37 @@
 <script lang="ts">
   import { Slider } from "bits-ui";
 
-  export let label: string;
-  export let value: number;
-  export let min = 0;
-  export let max = 100;
-  export let step = 1;
-  export let inputStep: number | "any" = step;
-  export let suffix: string | undefined = undefined;
-  // Optional callback for controlled usage (when bind:value isn't available).
-  export let onValueChange: ((value: number) => void) | undefined = undefined;
-  let decimalInputValue = String(value);
-  let editingDecimalInput = false;
+  type Props = {
+    label: string;
+    value: number;
+    min?: number;
+    max?: number;
+    step?: number;
+    inputStep?: number | "any";
+    suffix?: string | undefined;
+    // Optional callback for controlled usage (when bind:value isn't available).
+    onValueChange?: ((value: number) => void) | undefined;
+  };
 
-  $: if (!editingDecimalInput) {
-    decimalInputValue = String(value);
-  }
+  let {
+    label,
+    value = $bindable(),
+    min = 0,
+    max = 100,
+    step = 1,
+    inputStep = step,
+    suffix = undefined,
+    onValueChange = undefined,
+  }: Props = $props();
+
+  let decimalInputValue = $state(String(value));
+  let editingDecimalInput = $state(false);
+
+  $effect(() => {
+    if (!editingDecimalInput) {
+      decimalInputValue = String(value);
+    }
+  });
 
   function clamp(value: number): number {
     return Math.min(Math.max(value, min), max);
