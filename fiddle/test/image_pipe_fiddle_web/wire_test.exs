@@ -32,6 +32,42 @@ defmodule ImagePipeFiddleWeb.WireTest do
     assert conn.status == 200
   end
 
+  test "GET /iiif-image processes a IIIF full/max request", %{conn: conn} do
+    conn = get(conn, "/iiif-image/dog/full/max/0/default.jpg")
+    assert conn.status == 200
+    assert get_resp_header(conn, "content-type") |> hd() =~ "image/"
+    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
+  end
+
+  test "GET /iiif-image honors region + size geometry", %{conn: conn} do
+    conn = get(conn, "/iiif-image/dog/0,0,100,100/50,/0/default.jpg")
+    assert conn.status == 200
+    image = Image.open!(conn.resp_body, access: :random, fail_on: :error)
+    assert Image.width(image) == 50
+    assert Image.height(image) == 50
+  end
+
+  test "GET /iiif-image rejects a bad rotation with 400", %{conn: conn} do
+    conn = get(conn, "/iiif-image/dog/full/max/45/default.jpg")
+    assert conn.status == 400
+  end
+
+  test "GET /iiif-image returns 404 for an unknown identifier", %{conn: conn} do
+    conn = get(conn, "/iiif-image/nope/full/max/0/default.jpg")
+    assert conn.status == 404
+  end
+
+  test "OPTIONS /iiif-image answers CORS preflight", %{conn: conn} do
+    conn = options(conn, "/iiif-image/dog/full/max/0/default.jpg")
+    assert conn.status == 200
+    assert get_resp_header(conn, "access-control-allow-methods") |> hd() =~ "GET"
+  end
+
+  test "IIIF browser deep-link still serves the SPA shell", %{conn: conn} do
+    conn = get(conn, "/iiif/dog/full/max/0/default.jpg")
+    assert html_response(conn, 200) =~ ~s(id="fiddle-app")
+  end
+
   defp sign(signed_path, key_hex, salt_hex) do
     key = Base.decode16!(key_hex, case: :lower)
     salt = Base.decode16!(salt_hex, case: :lower)

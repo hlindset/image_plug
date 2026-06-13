@@ -8,6 +8,7 @@ defmodule ImagePipeFiddle.Application do
   @impl true
   def start(_type, _args) do
     :persistent_term.put({__MODULE__, :imgproxy_opts}, build_imgproxy_opts())
+    :persistent_term.put({__MODULE__, :iiif_opts}, build_iiif_opts())
     ImagePipe.Telemetry.attach_default_logger(events: :all, level: :debug, debug: true)
     maybe_attach_tracer()
 
@@ -61,6 +62,42 @@ defmodule ImagePipeFiddle.Application do
     ]
     |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
     |> ImagePipe.Plug.init()
+  end
+
+  defp build_iiif_opts do
+    static_root = Application.app_dir(:image_pipe_fiddle, "priv/static")
+
+    [
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: {ImagePipe.Parser.IIIF.Resolver.Static, map: iiif_source_map()}],
+      sources: [
+        path: {ImagePipe.Source.File, root: static_root, root_id: "static", stable: :trusted}
+      ]
+    ]
+    |> maybe_put_cache(Application.get_env(:image_pipe_fiddle, :cache))
+    |> ImagePipe.Plug.init()
+  end
+
+  # Maps each sample image to a slash-free, extension-stripped IIIF identifier
+  # (images/dog.jpg -> "dog"). Sample filenames are URL-safe by convention, so the
+  # id needs no encoding. Stems must be unique across the set; raises if not.
+  defp iiif_source_map do
+    files =
+      :image_pipe_fiddle
+      |> Application.app_dir("priv/static/images")
+      |> File.ls!()
+      |> Enum.filter(&(Path.extname(&1) in ~w(.avif .jpeg .jpg .png .webp)))
+
+    map =
+      Map.new(files, fn file ->
+        {Path.rootname(file), %ImagePipe.Plan.Source.Path{segments: ["images", file]}}
+      end)
+
+    if map_size(map) < length(files) do
+      raise "IIIF identifier stem collision among sample images (two files share a basename)"
+    end
+
+    map
   end
 
   defp maybe_put_cache(opts, nil), do: opts

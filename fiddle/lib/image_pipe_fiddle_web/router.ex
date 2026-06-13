@@ -15,6 +15,7 @@ defmodule ImagePipeFiddleWeb.Router do
   end
 
   forward "/img", ImagePipeFiddleWeb.Imgproxy
+  forward "/iiif-image", ImagePipeFiddleWeb.IIIF
 
   scope "/", ImagePipeFiddleWeb do
     pipe_through :browser
