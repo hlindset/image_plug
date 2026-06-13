@@ -23,7 +23,7 @@ defmodule ImagePipe.Request.Runner do
   @type delivery() ::
           {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t()}
           | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
-          | {:rendered, String.t(), iodata(), CacheHeaders.t()}
+          | {:rendered, String.t(), iodata(), [{String.t(), [String.t()]}], CacheHeaders.t()}
 
   @type error() ::
           {:processing, term(), [{String.t(), String.t()}]}
@@ -38,14 +38,15 @@ defmodule ImagePipe.Request.Runner do
           {:ok, delivery()} | {:error, error()}
   def run(
         _conn,
-        %Plan{render: {:custom, _module, _params}} = plan,
+        %Plan{render: {:custom, _module, params}} = plan,
         %Source.Resolved{} = resolved_source,
         %CacheHeaders{} = prepared_http_cache,
         opts
       ) do
     case RenderRunner.run(plan, resolved_source, opts) do
       {:ok, {content_type, body}} ->
-        {:ok, {:rendered, content_type, body, prepared_http_cache}}
+        offers = Map.get(params, :offers, [])
+        {:ok, {:rendered, content_type, body, offers, prepared_http_cache}}
 
       {:error, reason} ->
         {:error, {:processing, {:render, reason}, []}}

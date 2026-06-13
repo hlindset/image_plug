@@ -17,4 +17,16 @@ defmodule ImagePipe.Plan.SourceInfo do
           orientation: 1..8,
           byte_size: non_neg_integer() | nil
         }
+
+  @doc """
+  Display (post-EXIF-orientation) dimensions. EXIF orientations 5–8 are
+  quarter-turns, so the stored width/height are swapped; all others (and the
+  no-rotation case) keep stored order. Pure derivation over this struct's fields.
+  """
+  @spec display_dimensions(t()) :: {pos_integer(), pos_integer()}
+  def display_dimensions(%__MODULE__{width: w, height: h, orientation: o})
+      when o in [5, 6, 7, 8],
+      do: {h, w}
+
+  def display_dimensions(%__MODULE__{width: w, height: h}), do: {w, h}
 end

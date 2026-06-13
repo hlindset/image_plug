@@ -10,6 +10,11 @@ defmodule ImagePipe.Transform.Operation.Resize do
   `Resize` does not perform result cropping. Transform Plan execution for
   cover-style output should include a separate crop operation after a fill-like
   resize when that matches the requested semantics.
+
+  Enlargement: `enlarge: true` upscales; `reject_enlargement: true` errors
+  (`{:error, {:bad_request, :upscale_required}}`) on a genuine upscale; both
+  `false` (default) clamps to the source. They are mutually exclusive by
+  convention — `ImagePipe.Transform.PlanExecutor.resize_from/2` sets at most one.
   """
 
   use ImagePipe.Transform
@@ -32,7 +37,8 @@ defmodule ImagePipe.Transform.Operation.Resize do
           zoom_x: float(),
           zoom_y: float(),
           dpr: float(),
-          enlarge: boolean()
+          enlarge: boolean(),
+          reject_enlargement: boolean()
         }
 
   @type resolved_dimensions() :: %{
@@ -44,7 +50,8 @@ defmodule ImagePipe.Transform.Operation.Resize do
           result_box_height: pos_integer() | :auto,
           intermediate_width: pos_integer(),
           intermediate_height: pos_integer(),
-          effective_dpr: float()
+          effective_dpr: float(),
+          upscale_required: boolean()
         }
 
   defstruct mode: :fit,
@@ -55,7 +62,8 @@ defmodule ImagePipe.Transform.Operation.Resize do
             zoom_x: 1.0,
             zoom_y: 1.0,
             dpr: 1.0,
-            enlarge: false
+            enlarge: false,
+            reject_enlargement: false
 
   @impl ImagePipe.Transform
   def name(%__MODULE__{}), do: :resize
@@ -70,19 +78,23 @@ defmodule ImagePipe.Transform.Operation.Resize do
         source_height: src_h
       )
 
-    case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
-      {:ok, image} ->
-        # The residual resize has finished the downscale: the image is now at its
-        # final resolution, so neither the stored original extent (source_dimensions)
-        # nor the realized shrink-on-load factor (decode_shrink) applies any longer.
-        # Clearing decode_shrink confines the preshrink coordinate rescale to the
-        # pipeline whose decode produced it, so an absolute crop in a later chained
-        # pipeline is sized against that pipeline's input, not divided by a stale
-        # factor (#180). See the scaleOnLoad row in docs/imgproxy_support_matrix.md.
-        {:ok, %State{set_image(state, image) | source_dimensions: nil, decode_shrink: nil}}
+    if operation.reject_enlargement and dimensions.upscale_required do
+      {:error, {:bad_request, :upscale_required}}
+    else
+      case resize_image(state, dimensions.intermediate_width, dimensions.intermediate_height) do
+        {:ok, image} ->
+          # The residual resize has finished the downscale: the image is now at its
+          # final resolution, so neither the stored original extent (source_dimensions)
+          # nor the realized shrink-on-load factor (decode_shrink) applies any longer.
+          # Clearing decode_shrink confines the preshrink coordinate rescale to the
+          # pipeline whose decode produced it, so an absolute crop in a later chained
+          # pipeline is sized against that pipeline's input, not divided by a stale
+          # factor (#180). See the scaleOnLoad row in docs/imgproxy_support_matrix.md.
+          {:ok, %State{set_image(state, image) | source_dimensions: nil, decode_shrink: nil}}
 
-      {:error, reason} ->
-        {:error, {__MODULE__, reason}}
+        {:error, reason} ->
+          {:error, {__MODULE__, reason}}
+      end
     end
   end
 
@@ -110,6 +122,13 @@ defmodule ImagePipe.Transform.Operation.Resize do
 
     result_box = result_crop_box(operation, effective_dpr)
 
+    unclamped =
+      target_dimensions(operation.mode, requested, min_dimensions, source, true)
+
+    upscale_required =
+      axis_exceeds?(unclamped.width, source.width) or
+        axis_exceeds?(unclamped.height, source.height)
+
     %{
       requested_width: requested.width,
       requested_height: requested.height,
@@ -119,7 +138,8 @@ defmodule ImagePipe.Transform.Operation.Resize do
       result_box_height: result_box.height,
       intermediate_width: intermediate.width,
       intermediate_height: intermediate.height,
-      effective_dpr: effective_dpr
+      effective_dpr: effective_dpr,
+      upscale_required: upscale_required
     }
   end
 
@@ -389,4 +409,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
     |> round()
     |> max(1)
   end
+
+  defp axis_exceeds?(:auto, _source), do: false
+  defp axis_exceeds?(value, source) when is_integer(value), do: value > source
 end

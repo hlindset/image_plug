@@ -1,0 +1,113 @@
+defmodule ImagePipe.Parser.IIIF do
+  @moduledoc "IIIF Image API 3.0 (Level 2) parser. Positional grammar -> ImagePipe.Plan."
+
+  @behaviour ImagePipe.Parser
+
+  use Boundary,
+    deps: [
+      ImagePipe.Format,
+      ImagePipe.Parser,
+      ImagePipe.Plan,
+      ImagePipe.Renderer
+    ],
+    exports: []
+
+  import Plug.Conn, only: [send_resp: 3]
+
+  alias ImagePipe.Parser.IIIF.Grammar
+  alias ImagePipe.Parser.IIIF.Path
+  alias ImagePipe.Parser.IIIF.PlanBuilder
+
+  # Note: IIIF `maxWidth`/`maxHeight`/`maxArea` are intentionally NOT a config
+  # surface yet — advertising them in info.json without enforcing the limit in the
+  # size pipeline would be a conformance lie (and `maxHeight` without `maxWidth` is
+  # spec-invalid). We shrink the unsupported surface rather than advertise it; a
+  # future change can wire them through `image_plan/3`'s size mapping + add the
+  # cross-field validation.
+  @schema NimbleOptions.new!(
+            resolver: [type: {:custom, __MODULE__, :validate_resolver, []}, required: true],
+            auto_rotate: [type: :boolean, default: true],
+            formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
+            qualities: [type: {:list, :atom}, default: [:default, :color, :gray, :bitonal]]
+          )
+
+  @impl true
+  def validate_options!(opts) do
+    iiif = Keyword.get(opts, :iiif, [])
+    Keyword.put(opts, :iiif, NimbleOptions.validate!(iiif, @schema))
+  end
+
+  @doc false
+  def validate_resolver({mod, ropts} = r) when is_atom(mod) and is_list(ropts) do
+    if Code.ensure_loaded?(mod) and function_exported?(mod, :resolve, 2),
+      do: {:ok, r},
+      else: {:error, "resolver module must export resolve/2"}
+  end
+
+  def validate_resolver(_), do: {:error, "resolver must be {Module, opts}"}
+
+  @impl true
+  def parse(%Plug.Conn{} = conn, opts) do
+    iiif = Keyword.fetch!(opts, :iiif)
+
+    case Path.classify(conn) do
+      {:redirect, _id, location} ->
+        {:redirect, 303, location}
+
+      {:info, id} ->
+        with {:ok, source} <- resolve(id, iiif) do
+          PlanBuilder.info_plan(source, Path.base_uri(conn) <> "/" <> URI.encode(id), iiif)
+        end
+
+      {:image, id, tokens} ->
+        with {:ok, source} <- resolve(id, iiif),
+             {:ok, parsed} <- parse_tokens(tokens) do
+          PlanBuilder.image_plan(source, parsed, iiif)
+        end
+
+      :not_found ->
+        {:error, :not_found}
+    end
+  end
+
+  # The Plug delegates with the WRAPPED parse error `{:error, reason}`. Unwrap before
+  # mapping to a status, or 404 is unreachable and every error becomes 400.
+  @impl true
+  def handle_error(%Plug.Conn{} = conn, {:error, reason}) do
+    {status, body} = status_for(reason)
+    send_resp(conn, status, body)
+  end
+
+  defp resolve(id, iiif) do
+    {mod, ropts} = Keyword.fetch!(iiif, :resolver)
+
+    case mod.resolve(id, ropts) do
+      {:ok, %_{} = source} -> {:ok, source}
+      {:error, _} -> {:error, :not_found}
+    end
+  end
+
+  defp parse_tokens(%{region: r, size: s, rotation: rot, quality: q, format: f}) do
+    with {:ok, region} <- Grammar.region(r),
+         {:ok, size} <- Grammar.size(s),
+         {:ok, rotation} <- Grammar.rotation(rot),
+         {:ok, quality} <- Grammar.quality(q),
+         {:ok, format} <- Grammar.format(f) do
+      {:ok, %{region: region, size: size, rotation: rotation, quality: quality, format: format}}
+    end
+  end
+
+  defp status_for(:not_found), do: {404, "not found"}
+
+  defp status_for({tag, _raw})
+       when tag in [
+              :invalid_region,
+              :invalid_size,
+              :invalid_rotation,
+              :invalid_quality,
+              :invalid_format
+            ],
+       do: {400, "bad request"}
+
+  defp status_for(_), do: {400, "bad request"}
+end

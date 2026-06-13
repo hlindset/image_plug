@@ -31,6 +31,7 @@ defmodule ImagePipe.MixProject do
           {"docs/cookbook/opentelemetry-jaeger.md", title: "OpenTelemetry → Jaeger"},
           "docs/imgproxy_path_api.md",
           "docs/imgproxy_support_matrix.md",
+          "docs/iiif_3_support_matrix.md",
           "docs/transform_operations.md"
         ],
         groups_for_modules: [
@@ -94,6 +95,7 @@ defmodule ImagePipe.MixProject do
         "docs/assets/demo-fiddle-desktop.png",
         "docs/imgproxy_path_api.md",
         "docs/imgproxy_support_matrix.md",
+        "docs/iiif_3_support_matrix.md",
         "docs/operational_notes.md",
         "docs/telemetry.md",
         "docs/cookbook/opentelemetry-jaeger.md",
@@ -135,7 +137,8 @@ defmodule ImagePipe.MixProject do
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:talan, "~> 0.2.1"}
+      {:talan, "~> 0.2.1"},
+      {:bandit, "~> 1.5", only: [:dev, :test]}
     ]
 
     # Real face detection needs `image_vision` AND its optional ONNX backend
