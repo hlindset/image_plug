@@ -17,7 +17,7 @@
 - JS all: `mise exec -- pnpm -C fiddle/assets test`
 - JS typecheck/lint/format: `mise exec -- pnpm -C fiddle/assets run check` / `… run lint` / `… run format:check`
 - Fiddle Elixir tests: `(cd fiddle && mise exec -- mix test test/image_pipe_fiddle_web/wire_test.exs)` (bash cwd resets to the worktree root between calls and `fiddle/` is a separate mix project, so the `cd fiddle` subshell is required)
-- Full demo gate: `mise run precommit:demo`
+- Full demo gate: `mise run precommit:fiddle`
 
 ---
 
@@ -34,9 +34,9 @@
 - Create `iiif-path.test.ts`.
 - Modify `fiddle-url-state.ts` — provider-dispatch layer (`appPathForState` / `parseAppPath`); add `AppState`/`Provider`/`providers`.
 - Create `fiddle-url-state.test.ts` — dispatcher + no-leakage + popstate tests.
-- Create `ImgproxyControls.svelte` — extracted imgproxy tool sections + signature, `$bindable()` `state` + `source` props.
+- Create `ImgproxyControls.svelte` — extracted imgproxy tool sections (Resize…Metadata), `$bindable()` `state` + `source` props. **Signature stays in App** (see Task 4 note).
 - Create `IiifControls.svelte` — grouped IIIF parameters panel, `$bindable()` `state` + `source` props.
-- Modify `App.svelte` — shell only: provider dropdown, shared Request (source), preview/label/param branching, cross-provider source reset, dispatcher wiring.
+- Modify `App.svelte` — shell: provider dropdown, shared Request (source + imgproxy-gated signature), preview/label/param branching, cross-provider source reset, dispatcher wiring.
 
 ---
 
@@ -818,31 +818,32 @@ Create `fiddle/assets/ImgproxyControls.svelte`. Runes mode, matching the codebas
      (the Resize ToolToggleHeader at ~line 757 through the end of the "Metadata &
      color" section at ~line 1600, before <div class="drawer-actions">): Resize,
      Crop, Crop aspect ratio, Gravity, Scale options, Orientation, Trim, Aspect
-     canvas, Padding, Background, Effects, Format, Quality, Metadata & color. PLUS a
-     Signature sub-block holding the signature <select> + key/salt inputs (the
-     controls between the shared source <select> ~line 709 and the Resize section).
-     The shared source <select> and its `requestOpen` Collapsible STAY in App; only
-     the signature controls move here. Locate sections by their <h2>/ToolToggleHeader
-     titles rather than trusting exact line numbers. -->
+     canvas, Padding, Background, Effects, Format, Quality, Metadata & color.
+     The shared Request Collapsible (source <select> + the signature controls) and
+     its `requestOpen` STAY in App — do NOT move signature. Locate sections by their
+     <h2>/ToolToggleHeader titles rather than trusting exact line numbers. -->
 ```
+
+**Signature stays in App** (deviation from the spec, for a reason): the signing flow (`updateProcessingPath`, `signProcessingPath`), `signingError`, `requestSignatureLabel`, and `requestSummary` all live in App and are intertwined with `path`. Moving the signature *controls* to the child would require plumbing `signingError` across the boundary. Instead the signature controls stay in App's Request section and get gated to imgproxy in Task 6.
 
 Mechanics (runes — much simpler than legacy):
 - `state` is a `$bindable()` prop. The parent passes `bind:state={…}`. Because `state` is a deep `$state` proxy, **in-place mutation propagates** — the moved focal-point handlers keep `state.gravityFocalX = focalPoint.x` etc., and whole-object reassignments (`state = resetCropPixelsToSource(state)` in `updateCropEnabled`) propagate via `$bindable`.
 - The moved markup currently references `fiddleState.X` in App; rename those to `state.X` within the moved block (the prop is named `state`).
-- `$:`-style summaries are already `$derived(...)` in the runes baseline — move the `$derived` declarations and their helper functions across unchanged (renaming `fiddleState` → `state`).
-- `cropWidthLimit`/`cropHeightLimit` derive from the `source` prop (above).
+- The imgproxy tool-section summaries are already `$derived(...)` in the runes baseline — move these `$derived` declarations and their helper functions across (renaming `fiddleState` → `state`): `orientationSummary`, `trimSummary`, `resizeSummary`, `aspectCanvasSummary`, `paddingSummary`, `backgroundSummary`, `effectsSummary`, `metadataSummary`, `cropSummary`, `cropAspectRatioSummary`, `resizeExtras`, and the helpers `flipSegment`, `backgroundOpacitySummary`, `metadataSegments`, `effectSegments`, `objClassTriggerLabel`; and the handlers `updateCropEnabled`, `updateStripMetadata`, `syncObjClasses`, `updateFocalPoint`, `startFocalPointDrag`, `moveFocalPoint`, `dragFocalPoint`, `roundedFocalPoint`. **Do NOT move** `requestSummary`/`requestSignatureLabel` (Request section stays in App).
+- `cropWidthLimit`/`cropHeightLimit` derive from the `source` prop (above) — and must be **removed from App** (they're only used by the moved Crop markup; leaving them trips lint `no-unused`).
 - The focal picker `<img>` uses `src={`/${source}`}`.
 
 - [ ] **Step 2: Wire App.svelte to render the child (single-provider, temporary)**
 
-In `App.svelte`, replace the imgproxy `<section>` blocks (Resize through Metadata & color) and the signature controls with:
+In `App.svelte`, replace just the imgproxy tool `<section>` blocks (Resize through Metadata & color) with:
 
 ```svelte
 <ImgproxyControls bind:state={fiddleState} source={fiddleState.source} />
 ```
 
-- **Keep in App:** the shared Request Collapsible (`requestOpen`) now holding only the source `<select>`; the preview workspace, command bar, theme, mobile drawer, copy/open/reset; `updateProcessingPath`/`loadPreview`/signing (`signingError`, `pathRequestId`, `metadataRequestId`); `updateSource`/`resetCropPixelsToSource`.
-- **Remove from App:** the imgproxy-only imports, `$derived` summaries, helpers, and handlers that moved to the child; the `orientationOpen`/`scaleOptionsOpen`/`effectsOpen` `$state` vars, the `$effect(() => ensureActiveToolboxesOpen(fiddleState))` and the `ensureActiveToolboxesOpen` function (the child runs its own `$effect` with `expandedToolboxesForState`). `requestOpen` stays.
+- **Keep in App:** the shared Request Collapsible (`requestOpen`) holding the source `<select>` **and the signature controls**; `requestSummary` + `requestSignatureLabel`; the preview workspace, command bar, theme, mobile drawer, copy/open/reset, `resetSettings`; `updateProcessingPath`/`loadPreview`/signing (`signingError`, `pathRequestId`, `metadataRequestId`); `updateSource`/`resetCropPixelsToSource`; `previewParameters`/`outputLabel`/`sizeLabel`.
+- **Remove from App** (now in the child): the imgproxy tool-section `$derived` summaries + helpers + handlers listed above; `cropWidthLimit`/`cropHeightLimit`; the `orientationOpen`/`scaleOptionsOpen`/`effectsOpen` `$state` vars; the `$effect(() => ensureActiveToolboxesOpen(fiddleState))` (App ~line 125-127); the `ensureActiveToolboxesOpen` function def (~line 211); and any now-unused imports from `processing-path`/`fiddle-url-state` (e.g. `controlLimits`, `cropOptionSegment`, `cropPixelLimit`, `focalPointFromBounds`, `gravitySegment`, `resizeOptionSegment`, `trimOptionSegment`, `fiddleObjClasses`, `expandedToolboxesForState`). **Keep** `resetCropPixelsToSource`, `resolvedOutputLabel`, `buildProcessingPath`, `signedPathForState`, `processingPathFromSignedPath`, `signProcessingPath`, `debounce`, `sampleImages`, `processedSizeLabel` (App still uses them). `requestOpen` stays.
+- **Also in this step (or App won't compile):** `restoreStateFromLocation` (App ~line 206-209) currently calls `ensureActiveToolboxesOpen(fiddleState)` — **delete that call** (toolbox-open is now the child's own `$effect`). After this, no App code references `ensureActiveToolboxesOpen`.
 
 - [ ] **Step 3: Typecheck, lint, format, build, and test**
 
@@ -1044,7 +1045,7 @@ import { iiifFetchPath } from "./iiif-path";
 import IiifControls from "./IiifControls.svelte";
 ```
 
-- Replace the `fiddleState` declaration and its `initialFiddleState()` seed with an `AppState`:
+- Replace the `fiddleState` declaration and its `initialFiddleState()` seed with an `AppState`, capturing the parsed initial state **once** (mirrors the baseline's `const initialState = initialFiddleState()`):
 
 ```ts
 function initialAppState(): AppState {
@@ -1052,16 +1053,10 @@ function initialAppState(): AppState {
   return parseAppPath(window.location.pathname);
 }
 
-let appState: AppState = $state(initialAppState());
-```
-
-- The initial `path` seed becomes provider-aware:
-
-```ts
+const initial = initialAppState();
+let appState: AppState = $state(initial);
 let path = $state(
-  initialAppState().provider === "iiif"
-    ? iiifFetchPath(appState.iiif)
-    : buildProcessingPath(appState.imgproxy),
+  initial.provider === "iiif" ? iiifFetchPath(initial.iiif) : buildProcessingPath(initial.imgproxy),
 );
 ```
 
@@ -1087,6 +1082,37 @@ let path = $state(
   <IiifControls bind:state={appState.iiif} source={appState.iiif.source} />
 {/if}
 ```
+
+- **Rewrite EVERY remaining `fiddleState` reference in App to `appState.<slice>`** — after renaming the `let`, any leftover `fiddleState` is a compile error. The readers still in App after Task 4 (the tool sections moved out) are, at minimum:
+  - `requestSummary` (App ~line 138) — **branch per provider** (IIIF has no signature):
+    ```ts
+    const requestSummary = $derived(
+      appState.provider === "imgproxy"
+        ? `${appState.imgproxy.source.replace(/^images\//, "")} / ${requestSignatureLabel(appState.imgproxy, signingError)}`
+        : appState.iiif.source.replace(/^images\//, ""),
+    );
+    ```
+  - `resetSettings` (App ~line 597) — reset the **active** slice:
+    ```ts
+    function resetSettings(): void {
+      if (appState.provider === "imgproxy") {
+        appState.imgproxy = resetFiddleSettings(appState.imgproxy);
+      } else {
+        appState.iiif = { ...defaultIiifState, source: appState.iiif.source };
+      }
+    }
+    ```
+    (import `resetFiddleSettings` from `./fiddle-url-state` and `defaultIiifState` from `./iiif-path`.)
+  - the source `<select>` (App ~line 710): `value={fiddleState.source}` → `value={currentSource}` (Step 2).
+  - the **signature controls** (the `<select value={fiddleState.signatureMode}>` + key/salt inputs in the Request Collapsible): bind to `appState.imgproxy.*` and **gate to imgproxy** so they don't show for IIIF:
+    ```svelte
+    {#if appState.provider === "imgproxy"}
+      <!-- signature <select> bind:value={appState.imgproxy.signatureMode}, key/salt
+           bind:value={appState.imgproxy.signatureKey}/{...signatureSalt} -->
+    {/if}
+    ```
+  - `requestSignatureLabel` stays in App, now called with `appState.imgproxy`.
+- After this step, grep App.svelte for `fiddleState` — there must be zero matches.
 
 - [ ] **Step 2: Shared source select + cross-provider reset**
 
@@ -1137,7 +1163,7 @@ const outputLabel = $derived(
 );
 ```
 
-- `updateProcessingPath` still takes a `FiddleState` and reads signature fields off `appState.imgproxy`; its internal `const requestId = ++pathRequestId` guard means bumping `pathRequestId` in the IIIF branch invalidates a pending imgproxy signing promise. `updatePreviewPath(path)` effect and `updateFiddleLocation(...)` effect stay; point the location effect at the dispatcher:
+- `updateProcessingPath` still takes a `FiddleState` and reads signature fields off `appState.imgproxy`; its internal `const requestId = ++pathRequestId` guard means bumping `pathRequestId` in the IIIF branch invalidates a pending imgproxy signing promise. **Keep `pathRequestId` a plain non-reactive `let`** (as in the baseline, App ~line 74) — the `pathRequestId += 1` read-then-write inside the `$effect` is only safe because `pathRequestId` is *not* tracked; promoting it to `$state` would make the effect self-trigger into an infinite loop. `updatePreviewPath(path)` effect and `updateFiddleLocation(...)` effect stay; point the location effect at the dispatcher:
 
 ```ts
 $effect(() => {
@@ -1220,7 +1246,7 @@ Expected: PASS.
 
 - [ ] **Step 3: Run the full demo gate**
 
-Run: `mise run precommit:demo`
+Run: `mise run precommit:fiddle`
 Expected: PASS — Elixir gate (format/compile/credo/test for the library) + fiddle verify suite (fiddle Elixir checks + JS test/check/lint/format/build).
 
 - [ ] **Step 4: Commit**
