@@ -13,6 +13,7 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Duotone
   alias ImagePipe.Plan.Operation.Flip
+  alias ImagePipe.Plan.Operation.Gray
   alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Padding
   alias ImagePipe.Plan.Operation.Pixelate
@@ -402,6 +403,7 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Contrast{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Saturation{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)
+  def semantic?(%Gray{}), do: true
   def semantic?(_operation), do: false
 
   defp invalid(operation, attrs), do: {:error, {:invalid_operation, operation, attrs}}

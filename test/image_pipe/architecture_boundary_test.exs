@@ -492,6 +492,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Transform.Operation.Pixelate,
       ImagePipe.Transform.Operation.Monochrome,
       ImagePipe.Transform.Operation.Duotone,
+      ImagePipe.Transform.Operation.Gray,
       ImagePipe.Transform.Operation.Brightness,
       ImagePipe.Transform.Operation.Contrast,
       ImagePipe.Transform.Operation.Saturation
@@ -527,6 +528,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan.Operation.CropRegion,
       ImagePipe.Plan.Operation.Duotone,
       ImagePipe.Plan.Operation.Flip,
+      ImagePipe.Plan.Operation.Gray,
       ImagePipe.Plan.Operation.Monochrome,
       ImagePipe.Plan.Operation.Padding,
       ImagePipe.Plan.Operation.Pixelate,

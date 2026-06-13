@@ -21,6 +21,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan.Operation.CropRegion
   alias ImagePipe.Plan.Operation.Duotone, as: PlanDuotone
   alias ImagePipe.Plan.Operation.Flip, as: PlanFlip
+  alias ImagePipe.Plan.Operation.Gray, as: PlanGray
   alias ImagePipe.Plan.Operation.Monochrome, as: PlanMonochrome
   alias ImagePipe.Plan.Operation.Padding, as: PlanPadding
   alias ImagePipe.Plan.Operation.Pixelate, as: PlanPixelate
@@ -41,6 +42,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.Operation.Crop
   alias ImagePipe.Transform.Operation.Duotone
   alias ImagePipe.Transform.Operation.ExtendCanvas
+  alias ImagePipe.Transform.Operation.Gray
   alias ImagePipe.Transform.Operation.Monochrome
   alias ImagePipe.Transform.Operation.Padding
   alias ImagePipe.Transform.Operation.Pixelate
@@ -627,6 +629,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp executable_operations(%PlanContrast{value: value}, %State{}, _context),
     do: [%Contrast{value: value}]
+
+  defp executable_operations(%PlanGray{}, %State{}, _context), do: [%Gray{}]
 
   defp executable_operations(%PlanSaturation{value: value}, %State{}, _context),
     do: [%Saturation{value: value}]
