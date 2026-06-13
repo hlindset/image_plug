@@ -15,7 +15,7 @@ IIIF processing order **Region → Size → Rotation → Quality (→ Format)** 
 
 ## Non-goals (deferred — all IIIF `extraFeatures`, optional at every level)
 
-- Arbitrary-angle rotation, mirroring (`!n`), bitonal quality, and `jp2`/`gif`/`tif`/`pdf` output.
+- Arbitrary-angle rotation, mirroring (`!n`), and `jp2`/`gif`/`tif`/`pdf` output. (`bitonal` quality was initially deferred here but turned out to be a **Level-2 validator requirement** — `quality_bitonal.py` is level 2 — so it was implemented during the validator-gate task as `Plan.Operation.Bitonal`.)
 - The `fiddle/` demo UI for IIIF (Phase 3, #254). This consciously defers the `AGENTS.md` "keep the demo UI in sync" rule for the new `gray` op and the IIIF parser options; Phase 3 closes that gap.
 - A source-string resolver (percent-decode → neutral path/URL/s3). Only the static-map resolver ships now.
 
@@ -143,7 +143,7 @@ Per IIIF, a pixel/percent region that extends beyond the image is **clipped** to
 | `default` / `color` | *(no op)* |
 | `gray` | `Plan.Operation.Gray{}` (new; see below) |
 
-`bitonal` deferred (extraFeature).
+`bitonal` → `Plan.Operation.Bitonal` (`:bw` + `>= 128` threshold) — Level-2 required (validator `quality_bitonal` is level 2).
 
 ### Format (→ `Output`)
 
@@ -362,7 +362,7 @@ The official IIIF `image-validator` performs real pixel sampling, so the gate is
 
 - Upscale-without-`^` (incl. `!w,h`) and wholly-out-of-bounds region return **400** (spec-conformant) via the minimal `{:bad_request, _}` mapping; the *general, host-customizable* error→status policy remains open as #267.
 - `gray` (and any quality) on an explicit **non-alpha format** with an alpha source flattens onto the background (valid output) via **#269** (landed); IIIF gray preserves alpha for alpha-supporting formats.
-- `jp2`/`gif`/`tif`/`pdf`, bitonal, arbitrary rotation, and mirroring are unsupported `extraFeatures`.
+- `jp2`/`gif`/`tif`/`pdf`, arbitrary rotation, and mirroring are unsupported `extraFeatures`. (`bitonal` IS supported — it is a Level-2 validator requirement.)
 - `auto_rotate` defaults true (display-frame coordinates) — documented as intentional, not a divergence.
 
 ---

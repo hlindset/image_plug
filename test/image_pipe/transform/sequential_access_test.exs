@@ -5,6 +5,7 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
   alias ImagePipe.Transform.Chain
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
+  alias ImagePipe.Transform.Operation.Bitonal
   alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Brightness
   alias ImagePipe.Transform.Operation.Contrast
@@ -120,6 +121,10 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
 
   test "gray streams" do
     assert_sequential_matches_random([%Gray{}], File.read!(@beach))
+  end
+
+  test "bitonal streams" do
+    assert_sequential_matches_random([%Bitonal{}], File.read!(@beach))
   end
 
   test "monochrome streams" do

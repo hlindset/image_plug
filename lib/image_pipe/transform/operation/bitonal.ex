@@ -1,9 +1,8 @@
 defmodule ImagePipe.Transform.Operation.Bitonal do
   @moduledoc """
-  Executable bitonal (1-bit black-and-white threshold) operation.
-  Converts to grayscale (`:bw` colourspace), then applies a >= 128 threshold
-  so each pixel becomes either 0 (black) or 255 (white). Alpha is dropped
-  (IIIF bitonal is inherently opaque).
+  Executable bitonal (black-and-white threshold) operation. Converts to grayscale
+  (`:bw` colourspace), then applies a `>= 128` threshold so each band value becomes
+  either 0 (black) or 255 (white). Per-pixel point op: sequential-safe.
   """
 
   use ImagePipe.Transform

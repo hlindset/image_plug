@@ -18,7 +18,7 @@ Status legend: ✅ supported · ➖ deliberately deferred (an optional `extraFea
 
 ## Compliance level
 
-We implement **Level 2**: all of Level 0/1 plus the Level-2-required `regionByPx`, `regionByPct`, `sizeByW`, `sizeByH`, `sizeByWh`, `sizeByConfinedWh`, `sizeByPct`, `rotationBy90s`, and the `color`/`gray` qualities. A handful of `extraFeatures` are implemented beyond Level 2 (`regionSquare`, `sizeUpscaling`, `webp`/`avif` formats); the rest are deferred (see "Deferred extraFeatures").
+We implement **Level 2**: all of Level 0/1 plus the Level-2-required `regionByPx`, `regionByPct`, `sizeByW`, `sizeByH`, `sizeByWh`, `sizeByConfinedWh`, `sizeByPct`, `rotationBy90s`, and the `color`/`gray`/`bitonal` qualities. A handful of `extraFeatures` are implemented beyond Level 2 (`regionSquare`, `sizeUpscaling`, `webp`/`avif` formats); the rest are deferred (see "Deferred extraFeatures").
 
 ## Region (→ crop op; `full` emits no op)
 
@@ -57,9 +57,9 @@ A leading `^` enables upscaling. Without `^`, an explicit-size form that would u
 | --- | --- | --- | --- |
 | `default` / `color` | — | ✅ | No op (full color). |
 | `gray` | `gray` quality | ✅ | `Plan.Operation.Gray` — **true desaturation** via `Image.to_colorspace(:bw)` (luminance only), *not* a color tint (`Monochrome`). Preserves alpha for alpha-capable output formats. |
-| `bitonal` | `bitonal` (extra) | ➖ | Deferred. → **400**. |
+| `bitonal` | `bitonal` quality (Level 2 required) | ✅ | `Plan.Operation.Bitonal` — `:bw` colourspace + a `>= 128` threshold (each band → 0/255). The validator's `quality_bitonal` is a **Level-2** test (same level as `color`/`gray`), so it is required for the gate. |
 
-> Note: `default`/`color`/`gray` are baseline at Level 2; we also list `color`/`gray` in `extraQualities` (harmless over-listing — the validator does not reject it).
+> Note: `default`/`color`/`gray`/`bitonal` are all baseline at Level 2; we list `color`/`gray`/`bitonal` in `extraQualities` (harmless over-listing — the validator does not reject it).
 
 ## Format
 
@@ -115,7 +115,7 @@ The opaque IIIF `{identifier}` is resolved by a host-configured `ImagePipe.Parse
 
 ## Deferred extraFeatures
 
-All optional at every compliance level; tracked separately if a consumer needs them: arbitrary-angle rotation (`rotationArbitrary`), mirroring (`mirroring`, `!n`), `bitonal` quality, and `jp2`/`gif`/`tif`/`pdf` output formats.
+All optional at every compliance level; tracked separately if a consumer needs them: arbitrary-angle rotation (`rotationArbitrary`), mirroring (`mirroring`, `!n`), and `jp2`/`gif`/`tif`/`pdf` output formats.
 
 ## Verification
 
