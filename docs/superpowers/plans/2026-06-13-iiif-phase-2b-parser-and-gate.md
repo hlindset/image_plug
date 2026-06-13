@@ -930,6 +930,10 @@ git commit -m "feat(iiif): info.json document + renderer"
 test "GET /{id}/full/100,/0/default.png -> 200 png, width 100"
 # gray pixel check on an opaque source: bands equal
 test "GET /{id}/full/max/0/gray.jpg -> 200, decoded pixels desaturated"
+# gray on an RGBA source to a non-alpha format: flattens (the B_W+alpha->flatten path #269 deferred here)
+test "GET /{rgba_id}/full/max/0/gray.jpg -> 200 valid (opaque) JPEG (alpha flattened via #269)"
+# gray on an RGBA source to png keeps transparency
+test "GET /{rgba_id}/full/max/0/gray.png -> 200, alpha band intact"
 # info.json + negotiation
 test "GET /{id}/info.json (no Accept) -> application/json, profile level2, display dims"
 test "GET /{id}/info.json (Accept: application/ld+json) -> ld+json, Vary: Accept"
@@ -977,7 +981,7 @@ git add test/parser/iiif_wire_test.exs && git commit -m "test(iiif): wire-level 
 - [ ] **Step 1:** Read `docs/imgproxy_support_matrix.md` for structure (per-feature tables, surface/stage/behavioral axes, "Diverges" notes).
 - [ ] **Step 2:** Write `docs/iiif_3_support_matrix.md` with: region/size/rotation/quality/format/info.json/HTTP feature tables keyed to the Level 0/1/2 compliance matrix; the `extraFeatures`/`extraQualities`/`extraFormats` we advertise; and the explicit divergences/notes:
   - upscale-without-`^` (incl. `!w,h`) and wholly-out-of-bounds region → **400** (spec-conformant; general customizable error→status is **#267**).
-  - `gray`/any quality on an explicit **non-alpha** format with an alpha source 500s until **#268** (general flatten gap); gray preserves alpha otherwise.
+  - `gray`/any quality on an explicit **non-alpha** format with an alpha source **flattens onto the background** (valid output) via **#269** (landed); gray preserves alpha for alpha-supporting formats.
   - `jp2`/`gif`/`tif`/`pdf`, bitonal, arbitrary rotation, mirroring (`!n`) — unsupported `extraFeatures`.
   - `auto_rotate` defaults true (display-frame coordinates) — intentional, not a divergence.
   - canonical `Link` — implemented or deferred (per B7).
