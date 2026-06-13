@@ -26,11 +26,14 @@ defmodule ImagePipe.Parser.TwicPicsTest do
     assert get_resp_header(result, "content-type") == ["text/plain; charset=utf-8"]
   end
 
-  test "validate_options!/1 returns the validated keyword list" do
-    assert TwicPics.validate_options!([]) == []
+  test "validate_options!/1 normalizes the :twicpics sub-options into the opts" do
+    assert TwicPics.validate_options!([]) == [twicpics: []]
+    assert TwicPics.validate_options!(parser: TwicPics)[:twicpics] == []
   end
 
-  test "validate_options!/1 raises on a non-list" do
-    assert_raise ArgumentError, fn -> TwicPics.validate_options!(:nope) end
+  test "validate_options!/1 raises on a non-list :twicpics value" do
+    assert_raise ArgumentError, ~r/invalid twicpics options/, fn ->
+      TwicPics.validate_options!(twicpics: :nope)
+    end
   end
 end

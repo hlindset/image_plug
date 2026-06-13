@@ -17,18 +17,27 @@ defmodule ImagePipe.Parser.TwicPics do
 
   @schema NimbleOptions.new!([])
 
-  @doc false
+  @impl ImagePipe.Parser
   def validate_options!(opts) when is_list(opts) do
-    case NimbleOptions.validate(opts, @schema) do
+    twicpics_opts =
+      opts
+      |> Keyword.get(:twicpics, [])
+      |> validate_twicpics_options!()
+
+    Keyword.put(opts, :twicpics, twicpics_opts)
+  end
+
+  defp validate_twicpics_options!(twicpics_opts) when is_list(twicpics_opts) do
+    case NimbleOptions.validate(twicpics_opts, @schema) do
       {:ok, validated} ->
         validated
 
-      {:error, error} ->
+      {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError, "invalid twicpics config: #{Exception.message(error)}"
     end
   end
 
-  def validate_options!(_opts),
+  defp validate_twicpics_options!(_twicpics_opts),
     do: raise(ArgumentError, "invalid twicpics options: expected a keyword list")
 
   @impl ImagePipe.Parser

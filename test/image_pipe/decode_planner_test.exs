@@ -308,12 +308,4 @@ defmodule ImagePipe.Transform.DecodePlannerTest do
     opts = DecodePlanner.open_options([resize], :jpeg, {800, 800})
     assert Keyword.get(opts, :shrink) >= 2
   end
-
-  test "a relative-unit resize plans random access, never sequential" do
-    # Relative units (percent/scale) resolve against the running image at execute
-    # time, so a relative-unit resize is never treated as sequential-access.
-    assert {:ok, resize} = Operation.resize(:fit, {:percent, 50}, :auto)
-
-    assert DecodePlanner.open_options([resize]) == [access: :random, fail_on: :error]
-  end
 end

@@ -113,12 +113,16 @@ defmodule ImagePipe.TwicPicsWireConformanceTest do
     assert Enum.any?(vary, &(String.downcase(&1) == "accept"))
   end
 
-  test "oversized chained upscale is rejected by the result limit after fetch" do
+  test "oversized chained upscale is clamped to the result limit after fetch" do
     opts = Keyword.put(@opts, :max_result_pixels, 1_000_000)
     conn = call("/images/beach.jpg?twic=v1/resize=4s/resize=4s/output=jpeg", opts)
-    # 413 specifically (post-decode result limit), not a 400 parse rejection —
-    # this pins that the request reached the result-size guard after fetch.
-    assert conn.status == 413
+    # The 16x chained upscale of a 4000px source overshoots the host pixel cap.
+    # ImagePipe clamps an oversized result down to the caps (imgproxy fixSize
+    # parity, #150/#165) rather than rejecting it — a 200 with the result pinned
+    # under the cap proves the request reached the post-fetch result-size guard.
+    assert conn.status == 200
+    {w, h} = dimensions(conn)
+    assert w * h <= 1_000_000
   end
 
   test "two semantically-equivalent requests reuse the same cache entry" do

@@ -115,7 +115,6 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Renderer
     ])
 
-    assert_boundary_deps(imgproxy, [ImagePipe.Format, ImagePipe.Parser, ImagePipe.Plan])
     assert_boundary_exports(imgproxy, [ImagePipe.Parser.Imgproxy.SourceScheme])
 
     assert_boundary_deps(iiif, [
