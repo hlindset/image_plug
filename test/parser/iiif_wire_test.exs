@@ -1,0 +1,398 @@
+defmodule ImagePipe.Parser.IIIFWireTest do
+  use ExUnit.Case, async: true
+
+  import Plug.Conn
+  import Plug.Test
+
+  alias ImagePipe.Parser.IIIF.CORS
+  alias ImagePipe.Parser.IIIF.Resolver.Static, as: StaticResolver
+  alias ImagePipe.Plan.Source.Path, as: SourcePath
+  alias ImagePipe.SourceTest.RootHTTPAdapter
+  alias Vix.Vips.Image, as: VipsImage
+
+  # ---------------------------------------------------------------------------
+  # Origin plugs
+  # ---------------------------------------------------------------------------
+
+  defmodule OriginImage do
+    @moduledoc false
+
+    # Serves a 200×300 opaque PNG — tall enough to exercise width-only resize
+    # (100,/ should produce width=100) and large enough to avoid upscale paths.
+    def init(opts), do: opts
+
+    def call(conn, _opts) do
+      body = Image.new!(200, 300, color: [100, 150, 200]) |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  defmodule RGBAOriginImage do
+    @moduledoc false
+
+    # Serves a 200×300 RGBA PNG (semi-transparent) to exercise gray+JPEG flatten
+    # and gray+PNG alpha-preserve contracts.
+    def init(opts), do: opts
+
+    def call(conn, _opts) do
+      body =
+        Image.new!(200, 300, color: [120, 180, 60, 128], bands: 4)
+        |> Image.write!(:memory, suffix: ".png")
+
+      conn
+      |> Plug.Conn.put_resp_content_type("image/png")
+      |> Plug.Conn.send_resp(200, body)
+    end
+  end
+
+  # Routes "rgba.png" requests to RGBAOriginImage, all others to OriginImage.
+  # Used to cover contracts 3/4 where different identifiers need different source images.
+  defmodule MultiOriginImage do
+    @moduledoc false
+
+    def init(opts), do: opts
+
+    def call(%Plug.Conn{request_path: path} = conn, _opts) do
+      if String.contains?(path, "rgba") do
+        RGBAOriginImage.call(conn, [])
+      else
+        OriginImage.call(conn, [])
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Mount options
+  # ---------------------------------------------------------------------------
+
+  defp static_resolver(extra_map \\ %{}) do
+    base_map = %{
+      "img" => %SourcePath{segments: ["pic.png"]},
+      "imgrgba" => %SourcePath{segments: ["rgba.png"]}
+    }
+
+    {StaticResolver, map: Map.merge(base_map, extra_map)}
+  end
+
+  defp iiif_opts(origin_plug) do
+    [
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: static_resolver()],
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
+      ]
+    ]
+  end
+
+  defp iiif_opts_with_rgba do
+    [
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: static_resolver()],
+      sources: [
+        path:
+          {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: MultiOriginImage]}
+      ]
+    ]
+  end
+
+  # ---------------------------------------------------------------------------
+  # Call helpers
+  # ---------------------------------------------------------------------------
+
+  # Builds a conn for the path UNDER the IIIF mount prefix (script_name: ["iiif"]).
+  # The `path` should be "/img/full/max/0/default.jpg" (without "/iiif").
+  defp call_iiif(path, opts, req_headers \\ []) do
+    initialized = ImagePipe.Plug.init(opts)
+
+    conn =
+      :get
+      |> conn(path)
+      |> put_script_name(["iiif"])
+      |> add_req_headers(req_headers)
+
+    cors_conn = CORS.call(conn, CORS.init([]))
+
+    if cors_conn.halted do
+      cors_conn
+    else
+      ImagePipe.Plug.call(cors_conn, initialized)
+    end
+  end
+
+  defp call_options(path) do
+    conn =
+      :options
+      |> conn(path)
+      |> put_script_name(["iiif"])
+
+    CORS.call(conn, CORS.init([]))
+  end
+
+  defp put_script_name(conn, script_name), do: %{conn | script_name: script_name}
+
+  defp add_req_headers(conn, []), do: conn
+
+  defp add_req_headers(conn, headers) do
+    Enum.reduce(headers, conn, fn {k, v}, acc -> put_req_header(acc, k, v) end)
+  end
+
+  defp content_type(conn), do: get_resp_header(conn, "content-type")
+
+  defp decoded_image(conn) do
+    Image.open!(conn.resp_body, access: :random, fail_on: :error)
+  end
+
+  defp dimensions(conn) do
+    img = decoded_image(conn)
+    {Image.width(img), Image.height(img)}
+  end
+
+  # Assert a decoded image is grayscale: 1-band is luminance-only; a 3-band result
+  # must have R≈G≈B at sampled points (so a skipped gray op would be detected).
+  defp assert_grayscale!(img) do
+    {w, h} = {Image.width(img), Image.height(img)}
+
+    for {x, y} <- [{div(w, 4), div(h, 4)}, {div(w, 2), div(h, 2)}, {div(w * 3, 4), div(h * 3, 4)}] do
+      case Image.get_pixel!(img, x, y) do
+        [_lum] ->
+          :ok
+
+        [r, g, b | _] ->
+          assert abs(r - g) <= 2 and abs(g - b) <= 2,
+                 "pixel at (#{x},#{y}) not gray: r=#{r} g=#{g} b=#{b}"
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 1: basic image request — width resize, correct content-type
+  # ---------------------------------------------------------------------------
+
+  test "contract 1: image request → 200 PNG, decoded width == 100" do
+    conn = call_iiif("/img/full/100,/0/default.png", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/png"]
+    assert elem(dimensions(conn), 0) == 100
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 2: gray quality on opaque source → desaturated pixels
+  # ---------------------------------------------------------------------------
+
+  test "contract 2: gray quality on opaque source → R==G==B at sampled points" do
+    conn = call_iiif("/img/full/max/0/gray.jpg", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    {w, h} = {Image.width(img), Image.height(img)}
+
+    sample_points = [
+      {div(w, 4), div(h, 4)},
+      {div(w, 2), div(h, 2)},
+      {div(w * 3, 4), div(h * 3, 4)}
+    ]
+
+    for {x, y} <- sample_points do
+      pixel = Image.get_pixel!(img, x, y)
+
+      case pixel do
+        # 1-band (gray/grayscale JPEG): single luminance value — inherently desaturated
+        [_lum] ->
+          :ok
+
+        # 3-band (RGB JPEG): check R≈G≈B
+        [r, g, b | _] ->
+          assert abs(r - g) <= 2 and abs(g - b) <= 2,
+                 "pixel at (#{x},#{y}) not gray: r=#{r} g=#{g} b=#{b}"
+      end
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 3: gray + RGBA source + JPG output → valid JPEG (no crash)
+  # ---------------------------------------------------------------------------
+
+  test "contract 3: gray on RGBA source + JPG format → 200, valid JPEG response" do
+    conn = call_iiif("/imgrgba/full/max/0/gray.jpg", iiif_opts_with_rgba())
+
+    assert conn.status == 200, "status=#{conn.status} body=#{inspect(conn.resp_body)}"
+
+    # Must parse as a valid image — no crash from the RGBA→JPEG alpha-flatten path
+    img = decoded_image(conn)
+    assert Image.width(img) > 0
+    assert Image.height(img) > 0
+
+    # JPEG must not have an alpha channel (may be 1-band gray or 3-band color)
+    {:ok, n_bands} = VipsImage.header_value(img, "bands")
+
+    assert n_bands in [1, 3],
+           "gray+JPEG from RGBA must produce 1 or 3 bands (no alpha), got #{n_bands}"
+
+    # And gray must actually have RUN: the RGBA source is non-gray ([120,180,60]),
+    # so a 3-band result must be desaturated (R≈G≈B); a 1-band result is luminance-only.
+    assert_grayscale!(img)
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 4: gray + RGBA source + PNG → keeps alpha channel
+  # ---------------------------------------------------------------------------
+
+  test "contract 4: gray on RGBA source + PNG format → 200, decoded image has alpha" do
+    conn = call_iiif("/imgrgba/full/max/0/gray.png", iiif_opts_with_rgba())
+
+    assert conn.status == 200
+
+    img = decoded_image(conn)
+    {:ok, n_bands} = VipsImage.header_value(img, "bands")
+
+    assert n_bands == 2,
+           "expected 2 bands (gray+alpha) for gray PNG from RGBA source, got #{n_bands}"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 5: info.json without Accept → application/json, correct fields
+  # ---------------------------------------------------------------------------
+
+  test "contract 5: info.json no Accept → 200, application/json, expected fields" do
+    conn = call_iiif("/img/info.json", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+
+    [ct] = content_type(conn)
+    assert String.starts_with?(ct, "application/json")
+
+    json = JSON.decode!(conn.resp_body)
+    assert json["type"] == "ImageService3"
+    assert json["profile"] == "level2"
+    # OriginImage serves a 200×300 source (orientation 1), so info.json reports those.
+    assert json["width"] == 200 and json["height"] == 300
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 6: info.json with Accept: application/ld+json → ld+json ct + Vary
+  # ---------------------------------------------------------------------------
+
+  test "contract 6: info.json with Accept application/ld+json → ld+json content-type + vary: accept" do
+    conn =
+      call_iiif("/img/info.json", iiif_opts(OriginImage), [
+        {"accept", "application/ld+json"}
+      ])
+
+    assert conn.status == 200
+
+    [ct] = content_type(conn)
+
+    assert String.starts_with?(ct, "application/ld+json"),
+           "expected application/ld+json content-type, got: #{ct}"
+
+    vary = get_resp_header(conn, "vary")
+
+    assert Enum.any?(vary, &String.contains?(String.downcase(&1), "accept")),
+           "expected vary: accept header, got: #{inspect(vary)}"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 7: bare identifier → 303, location ends with /info.json
+  # ---------------------------------------------------------------------------
+
+  test "contract 7: bare identifier → 303, location ends with /iiif/img/info.json" do
+    conn = call_iiif("/img", iiif_opts(OriginImage))
+
+    assert conn.status == 303
+
+    [location] = get_resp_header(conn, "location")
+
+    assert String.ends_with?(location, "/iiif/img/info.json"),
+           "expected location ending in /iiif/img/info.json, got: #{location}"
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 8: CORS headers on image + info + redirect + OPTIONS
+  # ---------------------------------------------------------------------------
+
+  test "contract 8a: image response carries access-control-allow-origin: *" do
+    conn = call_iiif("/img/full/max/0/default.jpg", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
+  end
+
+  test "contract 8b: info.json response carries access-control-allow-origin: *" do
+    conn = call_iiif("/img/info.json", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
+  end
+
+  test "contract 8c: redirect response carries access-control-allow-origin: *" do
+    conn = call_iiif("/img", iiif_opts(OriginImage))
+
+    assert conn.status == 303
+    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
+  end
+
+  test "contract 8d: OPTIONS preflight → 200 with access-control-allow-methods" do
+    conn = call_options("/img/full/max/0/default.jpg")
+
+    assert conn.status == 200
+    assert get_resp_header(conn, "access-control-allow-methods") != []
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 9: status mapping
+  # ---------------------------------------------------------------------------
+
+  test "contract 9a: upscale without ^ → 400" do
+    # Source is 200×300; requesting 9999w without ^ upscale flag → reject
+    conn = call_iiif("/img/full/9999,/0/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 400
+  end
+
+  test "contract 9b: confined upscale !4000,4000 without ^ → 400" do
+    # !w,h without ^ upscale flag and image smaller than target → reject
+    conn = call_iiif("/img/full/!4000,4000/0/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 400
+  end
+
+  test "contract 9c: bad rotation (45) → 400" do
+    conn = call_iiif("/img/full/max/45/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 400
+  end
+
+  test "contract 9d: unsupported format .tif → 400" do
+    conn = call_iiif("/img/full/max/0/default.tif", iiif_opts(OriginImage))
+    assert conn.status == 400
+  end
+
+  test "contract 9e: unknown identifier → 404" do
+    conn = call_iiif("/nope/full/max/0/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 404
+  end
+
+  test "contract 9f: unescaped slash in identifier (a/b) → 404" do
+    # An identifier with an unescaped slash produces 6 path segments
+    # which IIIF Path.classify/1 cannot match → :not_found → 404
+    conn = call_iiif("/a/b/full/max/0/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 404
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 10: image responses do NOT carry vary: accept (IIIF format is per-URL)
+  # ---------------------------------------------------------------------------
+
+  test "contract 10: image response does not carry vary: accept" do
+    conn = call_iiif("/img/full/max/0/default.jpg", iiif_opts(OriginImage))
+
+    assert conn.status == 200
+
+    vary = get_resp_header(conn, "vary")
+
+    refute Enum.any?(vary, &String.contains?(String.downcase(&1), "accept")),
+           "image response must not carry vary: accept, got: #{inspect(vary)}"
+  end
+end
