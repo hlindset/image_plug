@@ -124,6 +124,82 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert_received {:got, "hop.example", "/other.jpg"}
   end
 
+  test "an origin non-success status surfaces as {:bad_status, status}" do
+    plug = fn conn -> Plug.Conn.send_resp(conn, 404, "nope") end
+
+    stream =
+      ReqStream.stream(
+        [url: "https://assets.example.com/missing.jpg", plug: plug],
+        validate_target: fn _ -> :ok end
+      )
+
+    error = assert_raise StreamError, fn -> Enum.to_list(stream) end
+    assert error.reason == {:bad_status, 404}
+  end
+
+  test "a connection failure surfaces as :connect_error" do
+    port = closed_port()
+
+    stream =
+      ReqStream.stream(
+        [url: "http://127.0.0.1:#{port}/x.jpg", connect_options: [timeout: 200]],
+        validate_target: fn _ -> :ok end
+      )
+
+    error = assert_raise StreamError, fn -> Enum.to_list(stream) end
+    assert error.reason == :connect_error
+  end
+
+  test "a 3xx without a Location header surfaces as :invalid_redirect" do
+    plug = fn conn -> Plug.Conn.send_resp(conn, 302, "") end
+
+    stream =
+      ReqStream.stream(
+        [url: "https://assets.example.com/r.jpg", plug: plug],
+        validate_target: fn _ -> :ok end,
+        max_redirects: 1
+      )
+
+    error = assert_raise StreamError, fn -> Enum.to_list(stream) end
+    assert error.reason == :invalid_redirect
+  end
+
+  test "a 3xx with redirects disabled surfaces as :redirect_not_followed" do
+    plug = fn conn ->
+      conn
+      |> Plug.Conn.put_resp_header("location", "https://assets.example.com/other.jpg")
+      |> Plug.Conn.send_resp(302, "")
+    end
+
+    stream =
+      ReqStream.stream(
+        [url: "https://assets.example.com/r.jpg", plug: plug],
+        validate_target: fn _ -> :ok end,
+        max_redirects: 0
+      )
+
+    error = assert_raise StreamError, fn -> Enum.to_list(stream) end
+    assert error.reason == :redirect_not_followed
+  end
+
+  test "a mid-body receive timeout surfaces as :receive_timeout" do
+    {url, server} = start_stalling_origin()
+    server_ref = Process.monitor(server)
+
+    stream =
+      ReqStream.stream(
+        [url: url],
+        validate_target: fn _ -> :ok end,
+        receive_timeout: 100
+      )
+
+    error = assert_raise StreamError, fn -> Enum.to_list(stream) end
+    assert error.reason == :receive_timeout
+
+    Process.exit(server, :kill)
+    assert_receive {:DOWN, ^server_ref, :process, ^server, _reason}
+  end
+
   test "a scheme-downgrade redirect is normalized and validated with the new scheme" do
     plug = fn
       %{request_path: "/r.jpg"} = conn ->
@@ -152,5 +228,40 @@ defmodule ImagePipe.Source.ReqStreamTest do
     assert_received {:validated, "https://assets.example.com/r.jpg"}
     assert_received {:validated, "http://assets.example.com/plain.jpg"}
     assert_received {:got, :http, "/plain.jpg"}
+  end
+
+  # Binds an ephemeral port, then frees it so a connection attempt is refused.
+  defp closed_port do
+    {:ok, listen_socket} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true])
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+    :gen_tcp.close(listen_socket)
+    port
+  end
+
+  # A raw origin that returns a chunked 200 head and then never sends a body
+  # chunk, holding the connection open until the client gives up — the mid-body
+  # receive-timeout path.
+  defp start_stalling_origin do
+    {:ok, listen_socket} =
+      :gen_tcp.listen(0, [:binary, packet: :raw, active: false, reuseaddr: true])
+
+    {:ok, {_address, port}} = :inet.sockname(listen_socket)
+
+    server =
+      spawn(fn ->
+        {:ok, socket} = :gen_tcp.accept(listen_socket)
+        {:ok, _request} = :gen_tcp.recv(socket, 0)
+
+        head =
+          "HTTP/1.1 200 OK\r\n" <>
+            "content-type: image/jpeg\r\n" <>
+            "transfer-encoding: chunked\r\n\r\n"
+
+        :ok = :gen_tcp.send(socket, head)
+        # Block until the client closes, without ever sending a body chunk.
+        :gen_tcp.recv(socket, 0, :infinity)
+      end)
+
+    {"http://127.0.0.1:#{port}", server}
   end
 end

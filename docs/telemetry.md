@@ -109,7 +109,14 @@ Failure stop metadata (one of two shapes, by failure mode):
 
 - Source-side failure — `:result` is `:source_error`; `:error` is a stable
   category atom (e.g. `:body_too_large` when the source body crosses
-  `:max_body_bytes`).
+  `:max_body_bytes`). HTTP fetch failures are classified rather than collapsed
+  so an observer can tell them apart: `:connect_error` (DNS/TLS/refused/connect
+  or pool timeout), `:receive_timeout` (origin stalled mid-body),
+  `:invalid_body` (unparseable chunked framing), `:redirect_not_followed` /
+  `:invalid_redirect` / `:too_many_redirects` (redirect handling), and
+  `:bad_status` for a non-success origin status (the underlying error tuple
+  carries the numeric status as `{:bad_status, status}`; the metadata atom is
+  the `:bad_status` category).
 - Decode / input-validation failure — `:result` is `:processing_error`; `:error`
   is a stable category atom (e.g. `:input_limit` when the decoded image exceeds
   `:max_input_pixels`, `:decode` for an undecodable body).
