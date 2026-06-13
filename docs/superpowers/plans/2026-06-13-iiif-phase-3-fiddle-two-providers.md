@@ -77,11 +77,7 @@ Append to `fiddle/test/image_pipe_fiddle_web/wire_test.exs` (before the final `d
   end
 
   test "OPTIONS /iiif-image answers CORS preflight", %{conn: conn} do
-    conn =
-      conn
-      |> Plug.Test.conn(:options, "/iiif-image/dog/full/max/0/default.jpg")
-      |> ImagePipeFiddleWeb.Router.call(ImagePipeFiddleWeb.Router.init([]))
-
+    conn = options(conn, "/iiif-image/dog/full/max/0/default.jpg")
     assert conn.status == 200
     assert get_resp_header(conn, "access-control-allow-methods") |> hd() =~ "GET"
   end
@@ -94,7 +90,8 @@ Append to `fiddle/test/image_pipe_fiddle_web/wire_test.exs` (before the final `d
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
-Run (from `fiddle/`): `mise exec -- mix test test/image_pipe_fiddle_web/wire_test.exs`
+Run: `(cd fiddle && mise exec -- mix test test/image_pipe_fiddle_web/wire_test.exs)`
+(The bash cwd resets to the worktree root between calls and `fiddle/` is a separate mix project, so the `cd fiddle` subshell is required.)
 Expected: the new tests FAIL (no `/iiif-image` route → 404/serves SPA shell instead of an image; OPTIONS has no `Allow-Methods`).
 
 - [ ] **Step 3: Create the IIIF mount plug**
@@ -168,21 +165,22 @@ Then add these private functions next to `build_imgproxy_opts/0`:
   end
 
   # Maps each sample image to a slash-free, extension-stripped IIIF identifier
-  # (images/dog.jpg -> "dog"). Stems must be unique across the set; raises if not.
+  # (images/dog.jpg -> "dog"). Sample filenames are URL-safe by convention, so the
+  # id needs no encoding and matches the frontend's iiifIdForSource. Stems must be
+  # unique across the set; raises if not.
   defp iiif_source_map do
-    images_dir = Application.app_dir(:image_pipe_fiddle, "priv/static/images")
-
-    map =
-      images_dir
+    files =
+      :image_pipe_fiddle
+      |> Application.app_dir("priv/static/images")
       |> File.ls!()
       |> Enum.filter(&(Path.extname(&1) in ~w(.avif .jpeg .jpg .png .webp)))
-      |> Map.new(fn file ->
-        id = Path.rootname(file)
-        {id, %ImagePipe.Plan.Source.Path{segments: ["images", file]}}
+
+    map =
+      Map.new(files, fn file ->
+        {Path.rootname(file), %ImagePipe.Plan.Source.Path{segments: ["images", file]}}
       end)
 
-    if map_size(map) <
-         Enum.count(File.ls!(images_dir), &(Path.extname(&1) in ~w(.avif .jpeg .jpg .png .webp))) do
+    if map_size(map) < length(files) do
       raise "IIIF identifier stem collision among sample images (two files share a basename)"
     end
 
@@ -194,7 +192,7 @@ Then add these private functions next to `build_imgproxy_opts/0`:
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run (from `fiddle/`): `mise exec -- mix test test/image_pipe_fiddle_web/wire_test.exs`
+Run: `(cd fiddle && mise exec -- mix test test/image_pipe_fiddle_web/wire_test.exs)`
 Expected: PASS (all tests, including the pre-existing imgproxy ones).
 
 - [ ] **Step 7: Commit**
@@ -364,10 +362,11 @@ const iiifQualities: readonly IiifQuality[] = ["default", "color", "gray", "bito
 const iiifFormats: readonly IiifFormat[] = ["jpg", "png", "webp", "avif"];
 const iiifRotations: readonly IiifRotation[] = [0, 90, 180, 270];
 
-// images/dog.jpg -> "dog". decodeURIComponent because sample paths are encoded.
+// images/dog.jpg -> "dog". Sample filenames are URL-safe (no spaces/% / #), so the
+// path basename equals the real filename and matches the backend's Path.rootname —
+// no decode/encode needed. (Keep sample images URL-safe by convention.)
 export function iiifIdForSource(source: SourceImage): string {
-  const file = decodeURIComponent(source.replace(/^images\//, ""));
-  return file.replace(/\.[^.]+$/, "");
+  return source.replace(/^images\//, "").replace(/\.[^.]+$/, "");
 }
 
 const idToSource = new Map<string, SourceImage>(
@@ -768,7 +767,7 @@ This is a behavior-preserving move: the imgproxy tool sections, their `$:` summa
 
 - [ ] **Step 1: Create `ImgproxyControls.svelte` with the props contract**
 
-Create `fiddle/assets/ImgproxyControls.svelte`. Define the props and re-home the imgproxy-specific imports/helpers:
+Create `fiddle/assets/ImgproxyControls.svelte`. **Legacy mode** (this codebase's components all use `export let` + `$:`; do NOT introduce `$props`/`$state`/`$derived`/`$bindable`/`$effect` — mixing runes with `$:` in one component is a Svelte 5 compile error):
 
 ```svelte
 <script lang="ts">
@@ -777,7 +776,7 @@ Create `fiddle/assets/ImgproxyControls.svelte`. Define the props and re-home the
   import RangeNumber from "./RangeNumber.svelte";
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
   import ToolToggleHeader from "./ToolToggleHeader.svelte";
-  import { demoObjClasses } from "./demo-url-state";
+  import { demoObjClasses, expandedToolboxesForState } from "./demo-url-state";
   import {
     controlLimits,
     cropOptionSegment,
@@ -790,39 +789,62 @@ Create `fiddle/assets/ImgproxyControls.svelte`. Define the props and re-home the
     type SourceImage,
   } from "./processing-path";
 
-  let { state = $bindable(), source }: { state: DemoState; source: SourceImage } = $props();
+  export let state: DemoState; // bindable in legacy mode via `export let`
+  export let source: SourceImage;
+
+  // Imgproxy accordion open-state lives here now (these sections moved here).
+  let orientationOpen = true;
+  let scaleOptionsOpen = true;
+  let effectsOpen = true;
 
   const demoObjClassesForPicker = demoObjClasses as readonly string[];
-  // ... (all imgproxy-specific $: summaries, helpers, and handlers move here verbatim:
-  //      flipSegment, backgroundOpacitySummary, metadataSegments, effectSegments,
-  //      updateCropEnabled, updateStripMetadata, syncObjClasses, objClassTriggerLabel,
-  //      focal-point handlers, and the cropWidthLimit/cropHeightLimit reactive vars.
-  //      ALSO move the collapsible open-state (orientationOpen, scaleOptionsOpen,
-  //      effectsOpen, requestOpen) and ensureActiveToolboxesOpen, and run
-  //      `$: ensureActiveToolboxesOpen(state)` here so accordions open for active tools.)
+
+  $: cropWidthLimit = cropPixelLimit(source, "width");
+  $: cropHeightLimit = cropPixelLimit(source, "height");
+  $: {
+    const open = expandedToolboxesForState(state);
+    if (open.orientationOpen) orientationOpen = true;
+    if (open.scaleOptionsOpen) scaleOptionsOpen = true;
+    if (open.effectsOpen) effectsOpen = true;
+  }
+  // ... move here verbatim the imgproxy-only `$:` summaries and helpers from App.svelte:
+  //     flipSegment, backgroundOpacitySummary, metadataSegments, effectSegments,
+  //     objClassTriggerLabel, requestSummary/orientationSummary/resizeSummary/... and
+  //     the handlers updateCropEnabled, updateStripMetadata, syncObjClasses, and the
+  //     focal-point handlers (updateFocalPoint, startFocalPointDrag, moveFocalPoint,
+  //     dragFocalPoint, roundedFocalPoint). See the write-back rule below.
 </script>
 
 <!-- Move here verbatim, in order, the imgproxy tool <section> blocks from App.svelte
      (current App.svelte:723-1550): Resize, Crop, Crop aspect ratio, Gravity, Scale
      options, Orientation, Trim, Aspect canvas, Padding, Background, Effects, Format,
-     Quality, Metadata & color — PLUS the Signature controls (App.svelte:684-718),
-     which are imgproxy-only and now live in this panel's own Request/signing block. -->
+     Quality, Metadata & color. PLUS a Signature sub-block holding the signature
+     <select> + key/salt inputs (App.svelte:684-713) — imgproxy-only. The shared
+     source <select> (App.svelte:676-682) and its `requestOpen` collapsible STAY in
+     App; only the signature controls move here. -->
 ```
 
-Mechanics:
-- All `state.X` references inside the moved markup/handlers are unchanged (the prop is named `state`).
-- The focal-point picker, `syncObjClasses`, and `updateCropEnabled`/`updateSource`-driven crop resets mutate `state` in place. With Svelte 5 `$bindable()` runes, in-place mutation of a bound object propagates; **after any in-place property mutation in a handler, reassign `state = state`** to be safe (e.g. end of `moveFocalPoint`, `syncObjClasses`). Keep `cropWidthLimit`/`cropHeightLimit` reactive on the `source` prop, not `state.source`.
+Mechanics (legacy mode — read carefully, this is the regression-prone part):
+- All `state.X` references inside the moved markup are unchanged (the prop is named `state`).
+- **Write-back rule:** in legacy mode, mutating a `bind:`-passed prop **in place** (`state.gravityFocalX = x`) does NOT reliably propagate to the parent. Every handler that changes state must **assign a whole new object**. Convert the moved handlers:
+  - `updateFocalPoint` / `moveFocalPoint` / `dragFocalPoint`: instead of `state.gravityFocalX = x`, do `state = { ...state, gravityFocalX: x, gravityFocalY: y }`.
+  - `syncObjClasses`: end with `state = { ...state, objSelectedClasses: next, objWeights: weights }` (it already builds new objects — just assign through `state`).
+  - `updateCropEnabled`: `state = enabled ? resetCropPixelsToSource({ ...state, cropEnabled: true }) : { ...state, cropEnabled: false }`.
+  - `updateStripMetadata`: `state = { ...state, stripMetadata: checked, keepCopyright: checked ? state.keepCopyright : false }`.
+  - For `RangeNumber`/`Switch` `bind:value`/`bind:checked` on a top-level `state.X` field: legacy `bind:` on a member of a bound prop DOES write back by reassignment through the binding, so the existing `bind:value={state.width}` etc. keep working. The explicit write-back rule above is only for the imperative handlers that currently mutate in place.
+- `cropWidthLimit`/`cropHeightLimit` are reactive on the `source` prop (above), not `state.source`.
 - The `<img>` in the focal picker uses `src={`/${source}`}`.
 
 - [ ] **Step 2: Wire App.svelte to render the child (single-provider, temporary)**
 
-In `App.svelte`, replace the imgproxy `<section>` blocks (and the signature block) with:
+In `App.svelte`, replace the imgproxy `<section>` blocks (App.svelte:723-1550) and the signature controls (App.svelte:684-713) with:
 
 ```svelte
 <ImgproxyControls bind:state={state} source={state.source} />
 ```
 
-Remove the now-moved imports, `$:` summaries, helpers, and handlers from `App.svelte` that are imgproxy-only. Keep: source `<select>` (shared Request), preview workspace, command bar, theme, mobile drawer, copy/open/reset, `updateProcessingPath`/`loadPreview`/signing, and `updateSource`/`resetCropPixelsToSource` (still operates on `state`).
+- **Keep in App:** the shared Request collapsible (`requestOpen`, App.svelte:661-682) now holding only the source `<select>`; the preview workspace, command bar, theme, mobile drawer, copy/open/reset; `updateProcessingPath`/`loadPreview`/signing; `updateSource`/`resetCropPixelsToSource`.
+- **Remove from App:** the imgproxy-only imports, `$:` summaries, helpers, and handlers that moved to the child; the `orientationOpen`/`scaleOptionsOpen`/`effectsOpen` vars and `ensureActiveToolboxesOpen` (now in the child). `requestOpen` stays (it's the shared Request section).
 
 - [ ] **Step 3: Typecheck, lint, build, and test**
 
@@ -830,6 +852,7 @@ Run:
 ```
 mise exec -- pnpm -C fiddle/assets run check
 mise exec -- pnpm -C fiddle/assets run lint
+mise exec -- pnpm -C fiddle/assets run format:check
 mise exec -- pnpm -C fiddle/assets test
 mise exec -- pnpm -C fiddle/assets run build
 ```
@@ -857,43 +880,56 @@ git commit -m "refactor(fiddle): extract ImgproxyControls.svelte (#254)"
 
 Create `fiddle/assets/IiifControls.svelte`. The single grouped panel binds to an `IiifState` slice and reads `source` for px-region limits:
 
+**Legacy mode** (match the codebase; no runes). Region/size fields write the **whole `state` object** via `RangeNumber`'s `onValueChange` (binding `bind:value` into a narrowed discriminated-union member won't propagate through the parent `bind:` in legacy mode, and the `{#if}` narrowing doesn't hold across a `bind:`). Rotation/quality/format/upscale are single top-level fields and use plain `bind:`.
+
 ```svelte
 <script lang="ts">
   import { Switch } from "bits-ui";
   import RangeNumber from "./RangeNumber.svelte";
   import { cropPixelLimit, type SourceImage } from "./processing-path";
-  import {
-    iiifControlLimits,
-    type IiifState,
-    type IiifRegion,
-    type IiifSize,
-  } from "./iiif-path";
+  import { iiifControlLimits, type IiifState, type IiifRegion, type IiifSize } from "./iiif-path";
 
-  let { state = $bindable(), source }: { state: IiifState; source: SourceImage } = $props();
-
-  // Region/size "kind" drive which inputs render. We keep scratch values so toggling
-  // a kind doesn't lose the previously typed numbers.
-  let regionKind = $derived(state.region.kind);
-  let sizeKind = $derived(state.size.kind);
+  export let state: IiifState; // bindable via export let (legacy)
+  export let source: SourceImage;
 
   $: widthLimit = cropPixelLimit(source, "width");
   $: heightLimit = cropPixelLimit(source, "height");
 
   function setRegionKind(kind: IiifRegion["kind"]): void {
-    if (kind === "full") state.region = { kind: "full" };
-    else if (kind === "square") state.region = { kind: "square" };
-    else if (kind === "px")
-      state.region = { kind: "px", x: 0, y: 0, w: widthLimit.max, h: heightLimit.max };
-    else state.region = { kind: "pct", x: 0, y: 0, w: 50, h: 50 };
+    const region: IiifRegion =
+      kind === "full"
+        ? { kind: "full" }
+        : kind === "square"
+          ? { kind: "square" }
+          : kind === "px"
+            ? { kind: "px", x: 0, y: 0, w: widthLimit.max, h: heightLimit.max }
+            : { kind: "pct", x: 0, y: 0, w: 50, h: 50 };
+    state = { ...state, region };
+  }
+
+  function setRegionField(field: "x" | "y" | "w" | "h", value: number): void {
+    if (state.region.kind !== "px" && state.region.kind !== "pct") return;
+    state = { ...state, region: { ...state.region, [field]: value } };
   }
 
   function setSizeKind(kind: IiifSize["kind"]): void {
-    if (kind === "max") state.size = { kind: "max" };
-    else if (kind === "w") state.size = { kind: "w", w: 400 };
-    else if (kind === "h") state.size = { kind: "h", h: 300 };
-    else if (kind === "wh") state.size = { kind: "wh", w: 400, h: 300 };
-    else if (kind === "confined") state.size = { kind: "confined", w: 400, h: 300 };
-    else state.size = { kind: "pct", n: 50 };
+    const size: IiifSize =
+      kind === "max"
+        ? { kind: "max" }
+        : kind === "w"
+          ? { kind: "w", w: 400 }
+          : kind === "h"
+            ? { kind: "h", h: 300 }
+            : kind === "wh"
+              ? { kind: "wh", w: 400, h: 300 }
+              : kind === "confined"
+                ? { kind: "confined", w: 400, h: 300 }
+                : { kind: "pct", n: 50 };
+    state = { ...state, size };
+  }
+
+  function setSizeField(field: "w" | "h" | "n", value: number): void {
+    state = { ...state, size: { ...state.size, [field]: value } as IiifSize };
   }
 </script>
 
@@ -902,7 +938,10 @@ Create `fiddle/assets/IiifControls.svelte`. The single grouped panel binds to an
 
   <label class="field">
     <span>Region</span>
-    <select value={regionKind} onchange={(e) => setRegionKind(e.currentTarget.value as IiifRegion["kind"])}>
+    <select
+      value={state.region.kind}
+      onchange={(e) => setRegionKind(e.currentTarget.value as IiifRegion["kind"])}
+    >
       <option value="full">full</option>
       <option value="square">square</option>
       <option value="px">pixel (x,y,w,h)</option>
@@ -911,20 +950,23 @@ Create `fiddle/assets/IiifControls.svelte`. The single grouped panel binds to an
   </label>
 
   {#if state.region.kind === "px"}
-    <RangeNumber label="x" bind:value={state.region.x} min={0} max={widthLimit.max} step={1} />
-    <RangeNumber label="y" bind:value={state.region.y} min={0} max={heightLimit.max} step={1} />
-    <RangeNumber label="w" bind:value={state.region.w} min={1} max={widthLimit.max} step={1} />
-    <RangeNumber label="h" bind:value={state.region.h} min={1} max={heightLimit.max} step={1} />
+    <RangeNumber label="x" value={state.region.x} min={0} max={widthLimit.max} step={1} onValueChange={(v) => setRegionField("x", v)} />
+    <RangeNumber label="y" value={state.region.y} min={0} max={heightLimit.max} step={1} onValueChange={(v) => setRegionField("y", v)} />
+    <RangeNumber label="w" value={state.region.w} min={1} max={widthLimit.max} step={1} onValueChange={(v) => setRegionField("w", v)} />
+    <RangeNumber label="h" value={state.region.h} min={1} max={heightLimit.max} step={1} onValueChange={(v) => setRegionField("h", v)} />
   {:else if state.region.kind === "pct"}
-    <RangeNumber label="x %" bind:value={state.region.x} min={0} max={100} step={0.1} inputStep="any" />
-    <RangeNumber label="y %" bind:value={state.region.y} min={0} max={100} step={0.1} inputStep="any" />
-    <RangeNumber label="w %" bind:value={state.region.w} min={0.1} max={100} step={0.1} inputStep="any" />
-    <RangeNumber label="h %" bind:value={state.region.h} min={0.1} max={100} step={0.1} inputStep="any" />
+    <RangeNumber label="x %" value={state.region.x} min={0} max={100} step={0.1} inputStep="any" onValueChange={(v) => setRegionField("x", v)} />
+    <RangeNumber label="y %" value={state.region.y} min={0} max={100} step={0.1} inputStep="any" onValueChange={(v) => setRegionField("y", v)} />
+    <RangeNumber label="w %" value={state.region.w} min={0.1} max={100} step={0.1} inputStep="any" onValueChange={(v) => setRegionField("w", v)} />
+    <RangeNumber label="h %" value={state.region.h} min={0.1} max={100} step={0.1} inputStep="any" onValueChange={(v) => setRegionField("h", v)} />
   {/if}
 
   <label class="field">
     <span>Size</span>
-    <select value={sizeKind} onchange={(e) => setSizeKind(e.currentTarget.value as IiifSize["kind"])}>
+    <select
+      value={state.size.kind}
+      onchange={(e) => setSizeKind(e.currentTarget.value as IiifSize["kind"])}
+    >
       <option value="max">max</option>
       <option value="w">width only (w,)</option>
       <option value="h">height only (,h)</option>
@@ -935,14 +977,14 @@ Create `fiddle/assets/IiifControls.svelte`. The single grouped panel binds to an
   </label>
 
   {#if state.size.kind === "w"}
-    <RangeNumber label="Width" bind:value={state.size.w} min={iiifControlLimits.size.min} max={iiifControlLimits.size.max} step={1} suffix="px" />
+    <RangeNumber label="Width" value={state.size.w} min={iiifControlLimits.size.min} max={iiifControlLimits.size.max} step={1} suffix="px" onValueChange={(v) => setSizeField("w", v)} />
   {:else if state.size.kind === "h"}
-    <RangeNumber label="Height" bind:value={state.size.h} min={iiifControlLimits.size.min} max={iiifControlLimits.size.max} step={1} suffix="px" />
+    <RangeNumber label="Height" value={state.size.h} min={iiifControlLimits.size.min} max={iiifControlLimits.size.max} step={1} suffix="px" onValueChange={(v) => setSizeField("h", v)} />
   {:else if state.size.kind === "wh" || state.size.kind === "confined"}
-    <RangeNumber label="Width" bind:value={state.size.w} min={iiifControlLimits.size.min} max={iiifControlLimits.size.max} step={1} suffix="px" />
-    <RangeNumber label="Height" bind:value={state.size.h} min={iiifControlLimits.size.min} max={iiifControlLimits.size.max} step={1} suffix="px" />
+    <RangeNumber label="Width" value={state.size.w} min={iiifControlLimits.size.min} max={iiifControlLimits.size.max} step={1} suffix="px" onValueChange={(v) => setSizeField("w", v)} />
+    <RangeNumber label="Height" value={state.size.h} min={iiifControlLimits.size.min} max={iiifControlLimits.size.max} step={1} suffix="px" onValueChange={(v) => setSizeField("h", v)} />
   {:else if state.size.kind === "pct"}
-    <RangeNumber label="Percent" bind:value={state.size.n} min={iiifControlLimits.pct.min} max={iiifControlLimits.pct.max} step={1} suffix="%" />
+    <RangeNumber label="Percent" value={state.size.n} min={iiifControlLimits.pct.min} max={iiifControlLimits.pct.max} step={1} suffix="%" onValueChange={(v) => setSizeField("n", v)} />
   {/if}
 
   <label class="switch-field">
@@ -984,7 +1026,10 @@ Create `fiddle/assets/IiifControls.svelte`. The single grouped panel binds to an
 </section>
 ```
 
-(Reuses the existing `.tool-section` / `.field` / `.switch-field` global styles. `RangeNumber` and `cropPixelLimit` already exist; confirm `RangeNumber`'s `suffix`/`inputStep` props by reading the component if a type error appears.)
+Notes:
+- Reuses the existing `.tool-section` / `.field` / `.switch-field` global styles.
+- **Confirm `RangeNumber`'s prop API by reading `fiddle/assets/RangeNumber.svelte`** — this component assumes it exports `value`, `onValueChange`, `min`, `max`, `step`, `inputStep`, `suffix`, `label`. If `onValueChange` isn't exported, either add it (legacy `export let onValueChange: (v: number) => void = () => {}` + call it on input) or fall back to a local scratch `let` per field plus a `$:` that assigns the whole `state`. Do not `bind:value` into `state.region.x` directly.
+- `bind:value={state.rotation}` with numeric `<option value={0}>` keeps `state.rotation` numeric (Svelte preserves the option value's identity for expression values); since `state.rotation` is a single top-level field, the legacy `bind:` write-back works.
 
 - [ ] **Step 2: Typecheck**
 
@@ -1079,10 +1124,14 @@ Replace the reactive path/preview wiring so it dispatches on provider:
 $: appUrl = appPathForState(appState); // browser URL (history)
 $: updateDemoLocation(appUrl);
 
-// Fetch path + parameter preview + output label differ per provider.
+// Fetch path differs per provider. updateProcessingPath signs ASYNCHRONOUSLY and
+// sets `path` on resolution, guarded by pathRequestId. The IIIF branch sets `path`
+// synchronously AND bumps pathRequestId so an in-flight imgproxy signing promise
+// from before a provider switch can't resolve later and clobber the IIIF path.
 $: if (appState.provider === "imgproxy") {
-     updateProcessingPath(appState.imgproxy); // existing signed-path flow sets `path`
+     updateProcessingPath(appState.imgproxy); // sets `path` (signed flow)
    } else {
+     pathRequestId += 1; // invalidate any pending imgproxy signing
      path = iiifFetchPath(appState.iiif);
    }
 $: previewParameters =
@@ -1095,7 +1144,9 @@ $: outputLabel =
        : appState.iiif.format;
 ```
 
-Import `iiifFetchPath` from `./iiif-path`. `updateProcessingPath` continues to take a `DemoState`. The signature controls (signed/unsigned, key, salt) now live in `ImgproxyControls`; ensure `updateProcessingPath` reads `appState.imgproxy.signatureMode` etc. (it already takes the slice).
+- Import `iiifFetchPath` from `./iiif-path`. `updateProcessingPath` continues to take a `DemoState` and already does `const requestId = ++pathRequestId` + a `requestId === pathRequestId` guard before writing `path`; bumping `pathRequestId` in the IIIF branch leans on that same guard.
+- The signature controls (signed/unsigned, key, salt) now live in `ImgproxyControls`, but `updateProcessingPath` still reads them off the `appState.imgproxy` slice it's passed — no change to the signing logic itself.
+- **`replaceState`:** the existing `updateDemoLocation` already calls `window.history.replaceState` (App.svelte:89), so a provider switch (which only recomputes `appUrl`) updates the URL via `replaceState` by construction — it never pushes a history entry. The spec's "provider switch uses replaceState" is satisfied without extra code; the bare-`/` → `/imgproxy/…` canonicalization on mount likewise flows through this same `replaceState`.
 
 - [ ] **Step 4: Preserve the inactive in-memory slice across popstate**
 
@@ -1119,6 +1170,7 @@ Run:
 ```
 mise exec -- pnpm -C fiddle/assets run check
 mise exec -- pnpm -C fiddle/assets run lint
+mise exec -- pnpm -C fiddle/assets run format:check
 mise exec -- pnpm -C fiddle/assets test
 mise exec -- pnpm -C fiddle/assets run build
 ```
@@ -1142,9 +1194,9 @@ git commit -m "feat(fiddle): two-provider container, dropdown, and dispatch wiri
 **Files:**
 - Create/Modify: `fiddle/assets/processing-path.test.ts` (add a focal-point + object-class assertion if not already covered) or a small `imgproxy-controls.test.ts` for the pure helpers.
 
-- [ ] **Step 1: Add a regression test for the in-place-mutation builders**
+- [ ] **Step 1: Add a regression test for the segment builders**
 
-The focal-point and object-class flows mutate state in place. Test the pure builders they feed (no DOM needed) in `fiddle/assets/processing-path.test.ts` (append):
+These cover the **pure builder functions** the focal-point and object-class flows feed (no DOM). Note: there is no Svelte component-testing library in `fiddle/assets` devDependencies, so the `bind:`/whole-object-assignment write-back path itself is verified by the manual smoke in Task 6 Step 6, not by a mounted unit test. Append to `fiddle/assets/processing-path.test.ts`:
 
 ```ts
 import { gravitySegment, objGravitySegmentFromState, defaultDemoState } from "./processing-path";
@@ -1187,3 +1239,10 @@ git commit -m "test(fiddle): cover object-gravity + focal-point segment builders
 - **Signing invariant:** the `/imgproxy` prefix exists only in `appPathForState`/`parseAppPath`. Never pass it to `signedPathForState`, `buildProcessingPath`, the preview `fetch`, or the Copy URL (which uses `path`, the `/img/<sig>/…` fetch path). Don't "simplify" copy/preview to reuse `appPathForState`.
 - **CORS** is interim manual composition (#284 removes it). Keep the wrapper until then.
 - If `RangeNumber` prop names (`suffix`, `inputStep`, `onValueChange`) differ from what's used here, read `fiddle/assets/RangeNumber.svelte` and match — do not invent props.
+- **Svelte mode:** every new/edited component is **legacy mode** (`export let` + `$:`). Never introduce `$props`/`$state`/`$derived`/`$bindable`/`$effect` — mixing runes with `$:` in one component is a compile error, and the whole codebase is legacy.
+- **Write-back:** in legacy mode, propagate state changes by assigning a whole new object through the bound prop (`state = { ...state, … }`), never by in-place mutation of a `bind:`-passed object.
+
+## Before pushing (AGENTS.md)
+
+- Rename the branch to a descriptive name before the first push — `git branch -m feat/fiddle-two-providers-iiif` (rename only the branch; leave the worktree dir).
+- PR body must include a bare line `Fixes #254` (plain keyword, its own line) so the issue auto-closes. Verify with `gh pr view <n> --json closingIssuesReferences`. Do not reference #284 with a closing keyword — it's a separate follow-up that this PR does not resolve.
