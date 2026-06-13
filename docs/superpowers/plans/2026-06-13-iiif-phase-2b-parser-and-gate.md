@@ -711,9 +711,9 @@ defmodule ImagePipe.Parser.IIIF do
   @schema NimbleOptions.new!(
             resolver: [type: {:custom, __MODULE__, :validate_resolver, []}, required: true],
             auto_rotate: [type: :boolean, default: true],
-            max_width: [type: {:or, [:pos_integer, {:literal, nil}]}, default: nil],
-            max_height: [type: {:or, [:pos_integer, {:literal, nil}]}, default: nil],
-            max_area: [type: {:or, [:pos_integer, {:literal, nil}]}, default: nil],
+            max_width: [type: {:or, [:pos_integer, nil]}, default: nil],
+            max_height: [type: {:or, [:pos_integer, nil]}, default: nil],
+            max_area: [type: {:or, [:pos_integer, nil]}, default: nil],
             formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
             qualities: [type: {:list, :atom}, default: [:default, :color, :gray]]
           )
