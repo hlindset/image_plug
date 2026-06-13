@@ -157,6 +157,7 @@ defmodule ImagePipe.Source.ReqStream do
   defp parse_message(response, message) do
     case Req.parse_message(response, message) do
       {:ok, chunks} -> {:ok, chunks}
+      {:error, %{reason: :timeout}} -> {:error, :receive_timeout}
       {:error, _exception} -> {:error, :invalid_body}
       :unknown -> :unknown
     end
