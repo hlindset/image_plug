@@ -97,14 +97,15 @@ defmodule ImagePipe.Parser.IIIF.Grammar do
   @doc """
   Parses a IIIF quality token.
 
-  Returns `{:ok, :default | :color | :gray}` or `{:error, {:invalid_quality, raw}}`.
+  Returns `{:ok, :default | :color | :gray | :bitonal}` or `{:error, {:invalid_quality, raw}}`.
   """
   @spec quality(String.t()) ::
-          {:ok, :default | :color | :gray}
+          {:ok, :default | :color | :gray | :bitonal}
           | {:error, {:invalid_quality, String.t()}}
   def quality("default"), do: {:ok, :default}
   def quality("color"), do: {:ok, :color}
   def quality("gray"), do: {:ok, :gray}
+  def quality("bitonal"), do: {:ok, :bitonal}
   def quality(raw), do: {:error, {:invalid_quality, raw}}
 
   @doc """

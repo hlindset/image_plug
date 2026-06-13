@@ -13,6 +13,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation.Background, as: PlanBackground
+  alias ImagePipe.Plan.Operation.Bitonal, as: PlanBitonal
   alias ImagePipe.Plan.Operation.Blur, as: PlanBlur
   alias ImagePipe.Plan.Operation.Brightness, as: PlanBrightness
   alias ImagePipe.Plan.Operation.Canvas
@@ -36,6 +37,7 @@ defmodule ImagePipe.Transform.PlanExecutor do
   alias ImagePipe.Transform.InputColorManagement
   alias ImagePipe.Transform.Materializer
   alias ImagePipe.Transform.Operation.Background
+  alias ImagePipe.Transform.Operation.Bitonal
   alias ImagePipe.Transform.Operation.Blur
   alias ImagePipe.Transform.Operation.Brightness
   alias ImagePipe.Transform.Operation.Contrast
@@ -629,6 +631,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
 
   defp executable_operations(%PlanContrast{value: value}, %State{}, _context),
     do: [%Contrast{value: value}]
+
+  defp executable_operations(%PlanBitonal{}, %State{}, _context), do: [%Bitonal{}]
 
   defp executable_operations(%PlanGray{}, %State{}, _context), do: [%Gray{}]
 

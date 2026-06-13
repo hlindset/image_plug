@@ -32,7 +32,8 @@ defmodule ImagePipe.Parser.IIIF.GrammarTest do
     assert {:error, {:invalid_rotation, "45"}} = Grammar.rotation("45")
     assert {:error, {:invalid_rotation, "!90"}} = Grammar.rotation("!90")
     assert Grammar.quality("gray") == {:ok, :gray}
-    assert {:error, {:invalid_quality, "bitonal"}} = Grammar.quality("bitonal")
+    assert Grammar.quality("bitonal") == {:ok, :bitonal}
+    assert {:error, {:invalid_quality, "sepia"}} = Grammar.quality("sepia")
     assert Grammar.format("jpg") == {:ok, :jpg}
     assert {:error, {:invalid_format, "tif"}} = Grammar.format("tif")
   end

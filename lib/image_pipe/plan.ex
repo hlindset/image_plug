@@ -22,6 +22,7 @@ defmodule ImagePipe.Plan do
       Source.Reference,
       Operation,
       Operation.Background,
+      Operation.Bitonal,
       Operation.Blur,
       Operation.Brightness,
       Operation.Canvas,

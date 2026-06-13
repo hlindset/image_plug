@@ -135,7 +135,8 @@ defmodule ImagePipe.MixProject do
       {:excoveralls, ">= 0.0.0", only: [:test], runtime: false},
       {:ex_doc, "~> 0.35", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:talan, "~> 0.2.1"}
+      {:talan, "~> 0.2.1"},
+      {:bandit, "~> 1.5", only: [:dev, :test]}
     ]
 
     # Real face detection needs `image_vision` AND its optional ONNX backend

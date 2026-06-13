@@ -5,6 +5,7 @@ defmodule ImagePipe.Plan.Operation do
 
   alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Operation.Background
+  alias ImagePipe.Plan.Operation.Bitonal
   alias ImagePipe.Plan.Operation.Blur
   alias ImagePipe.Plan.Operation.Brightness
   alias ImagePipe.Plan.Operation.Canvas
@@ -74,7 +75,8 @@ defmodule ImagePipe.Plan.Operation do
           | Flip.t()
 
   @type effect_operation ::
-          Blur.t()
+          Bitonal.t()
+          | Blur.t()
           | Sharpen.t()
           | Pixelate.t()
           | Monochrome.t()
@@ -403,6 +405,7 @@ defmodule ImagePipe.Plan.Operation do
   def semantic?(%Contrast{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Saturation{} = operation), do: valid_adjustment_value?(operation.value)
   def semantic?(%Trim{} = operation), do: valid_trim?(operation)
+  def semantic?(%Bitonal{}), do: true
   def semantic?(%Gray{}), do: true
   def semantic?(_operation), do: false
 

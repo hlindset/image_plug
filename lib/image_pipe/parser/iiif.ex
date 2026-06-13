@@ -25,7 +25,7 @@ defmodule ImagePipe.Parser.IIIF do
             max_height: [type: {:or, [:pos_integer, nil]}, default: nil],
             max_area: [type: {:or, [:pos_integer, nil]}, default: nil],
             formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
-            qualities: [type: {:list, :atom}, default: [:default, :color, :gray]]
+            qualities: [type: {:list, :atom}, default: [:default, :color, :gray, :bitonal]]
           )
 
   @impl true

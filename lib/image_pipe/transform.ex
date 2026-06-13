@@ -22,6 +22,7 @@ defmodule ImagePipe.Transform do
       Operation.ExtendCanvas,
       Operation.Padding,
       Operation.Background,
+      Operation.Bitonal,
       Operation.Crop,
       Operation.Blur,
       Operation.Sharpen,

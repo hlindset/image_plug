@@ -4,6 +4,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
   alias ImagePipe.Parser.IIIF.InfoRenderer
   alias ImagePipe.Plan
   alias ImagePipe.Plan.Operation
+  alias ImagePipe.Plan.Operation.Bitonal
   alias ImagePipe.Plan.Operation.Gray
   alias ImagePipe.Plan.Output
   alias ImagePipe.Plan.Pipeline
@@ -158,6 +159,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
 
   defp quality_operations(quality) when quality in [:default, :color], do: {:ok, []}
   defp quality_operations(:gray), do: {:ok, [%Gray{}]}
+  defp quality_operations(:bitonal), do: {:ok, [%Bitonal{}]}
 
   defp output_plan(:jpg), do: {:ok, %Output{mode: {:explicit, :jpeg}}}
   defp output_plan(:png), do: {:ok, %Output{mode: {:explicit, :png}}}
