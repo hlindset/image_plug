@@ -40,34 +40,28 @@
 
 **Files:**
 - Modify: `lib/image_pipe/plan/source_info.ex`
-- Modify: `lib/image_pipe/parser/imgproxy/info_renderer.ex:33,52-54`
-- Test: `test/image_pipe/plan/source_info_test.exs` (create)
+- Modify: `lib/image_pipe/parser/imgproxy/info_renderer.ex:34,52-54`
+- Test: `test/image_pipe/plan/source_info_test.exs` (**already exists** — add to it, don't recreate)
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Add the failing tests to the existing module**
 
-Create `test/image_pipe/plan/source_info_test.exs`:
+`test/image_pipe/plan/source_info_test.exs` already exists with struct tests. Add (inside the existing `ImagePipe.Plan.SourceInfoTest` module — do **not** redefine the module) a small helper and two tests:
 
 ```elixir
-defmodule ImagePipe.Plan.SourceInfoTest do
-  use ExUnit.Case, async: true
+  defp dims_info(orientation),
+    do: %ImagePipe.Plan.SourceInfo{format: :jpeg, width: 4000, height: 3000, orientation: orientation}
 
-  alias ImagePipe.Plan.SourceInfo
-
-  defp info(orientation),
-    do: %SourceInfo{format: :jpeg, width: 4000, height: 3000, orientation: orientation}
-
-  test "non-quarter-turn orientations keep stored dimensions" do
+  test "display_dimensions/1 keeps stored dims for orientations 1-4" do
     for o <- [1, 2, 3, 4] do
-      assert SourceInfo.display_dimensions(info(o)) == {4000, 3000}
+      assert ImagePipe.Plan.SourceInfo.display_dimensions(dims_info(o)) == {4000, 3000}
     end
   end
 
-  test "quarter-turn orientations (5-8) swap width and height" do
+  test "display_dimensions/1 swaps width/height for orientations 5-8" do
     for o <- [5, 6, 7, 8] do
-      assert SourceInfo.display_dimensions(info(o)) == {3000, 4000}
+      assert ImagePipe.Plan.SourceInfo.display_dimensions(dims_info(o)) == {3000, 4000}
     end
   end
-end
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -111,8 +105,8 @@ and delete the now-unused private clauses (`info_renderer.ex:52-54`):
 
 - [ ] **Step 5: Run tests to verify both pass**
 
-Run: `mise exec -- mix test test/image_pipe/plan/source_info_test.exs test/parser/imgproxy_test.exs`
-(plus any imgproxy info_renderer test that exists — `mise exec -- mix test --only info` is not used; run the imgproxy info wire test file if separate).
+Run: `mise exec -- mix test test/image_pipe/plan/source_info_test.exs test/image_pipe/parser/imgproxy/info_renderer_test.exs test/image_pipe/parser/imgproxy/info_dispatch_test.exs`
+(the imgproxy info tests are the real regression surface for the refactor — they assert the orientation swap via the public `/info` render.)
 Expected: PASS. Then `mise exec -- mix compile --warnings-as-errors` (catches the removed-private-fn warning if a reference was missed).
 
 - [ ] **Step 6: Commit**
@@ -146,7 +140,7 @@ defmodule ImagePipe.Transform.Operation.GrayTest do
   alias ImagePipe.Transform.Operation.Gray
   alias ImagePipe.Transform.State
 
-  @rgb Path.join([__DIR__, "..", "..", "..", "support", "fixtures", "beach.jpg"])
+  @rgb "priv/static/images/beach.jpg"
 
   defp state_from(path) do
     {:ok, image} = Image.open(path, access: :random)
@@ -173,7 +167,7 @@ defmodule ImagePipe.Transform.Operation.GrayTest do
 end
 ```
 
-> Adjust `@rgb` to an existing JPEG fixture under `test/support/fixtures/` (use whatever the imgproxy/transform tests already use, e.g. `beach.jpg`); confirm with `ls test/support/fixtures`.
+> `priv/static/images/beach.jpg` is a real fixture (same one `sequential_access_test.exs` uses as `@beach`). `Image.get_pixel/3` returns `{:ok, [bands…]}`.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -276,22 +270,16 @@ In `test/image_pipe/transform/sequential_access_test.exs`, add the alias `alias 
   test "gray streams (sequential == random)" do
     assert_sequential_matches_random([%Gray{}], File.read!(@beach))
   end
-
-  property "gray streams across varied input shapes" do
-    check all body <- image_body_generator() do
-      assert_sequential_matches_random([%Gray{}], body)
-    end
-  end
 ```
 
-> Use the file's existing helper names (`assert_sequential_matches_random/2`, the `@beach` fixture, and whatever property generator the file already defines — read the file and match its conventions). If it has no property generator, replicate the one used by another point op.
+> Match the file's conventions: point ops in `sequential_access_test.exs` (saturation/brightness/contrast) get a single **example** test via `assert_sequential_matches_random/2` over `@beach` — there is **no** body-varying property generator in this file, so do **not** add a `property` block. The file's existing self-check (a raw transpose must raise under the streamed open) already guards against a tautological pass — do not duplicate it.
 
 - [ ] **Step 8: Add an alpha-preservation transform test**
 
 Append to `test/image_pipe/transform/operation/gray_test.exs`:
 
 ```elixir
-  @rgba Path.join([__DIR__, "..", "..", "..", "support", "fixtures", "transparent.png"])
+  @rgba "test/support/image_pipe/test/imgproxy_differential/sources/alpha.png"
 
   test "preserves an alpha band (RGBA -> 2-band B_W + alpha)" do
     {:ok, image} = Image.open(@rgba, access: :random)
@@ -301,7 +289,7 @@ Append to `test/image_pipe/transform/operation/gray_test.exs`:
   end
 ```
 
-> If no transparent PNG fixture exists, add a tiny one to `test/support/fixtures/transparent.png` (e.g. generate with `Image.new!(8, 8, bands: 4, color: [0, 0, 0, 0])` in an iex one-off and commit it), and reference it.
+> `…/imgproxy_differential/sources/alpha.png` is a committed RGBA fixture — confirm it has an alpha band (`Image.has_alpha?/1`); if not, pick another `*.png` from that dir that does. No new fixture needs to be created.
 
 - [ ] **Step 9: Run all gray + boundary tests**
 
@@ -318,8 +306,7 @@ Expected: PASS.
 git add lib/image_pipe/plan/operation/gray.ex lib/image_pipe/transform/operation/gray.ex \
         lib/image_pipe/plan/operation.ex lib/image_pipe/plan.ex lib/image_pipe/transform.ex \
         lib/image_pipe/transform/plan_executor.ex test/image_pipe/transform/operation/gray_test.exs \
-        test/image_pipe/transform/sequential_access_test.exs test/image_pipe/architecture_boundary_test.exs \
-        test/support/fixtures/transparent.png
+        test/image_pipe/transform/sequential_access_test.exs test/image_pipe/architecture_boundary_test.exs
 git commit -m "feat(transform): add gray (true desaturation) operation"
 ```
 
@@ -365,6 +352,11 @@ defmodule ImagePipe.Transform.Operation.ResizeRejectTest do
     op = %Resize{mode: :fit, width: {:pixels, 200}, height: {:pixels, 200}}
     assert {:ok, %State{image: out}} = Resize.execute(op, state())
     assert Image.width(out) == 100
+  end
+
+  test ":reject also fires when a min dimension forces upscaling past the source" do
+    op = %Resize{mode: :fit, width: {:pixels, 50}, height: {:pixels, 50}, min_width: {:pixels, 200}, reject_enlargement: true}
+    assert {:error, {:bad_request, :upscale_required}} = Resize.execute(op, state())
   end
 end
 ```
@@ -442,6 +434,12 @@ In `lib/image_pipe/plan/operation.ex:25`, widen the list:
   @enlargements [:allow, :deny, :reject]
 ```
 
+And widen the plan op's `@type enlargement` in `lib/image_pipe/plan/operation/resize.ex:20` to match:
+
+```elixir
+  @type enlargement :: :allow | :deny | :reject
+```
+
 In `lib/image_pipe/transform/plan_executor.ex:794`, set the new field in `resize_from/2` (after the `enlarge:` line):
 
 ```elixir
@@ -458,6 +456,7 @@ Expected: PASS (existing resize tests unaffected: `:allow`/`:deny` behavior is u
 
 ```bash
 git add lib/image_pipe/transform/operation/resize.ex lib/image_pipe/plan/operation.ex \
+        lib/image_pipe/plan/operation/resize.ex \
         lib/image_pipe/transform/plan_executor.ex test/image_pipe/transform/operation/resize_reject_test.exs
 git commit -m "feat(transform): add Resize enlargement: :reject (errors on genuine upscale)"
 ```
@@ -488,7 +487,7 @@ defmodule ImagePipe.Response.SenderBadRequestTest do
   end
 
   test "any other transform error still sends 422" do
-    result = {:error, {:processing, {:transform_error, {SomeOp, :boom}}, []}}
+    result = {:error, {:processing, {:transform_error, {:some_op, :boom}}, []}}
     conn = Sender.send_result(conn(:get, "/"), result, [])
     assert conn.status == 422
   end
@@ -673,9 +672,12 @@ git commit -m "feat(request): support a {:redirect, status, location} parse outc
 
 **Files:**
 - Modify: `lib/image_pipe/response/json.ex` (`send/4`)
-- Modify: `lib/image_pipe/request/runner.ex` (widen `{:rendered,…}` + lift `offers` from render params)
+- Modify: `lib/image_pipe/request/runner.ex` (widen `{:rendered,…}` + `@type delivery()` + lift `offers` from render params)
 - Modify: `lib/image_pipe/response/sender.ex` (Accept-match the offers on the `{:rendered,…}` clause; update `@type delivery()`)
+- Modify (existing — **must migrate to the 5-tuple or the suite breaks**): `test/image_pipe/response/sender_render_test.exs:19,40`
 - Test: `test/image_pipe/response/render_negotiation_test.exs` (create)
+
+> Blast radius (verified): the only producer/consumer of the `{:rendered,…}` tuple in `lib/` are `runner.ex:48` (build) and `sender.ex:74` (match) — both `@type delivery()` decls (`runner.ex:26`, `sender.ex:30`) change too. In `test/`, the **only** other site is `sender_render_test.exs:19,40`. `Json.send/3`'s other callers (`json_test.exs`) are safe because `send/4` keeps a `headers \\ []` default. The imgproxy `/info` path supplies no `:offers` → `offers == []` → no `Vary`, content-type unchanged, so `imgproxy_wire_conformance_test.exs` (incl. its "no Vary on /info" assertion) stays green.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -709,6 +711,13 @@ defmodule ImagePipe.Response.RenderNegotiationTest do
     conn = render("application/json")
     assert ["application/json" <> _] = get_resp_header(conn, "content-type")
     assert get_resp_header(conn, "vary") == ["Accept"]
+  end
+
+  test "no offers (imgproxy /info path): content-type unchanged, no Vary" do
+    delivery = {:ok, {:rendered, "application/json", "{}", [], %CacheHeaders{}}}
+    conn = conn(:get, "/") |> Sender.send_result(delivery, [])
+    assert ["application/json" <> _] = get_resp_header(conn, "content-type")
+    assert get_resp_header(conn, "vary") == []
   end
 end
 ```
@@ -810,15 +819,26 @@ and add the private helpers (near the other render helpers):
 
 > `Json.send/4` is now called with 3 args here (headers default `[]`); the `Vary` header is set directly on the conn before `Json.send`, so it survives.
 
-- [ ] **Step 6: Run it to verify it passes**
+- [ ] **Step 6: Migrate the existing `sender_render_test.exs` to the 5-tuple**
 
-Run: `mise exec -- mix test test/image_pipe/response/render_negotiation_test.exs && mise exec -- mix test test/image_pipe/plug_test.exs && mise exec -- mix compile --warnings-as-errors`
-Expected: PASS. (The imgproxy `/info` render supplies no `:offers`, so `offers == []` → no `Vary`, content-type unchanged — existing imgproxy info tests stay green.)
+In `test/image_pipe/response/sender_render_test.exs`, both `{:rendered, …}` literals (`:19` and `:40`) are now stale 4-tuples and will raise `FunctionClauseError`. Insert the `offers` slot (empty list) in each:
 
-- [ ] **Step 7: Commit**
+```elixir
+      Sender.send_result(conn, {:ok, {:rendered, "application/json", ~s({"a":1}), [], prepared}}, [])
+```
+
+(Keep both tests as-is otherwise — they still assert the host cache-control precedence / prepared-header merge, now with `offers == []`.)
+
+- [ ] **Step 7: Run it to verify everything passes**
+
+Run: `mise exec -- mix test test/image_pipe/response/render_negotiation_test.exs test/image_pipe/response/sender_render_test.exs test/image_pipe/response/json_test.exs && mise exec -- mix test test/image_pipe/imgproxy_wire_conformance_test.exs && mise exec -- mix compile --warnings-as-errors`
+Expected: PASS. (imgproxy `/info` supplies no `:offers` → `offers == []` → no `Vary`, content-type unchanged — including the wire test's explicit "no Vary on /info" assertion.)
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add lib/image_pipe/response/json.ex lib/image_pipe/request/runner.ex lib/image_pipe/response/sender.ex test/image_pipe/response/render_negotiation_test.exs
+git add lib/image_pipe/response/json.ex lib/image_pipe/request/runner.ex lib/image_pipe/response/sender.ex \
+        test/image_pipe/response/render_negotiation_test.exs test/image_pipe/response/sender_render_test.exs
 git commit -m "feat(response): Accept-negotiate rendered responses via static offers (Vary: Accept)"
 ```
 
