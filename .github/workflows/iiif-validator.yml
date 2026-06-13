@@ -7,7 +7,6 @@ on:
       - "lib/image_pipe/parser/iiif/**"
       - "lib/image_pipe/parser/iiif.ex"
       - "validator/**"
-      - "mise.toml"
       - ".github/workflows/iiif-validator.yml"
   pull_request:
     branches: ["main"]
