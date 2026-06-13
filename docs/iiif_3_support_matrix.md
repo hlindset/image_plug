@@ -84,6 +84,18 @@ Served via the cross-dialect render mechanism (`render: {:custom, ImagePipe.Pars
 | `extraQualities` / `extraFormats` / `extraFeatures` | ✅ | List what is supported **beyond the baseline** (`default` quality; `jpg`/`png` formats at Level 2), spelled per the IIIF feature registry. |
 | **Content negotiation** | ✅ | `Accept: application/ld+json` → `Content-Type: application/ld+json;profile="…/context.json"` with `Vary: Accept`; otherwise `application/json`. Body is byte-identical (cache identity stays Accept-independent). Validator-checked by `jsonld`. |
 
+### Tiling (`tiles` / `sizes`)
+
+Emitted from the **display** dimensions (`SourceInfo.display_dimensions/1`, so EXIF 5–8 sources use swapped dims) by `ImagePipe.Parser.IIIF.Tiling`:
+
+- **`scaleFactors`** — power-of-two ladder `1,2,4,…,2^maxRF`, where `maxRF` = halvings of the **short side** until it drops below **64px** (Cantaloupe's `minSize`). Dimension-only; independent of `tile_size`.
+- **`sizes`** — one `{round(W/sf), round(H/sf)}` per scale factor, `round`-half-up (matches Java `Math.round` for positive dims), **smallest-first, full-size last**.
+- **`tiles`** — a single entry `{width: min(tile_size, W), height: min(tile_size, H), scaleFactors}`.
+
+**Config:** `iiif: [tile_size: 512]` (default 512). Worked example — 1500×1200/512 → `scaleFactors [1,2,4,8,16]`, `tiles [{512,512,…}]`, `sizes [94×75 … 1500×1200]`.
+
+**Divergence (mechanism, not pixels):** Cantaloupe derives the tile dimension from a separate request-independent `minTileSize`; we use one `tile_size` knob that sets the advertised tile dim directly. Numbers coincide at the 512 default. The IIIF implementation-notes edge round-up (`(width−xr+s−1)/s`) is an equivalent formulation of OpenSeadragon's edge math for power-of-two scale factors; the viewer-sim gate follows OpenSeadragon (the binding client). Granular tiling config (tile_width/height, explicit scale_factors/sizes, configurable minSize) is deferred (follow-up).
+
 ## HTTP behavior
 
 | Feature | Status | Notes |
@@ -92,6 +104,8 @@ Served via the cross-dialect render mechanism (`render: {:custom, ImagePipe.Pars
 | `cors` | ✅ | `Access-Control-Allow-Origin: *` on every IIIF response (image, info.json, redirect, errors) + `OPTIONS` preflight → 200, applied by the mount-level `ImagePipe.Parser.IIIF.CORS` plug (the parser's `parse/2` returns a tuple, not a conn, so CORS *must* be mount-level). |
 | `jsonldMediaType` | ✅ | See info.json negotiation. |
 | Canonical `Link` header (`rel="canonical"`) | ➖ | Optional (`may` per spec); not implemented. Computing the canonical-spelling URL and threading a per-request response header is deferred; the validator does not require it. |
+
+- **Tiled region extraction** — tiled `{x,y,w,h}/{w,h}` requests reuse the existing region-crop + resize path (`regionByPx` + `sizeByWh` → `:stretch`); there is no IIIF-specific tiling stage. Shrink-on-load **engages** for the crop+downscale tile shape (verified: a deep-scale-factor tile decodes the source at reduced resolution — `DecodePlanner` returns `shrink: 4` for a 4096-region→512 tile from a 6000×4000 source; see `test/image_pipe/transform/iiif_tile_decode_test.exs`). End-to-end memory high-water + info/derivative caching are tracked as a follow-up.
 
 ## Status mapping (validator-checked)
 
@@ -121,3 +135,5 @@ All optional at every compliance level; tracked separately if a consumer needs t
 
 - **Wire tests:** `test/parser/iiif_wire_test.exs` — real `ImagePipe.call/2` end-to-end (status, headers, `Vary`, CORS, decoded dimensions, gray pixel checks incl. the RGBA→JPEG flatten, info.json + ld+json negotiation, 303 redirect, the 400/404 status mapping).
 - **Official validator gate:** the Python `image-validator` runs against a live IIIF endpoint serving the canonical `67352ccc-…` reference image via the Static resolver, at `--version=3.0 --level 2` (see `validator/`). The `--level 2` flag is mandatory — the tool defaults to Level 1 and would otherwise silently skip the Level-2 tests.
+- **Tiling unit/property:** `test/parser/iiif/tiling_test.exs` — Cantaloupe reference values, universal invariants with a tautology self-check, OSD `levelSizes` adoption on representative sources.
+- **Viewer-simulation gate:** `test/parser/iiif/openseadragon_sim_test.exs` — replicates OpenSeadragon's `getTileUrl` to drive a full tile traversal through `ImagePipe.call/2`, asserting status + decoded dims for every tile and an independent gradient-derived pixel oracle for interior/edge/corner tiles at multiple scale factors.
