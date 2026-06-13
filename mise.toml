@@ -112,7 +112,9 @@ run = "docker compose -f fiddle/docker-compose.yml up"
 [tasks.validator]
 description = "Run the IIIF Level 2 image-validator gate against a live server (requires Docker)"
 run = """
-set -euo pipefail
+# `set -eu` (not `-o pipefail`): mise runs tasks under `sh`/dash on Linux runners,
+# which rejects `pipefail`; this task has no pipelines that need it.
+set -eu
 
 docker info >/dev/null 2>&1 || { echo "validator gate needs Docker"; exit 1; }
 
