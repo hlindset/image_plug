@@ -27,7 +27,7 @@ defmodule ImagePipe.Response.Sender do
   @type delivery() ::
           {:cache_entry, Entry.t(), Response.t(), CacheHeaders.t()}
           | {:prepared_stream, PreparedStream.t(), Response.t(), CacheHeaders.t()}
-          | {:rendered, String.t(), iodata(), CacheHeaders.t()}
+          | {:rendered, String.t(), iodata(), [{String.t(), [String.t()]}], CacheHeaders.t()}
 
   @type error() ::
           {:processing, term(), [{String.t(), String.t()}]}
@@ -71,12 +71,15 @@ defmodule ImagePipe.Response.Sender do
 
   def send_result(
         %Plug.Conn{} = conn,
-        {:ok, {:rendered, content_type, body, %CacheHeaders{} = prepared}},
+        {:ok, {:rendered, content_type, body, offers, %CacheHeaders{} = prepared}},
         _opts
       ) do
+    {negotiated_type, vary?} = negotiate_render(conn, content_type, offers)
+
     conn
     |> apply_render_cache_headers(prepared)
-    |> Json.send(content_type, body)
+    |> maybe_put_vary(vary?)
+    |> Json.send(negotiated_type, body)
   end
 
   def send_result(
@@ -458,6 +461,29 @@ defmodule ImagePipe.Response.Sender do
     headers = merge_delivery_headers(conn, prepared_stream.headers, prepared)
     %{prepared_stream | headers: headers}
   end
+
+  defp negotiate_render(_conn, base_type, []), do: {base_type, false}
+
+  defp negotiate_render(%Plug.Conn{} = conn, base_type, offers) do
+    accept = accept_header(conn)
+
+    case Enum.find(offers, fn {_ct, tokens} ->
+           Enum.any?(tokens, &String.contains?(accept, &1))
+         end) do
+      {offered_type, _tokens} -> {offered_type, true}
+      nil -> {base_type, true}
+    end
+  end
+
+  defp accept_header(%Plug.Conn{} = conn) do
+    case Plug.Conn.get_req_header(conn, "accept") do
+      [value | _] -> value
+      [] -> ""
+    end
+  end
+
+  defp maybe_put_vary(conn, false), do: conn
+  defp maybe_put_vary(conn, true), do: Plug.Conn.put_resp_header(conn, "vary", "Accept")
 
   defp apply_render_cache_headers(%Plug.Conn{} = conn, %CacheHeaders{} = prepared) do
     # Reuse the same delivery-header precedence as image responses: prepared cache /
