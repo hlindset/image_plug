@@ -2703,6 +2703,39 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert Image.get_pixel!(image, 10, 10) == [255, 0, 0]
   end
 
+  # Explicit non-alpha output format (f:jpg) on an alpha-bearing source with NO
+  # bg: option must flatten onto the imgproxy-default white background and emit a
+  # valid JPEG, not 500 (#268). imgproxy's `flatten` step composites onto
+  # `po.Background()`, which defaults to `color.White`, whenever the result
+  # format can't carry alpha. Covers the no-geometry form: only an explicit
+  # format on an RGBA image, no resize/crop/padding/background.
+  test "explicit non-alpha format on an alpha source flattens to the default white background" do
+    alpha_opts = [
+      parser: ImagePipe.Parser.Imgproxy,
+      sources: [
+        path:
+          {ImagePipe.SourceTest.RootHTTPAdapter,
+           root_url: "http://origin.test", req_options: [plug: AlphaOriginImage]}
+      ]
+    ]
+
+    conn =
+      call_imgproxy(
+        "/_/f:jpg/plain/images/alpha.png",
+        alpha_opts
+      )
+
+    assert conn.status == 200
+    assert content_type(conn) == ["image/jpeg"]
+
+    image = decoded_image(conn)
+
+    assert Image.has_alpha?(image) == false
+    # Default white flatten; JPEG is lossy, so allow a small tolerance around 255.
+    assert [r, g, b] = Image.get_pixel!(image, 10, 10)
+    assert r > 250 and g > 250 and b > 250
+  end
+
   # Capture the cache key the plug looked up for one request. Uses the file's
   # existing CacheProbe (it sends {:cache_lookup, key}) and call_imgproxy/2.
   defp lookup_key(path, opts) do

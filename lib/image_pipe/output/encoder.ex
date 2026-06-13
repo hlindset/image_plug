@@ -4,6 +4,7 @@ defmodule ImagePipe.Output.Encoder do
   alias ImagePipe.Format
   alias ImagePipe.Output.ColorProfile
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Plan.Color
   alias Vix.Vips.Image, as: VixImage
   alias Vix.Vips.MutableImage, as: VixMutableImage
   alias Vix.Vips.Operation
@@ -53,10 +54,39 @@ defmodule ImagePipe.Output.Encoder do
   # work and mutates run on the in-memory image and cannot fail that way.
   defp finalize(image, %Resolved{} = resolved) do
     case VixImage.copy_memory(image) do
-      {:ok, mem} -> color_result(mem, resolved)
-      {:error, reason} -> {:error, {:decode, reason}}
+      {:ok, mem} ->
+        with {:ok, flattened} <- flatten_for_format(mem, resolved) do
+          color_result(flattened, resolved)
+        end
+
+      {:error, reason} ->
+        {:error, {:decode, reason}}
     end
   end
+
+  # imgproxy `flatten` (end of the processing pipeline, before `colorspaceToResult`):
+  # when the result format can't carry alpha, composite the alpha-bearing working
+  # image onto the resolved `flatten_background` (`Plan.Output.flatten_background`,
+  # default opaque white = imgproxy `color.White`) so the encoder never hands an
+  # alpha band to a non-alpha save (`jpegsave` rejects it / silently drops it).
+  # Guarded by `has_alpha?` so a per-request background (already flattened in the
+  # transform chain) and any opaque image pass through untouched. The background's
+  # own alpha is intentionally ignored (`to_rgb_list` drops it): the composite
+  # target is opaque, matching imgproxy's RGB-only `color.White`.
+  defp flatten_for_format(image, %Resolved{format: format, flatten_background: background}) do
+    if Format.supports_alpha?(format) or not Image.has_alpha?(image) do
+      {:ok, image}
+    else
+      case Image.flatten(image, background_color: Color.to_rgb_list(background)) do
+        {:ok, flattened} -> {:ok, flattened}
+        {:error, reason} -> {:error, {:encode, flatten_error(reason), []}}
+      end
+    end
+  end
+
+  defp flatten_error(reason),
+    do:
+      ArgumentError.exception("failed to flatten alpha for non-alpha output: #{inspect(reason)}")
 
   # imgproxy `colorspaceToResult`: read the import carry, restore the backed-up
   # source profile (icc_export targets the EMBEDDED profile, so the source blob

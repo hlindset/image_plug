@@ -80,6 +80,15 @@ defmodule ImagePipe.FormatTest do
     end
   end
 
+  describe "supports_alpha?/1" do
+    test "AVIF, WebP, and PNG carry alpha; JPEG does not" do
+      assert Format.supports_alpha?(:avif)
+      assert Format.supports_alpha?(:webp)
+      assert Format.supports_alpha?(:png)
+      refute Format.supports_alpha?(:jpeg)
+    end
+  end
+
   test "maps MIME types to encoder suffixes" do
     assert Format.suffix!("image/avif") == ".avif"
     assert Format.suffix!("image/webp") == ".webp"

@@ -7,6 +7,7 @@ defmodule ImagePipe.Output.Policy do
   alias ImagePipe.Output.Capabilities
   alias ImagePipe.Output.Negotiation
   alias ImagePipe.Output.Resolved
+  alias ImagePipe.Plan.Color
   alias ImagePipe.Plan.Output
 
   @enforce_keys [
@@ -19,7 +20,7 @@ defmodule ImagePipe.Output.Policy do
     :keep_copyright,
     :color_profile
   ]
-  defstruct @enforce_keys
+  defstruct @enforce_keys ++ [flatten_background: Color.white()]
 
   @passthrough_source_formats [:jpeg, :png]
 
@@ -36,7 +37,8 @@ defmodule ImagePipe.Output.Policy do
           format_qualities: %{optional(format()) => quality()},
           strip_metadata: boolean(),
           keep_copyright: boolean(),
-          color_profile: Output.color_profile()
+          color_profile: Output.color_profile(),
+          flatten_background: Color.t()
         }
 
   @spec from_output_plan(Plug.Conn.t(), Output.t(), keyword()) :: t()
@@ -49,7 +51,8 @@ defmodule ImagePipe.Output.Policy do
       format_qualities: output.format_qualities,
       strip_metadata: output.strip_metadata,
       keep_copyright: output.keep_copyright,
-      color_profile: output.color_profile
+      color_profile: output.color_profile,
+      flatten_background: output.flatten_background
     }
   end
 
@@ -62,7 +65,8 @@ defmodule ImagePipe.Output.Policy do
       format_qualities: output.format_qualities,
       strip_metadata: output.strip_metadata,
       keep_copyright: output.keep_copyright,
-      color_profile: output.color_profile
+      color_profile: output.color_profile,
+      flatten_background: output.flatten_background
     }
   end
 
@@ -153,7 +157,8 @@ defmodule ImagePipe.Output.Policy do
       response_headers: policy.headers,
       strip_metadata: policy.strip_metadata,
       keep_copyright: policy.keep_copyright,
-      color_profile: policy.color_profile
+      color_profile: policy.color_profile,
+      flatten_background: policy.flatten_background
     }
   end
 

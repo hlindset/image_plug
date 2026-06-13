@@ -667,6 +667,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
         function not in [
           "alpha",
           "t",
+          "white",
           "rgb",
           "rgb_hex",
           "rgba",

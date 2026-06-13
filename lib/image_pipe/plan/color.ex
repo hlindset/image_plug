@@ -20,6 +20,10 @@ defmodule ImagePipe.Plan.Color do
           alpha: alpha()
         }
 
+  @doc "Opaque sRGB white — the product-neutral flatten/background default (imgproxy's `color.White`)."
+  @spec white() :: t()
+  def white, do: %__MODULE__{space: :srgb, channels: {255, 255, 255}, alpha: {:ratio, 1, 1}}
+
   @spec rgb(term(), term(), term()) :: {:ok, t()} | {:error, term()}
   def rgb(red, green, blue)
       when is_integer(red) and red in 0..255 and is_integer(green) and green in 0..255 and
