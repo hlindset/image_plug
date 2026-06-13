@@ -795,7 +795,8 @@ defmodule ImagePipe.Transform.PlanExecutor do
       zoom_x: operation.zoom_x,
       zoom_y: operation.zoom_y,
       dpr: tagged_dpr_float(operation.dpr),
-      enlarge: operation.enlargement == :allow
+      enlarge: operation.enlargement == :allow,
+      reject_enlargement: operation.enlargement == :reject
     }
   end
 

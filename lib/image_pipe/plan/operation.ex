@@ -23,7 +23,7 @@ defmodule ImagePipe.Plan.Operation do
   alias ImagePipe.Plan.Operation.Sharpen
   alias ImagePipe.Plan.Operation.Trim
 
-  @enlargements [:allow, :deny]
+  @enlargements [:allow, :deny, :reject]
   @right_angles [90, 180, 270]
   @flip_axes [:horizontal, :vertical, :both]
   @x_anchors [:left, :center, :right]

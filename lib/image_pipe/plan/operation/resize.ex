@@ -17,7 +17,7 @@ defmodule ImagePipe.Plan.Operation.Resize do
   @type mode :: :fit | :cover | :stretch | :auto
   @type dimension :: :auto | {:px, pos_integer()}
   @type dpr :: {:ratio, pos_integer(), pos_integer()}
-  @type enlargement :: :allow | :deny
+  @type enlargement :: :allow | :deny | :reject
   @type anchor :: :left | :center | :right | :top | :bottom
   @type weights :: %{optional(:default) => number(), optional(String.t()) => number()}
   @type guide ::
