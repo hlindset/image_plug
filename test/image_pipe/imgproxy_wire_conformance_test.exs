@@ -2797,13 +2797,20 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
     assert base != diff_obj
   end
 
+  # Scope the clamp tests' telemetry to a private prefix so a concurrently
+  # running async module emitting the default-prefix output clamp event cannot
+  # leak into these tests' mailboxes (which would flake the refute_received
+  # assertions). The clamp request opts below set this same prefix.
+  @clamp_telemetry_prefix [:image_pipe_clamp_test]
+  @clamp_event @clamp_telemetry_prefix ++ [:output, :clamp]
+
   describe "output encoder dimension clamp (#150)" do
     defp attach_clamp_telemetry do
       handler_id = {__MODULE__, self(), :output_clamp}
 
       :telemetry.attach(
         handler_id,
-        [:image_pipe, :output, :clamp],
+        @clamp_event,
         &__MODULE__.handle_telemetry_event/4,
         self()
       )
@@ -2819,8 +2826,27 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       max_result_width: 40_000,
       max_result_height: 40_000,
       max_result_pixels: 2_000_000_000,
-      output_capabilities: %{avif: true, webp: true}
+      output_capabilities: %{avif: true, webp: true},
+      telemetry_prefix: @clamp_telemetry_prefix
     ]
+
+    test "clamp telemetry is isolated from concurrent foreign emissions" do
+      attach_clamp_telemetry()
+
+      # A concurrently-running async module (e.g. the TwicPics wire suite, which
+      # legitimately clamps an oversized result) emits the output clamp event
+      # while this module's refute_received clamp tests are in flight. A global
+      # handler keyed on the shared event name would receive that foreign event
+      # and flake the refute. The handler must be scoped so it never does.
+      # Regression for CI run 27481152591.
+      :telemetry.execute(
+        [:image_pipe, :output, :clamp],
+        %{scale: 0.306},
+        %{format: :jpeg, dimensions: {1224, 816}, source_dimensions: {4000, 2667}, limits: %{}}
+      )
+
+      refute_received {:telemetry_event, _event, _measurements, _meta}
+    end
 
     test "downscales a WebP result above the 16383 encoder limit and serves it" do
       attach_clamp_telemetry()
@@ -2835,7 +2861,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert max(w, h) <= 16_383
       assert max(w, h) > 8_192
 
-      assert_received {:telemetry_event, [:image_pipe, :output, :clamp], %{scale: scale}, meta}
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
 
       assert scale < 1.0
       assert meta.format == :webp
@@ -2859,7 +2885,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert max(w, h) <= 16_384
       assert max(w, h) > 8_192
 
-      assert_received {:telemetry_event, [:image_pipe, :output, :clamp], %{scale: scale}, meta}
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
 
       assert scale < 1.0
       assert meta.format == :avif
@@ -2878,7 +2904,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       {w, _h} = dimensions(conn)
       assert w == 120
 
-      refute_received {:telemetry_event, [:image_pipe, :output, :clamp], _measurements, _meta}
+      refute_received {:telemetry_event, @clamp_event, _measurements, _meta}
     end
   end
 
@@ -2889,7 +2915,8 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       sources: [
         path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: OriginImage]}
       ],
-      output_capabilities: %{avif: true, webp: true}
+      output_capabilities: %{avif: true, webp: true},
+      telemetry_prefix: @clamp_telemetry_prefix
     ]
 
     test "downscales a result above the default 8192 host cap and serves 200" do
@@ -2910,7 +2937,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       # imgproxy's linear `downScale = maxResultDim/max(outW,outH)`.
       assert w == 8192
 
-      assert_received {:telemetry_event, [:image_pipe, :output, :clamp], %{scale: scale}, meta}
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, meta}
       assert scale < 1.0
       assert meta.limits.max_width == 8192
       assert meta.limits.max_height == 8192
@@ -2937,7 +2964,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       {w, h} = dimensions(conn)
       assert max(w, h) <= 8192
 
-      assert_received {:telemetry_event, [:image_pipe, :output, :clamp], %{scale: scale}, _meta}
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
       assert scale < 1.0
     end
 
@@ -2956,7 +2983,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       {w, h} = dimensions(conn)
       assert w == 6000
       assert h == 200
-      refute_received {:telemetry_event, [:image_pipe, :output, :clamp], _m, _meta}
+      refute_received {:telemetry_event, @clamp_event, _m, _meta}
     end
 
     test "downscales on the host pixel cap with dims within the per-axis caps" do
@@ -2978,7 +3005,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert w <= 8000 and h <= 8000
       assert w * h <= 4_000_000
 
-      assert_received {:telemetry_event, [:image_pipe, :output, :clamp], %{scale: scale}, _meta}
+      assert_received {:telemetry_event, @clamp_event, %{scale: scale}, _meta}
       assert scale < 1.0
     end
 
@@ -2990,7 +3017,7 @@ defmodule ImagePipe.ImgproxyWireConformanceTest do
       assert conn.status == 200
       {w, _h} = dimensions(conn)
       assert w == 300
-      refute_received {:telemetry_event, [:image_pipe, :output, :clamp], _m, _meta}
+      refute_received {:telemetry_event, @clamp_event, _m, _meta}
     end
   end
 
