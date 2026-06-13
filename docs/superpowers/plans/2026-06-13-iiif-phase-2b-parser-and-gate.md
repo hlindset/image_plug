@@ -632,7 +632,9 @@ git commit -m "feat(iiif): plan builder (region/size/rotation/quality/format -> 
 - Create: `lib/image_pipe/parser/iiif.ex`
 - Test: `test/parser/iiif_test.exs`
 
-`parse/2` ties Path → Grammar → Resolver → PlanBuilder. `handle_error/2` maps parse errors to status (per the spec's status table): grammar `{:invalid_*}` → **400**, resolver miss / `:not_found` / shape → **404**. CORS header `Access-Control-Allow-Origin: *` on every response (and `OPTIONS` preflight → 200).
+`parse/2` ties Path → Grammar → Resolver → PlanBuilder. `handle_error/2` maps parse errors to status (per the spec's status table): grammar `{:invalid_*}` → **400**, resolver miss / `:not_found` / shape → **404**.
+
+**CORS (revised after Phase 2A review):** `Sender.send_redirect/3` is product-neutral and does **not** set CORS, and the 303 redirect short-circuits in the Plug before the parser can touch the response conn — so CORS must be applied at the **mount level**, not per-response in the parser. Apply `Access-Control-Allow-Origin: *` (and handle the `OPTIONS` preflight → 200 with `Access-Control-Allow-Methods`) via a thin CORS step that runs on **every** IIIF request — e.g. a small CORS plug the host mounts ahead of `ImagePipe.Plug`, or a `Plug.Conn.register_before_send/2` hook installed at the very start of `parse/2` (which fires for the image, info.json, redirect, *and* error responses uniformly). Do **not** rely on `handle_error/2` alone (it misses image/info/redirect responses). Decide the exact mechanism during B5 implementation and add a wire test (B8) asserting CORS on an image response, an info response, and the 303 redirect.
 
 - [ ] **Step 1: Write the failing test** (parser-level; wire tests are B8)
 
