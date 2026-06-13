@@ -54,10 +54,44 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     )
   end
 
+  test "focal-point gravity crop streams" do
+    assert_sequential_matches_random(
+      [
+        %Crop{
+          width: {:pixels, 120},
+          height: {:pixels, 90},
+          crop_from: :gravity,
+          gravity: {:fp, 0.25, 0.75}
+        }
+      ],
+      File.read!(@beach)
+    )
+  end
+
+  test "region crop streams" do
+    assert_sequential_matches_random(
+      [
+        %Crop{
+          width: {:pixels, 120},
+          height: {:pixels, 90},
+          crop_from: %{left: {:pixels, 30}, top: {:pixels, 20}}
+        }
+      ],
+      File.read!(@beach)
+    )
+  end
+
   test "fit resize streams" do
     assert_sequential_matches_random(
       [%Resize{mode: :fit, width: {:pixels, 120}, height: :auto}],
       File.read!(@dog)
+    )
+  end
+
+  test "fill resize streams" do
+    assert_sequential_matches_random(
+      [%Resize{mode: :fill, width: {:pixels, 100}, height: {:pixels, 100}}],
+      File.read!(@beach)
     )
   end
 
@@ -195,6 +229,68 @@ defmodule ImagePipe.Transform.SequentialAccessTest do
     check all(w <- integer(16..400), max_runs: 12) do
       assert_sequential_matches_random(
         [%Resize{mode: :fit, width: {:pixels, w}, height: :auto}],
+        body
+      )
+    end
+  end
+
+  property "focal-point crop streams across varied focal points and sizes" do
+    body = File.read!(@beach)
+
+    check all(
+            w <- integer(8..200),
+            h <- integer(8..150),
+            fx_tenths <- integer(0..10),
+            fy_tenths <- integer(0..10),
+            max_runs: 18
+          ) do
+      assert_sequential_matches_random(
+        [
+          %Crop{
+            width: {:pixels, w},
+            height: {:pixels, h},
+            crop_from: :gravity,
+            gravity: {:fp, fx_tenths / 10, fy_tenths / 10}
+          }
+        ],
+        body
+      )
+    end
+  end
+
+  property "region crop streams across varied origins and sizes" do
+    body = File.read!(@beach)
+
+    check all(
+            left <- integer(0..200),
+            top <- integer(0..150),
+            w <- integer(8..200),
+            h <- integer(8..150),
+            max_runs: 18
+          ) do
+      assert_sequential_matches_random(
+        [
+          %Crop{
+            width: {:pixels, w},
+            height: {:pixels, h},
+            crop_from: %{left: {:pixels, left}, top: {:pixels, top}}
+          }
+        ],
+        body
+      )
+    end
+  end
+
+  property "fill resize streams across varied targets" do
+    body = File.read!(@beach)
+
+    check all(
+            w <- integer(16..400),
+            h <- integer(16..300),
+            max_runs: 12
+          ) do
+      assert_sequential_matches_random(
+        [%Resize{mode: :fill, width: {:pixels, w}, height: {:pixels, h}}],
         body
       )
     end
