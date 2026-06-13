@@ -50,7 +50,22 @@ defmodule ImagePipe.Plug do
   defp do_call(%Plug.Conn{} = conn, opts) do
     parser = Keyword.fetch!(opts, :parser)
 
-    with {:ok, %Plan{} = plan} <- parse(conn, parser, opts),
+    case parse(conn, parser, opts) do
+      {:redirect, status, location} ->
+        {conn, _send_metadata} =
+          send_response(conn, opts, :redirect, fn ->
+            Sender.send_redirect(conn, status, location)
+          end)
+
+        {conn, %{result: :redirect, status: status}}
+
+      parsed ->
+        do_call_with_plan(conn, parser, opts, parsed)
+    end
+  end
+
+  defp do_call_with_plan(conn, parser, opts, parsed) do
+    with {:ok, %Plan{} = plan} <- parsed,
          {:ok, %Plan{} = plan} <- validate_client_plan(plan),
          :ok <- validate_detector_capability(plan, opts),
          {:ok, %Source.Resolved{} = resolved_source} <-
@@ -210,6 +225,8 @@ defmodule ImagePipe.Plug do
   defp processing_error_tag(reason), do: Error.tag(reason)
 
   defp result_metadata({:ok, _value}), do: %{result: :ok}
+
+  defp result_metadata({:redirect, status, _location}), do: %{result: :redirect, status: status}
 
   defp result_metadata({:error, {_scope, error}}),
     do: %{result: :error, error: Error.tag(error)}

@@ -99,6 +99,13 @@ defmodule ImagePipe.Response.Sender do
     |> send_resp(422, "invalid image source")
   end
 
+  @spec send_redirect(Plug.Conn.t(), 303, String.t()) :: Plug.Conn.t()
+  def send_redirect(%Plug.Conn{} = conn, status, location) when is_binary(location) do
+    conn
+    |> put_resp_header("location", location)
+    |> send_resp(status, "")
+  end
+
   @spec send_not_modified(Plug.Conn.t(), CacheHeaders.t()) :: Plug.Conn.t()
   def send_not_modified(%Plug.Conn{} = conn, %CacheHeaders{} = prepared) do
     prepared
