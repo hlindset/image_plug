@@ -88,12 +88,12 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
       {:ok, %Req.Response{status: status} = response} when status in 200..299 ->
         %{response: response, receive_timeout: receive_timeout}
 
-      {:ok, %Req.Response{} = response} ->
+      {:ok, %Req.Response{status: status} = response} ->
         cancel_response(response)
-        {:error, :bad_status}
+        {:error, {:bad_status, status}}
 
       {:error, _exception} ->
-        {:error, :bad_status}
+        {:error, :connect_error}
     end
   end
 
@@ -119,14 +119,14 @@ defmodule ImagePipe.SourceTest.RootHTTPAdapter do
     receive do
       {^ref, _message} = message -> {:ok, message}
     after
-      receive_timeout -> {:error, :bad_status}
+      receive_timeout -> {:error, :receive_timeout}
     end
   end
 
   defp parse_message(response, message) do
     case Req.parse_message(response, message) do
       {:ok, chunks} -> {:ok, chunks}
-      {:error, _exception} -> {:error, :bad_status}
+      {:error, _exception} -> {:error, :invalid_body}
       :unknown -> :unknown
     end
   end

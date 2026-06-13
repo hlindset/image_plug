@@ -317,7 +317,7 @@ defmodule ImagePipe.Source.HTTPTest do
              Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
-    assert error.reason == :bad_status
+    assert error.reason == :redirect_not_followed
   end
 
   test "fetch percent-encodes decoded path segments when building the request URL" do
@@ -406,7 +406,7 @@ defmodule ImagePipe.Source.HTTPTest do
              Source.fetch(resolved, [sources: %{https: {HTTP, opts}}], max_body_bytes: 20)
 
     error = assert_raise Source.StreamError, fn -> Enum.to_list(response.stream) end
-    assert error.reason == :bad_status
+    assert error.reason == {:bad_status, 404}
   end
 
   test "an enabled redirect to an off-allowlist host is denied" do

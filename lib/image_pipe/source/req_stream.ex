@@ -74,12 +74,12 @@ defmodule ImagePipe.Source.ReqStream do
           redirects_allowed?
         )
 
-      {:ok, %Req.Response{} = response} ->
+      {:ok, %Req.Response{status: status} = response} ->
         cancel_response(response)
-        {:error, :bad_status}
+        {:error, {:bad_status, status}}
 
       {:error, _exception} ->
-        {:error, :bad_status}
+        {:error, :connect_error}
     end
   end
 
@@ -96,10 +96,12 @@ defmodule ImagePipe.Source.ReqStream do
 
     cond do
       redirects_left <= 0 ->
-        if redirects_allowed?, do: {:error, :too_many_redirects}, else: {:error, :bad_status}
+        if redirects_allowed?,
+          do: {:error, :too_many_redirects},
+          else: {:error, :redirect_not_followed}
 
       is_nil(location) ->
-        {:error, :bad_status}
+        {:error, :invalid_redirect}
 
       true ->
         next_url =
@@ -148,14 +150,14 @@ defmodule ImagePipe.Source.ReqStream do
     receive do
       {^ref, _message} = message -> {:ok, message}
     after
-      receive_timeout -> {:error, :bad_status}
+      receive_timeout -> {:error, :receive_timeout}
     end
   end
 
   defp parse_message(response, message) do
     case Req.parse_message(response, message) do
       {:ok, chunks} -> {:ok, chunks}
-      {:error, _exception} -> {:error, :bad_status}
+      {:error, _exception} -> {:error, :invalid_body}
       :unknown -> :unknown
     end
   end
