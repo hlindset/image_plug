@@ -10,6 +10,7 @@ defmodule ImagePipe.Plan.OperationTest do
   alias ImagePipe.Plan.Operation.Flip
   alias ImagePipe.Plan.Operation.Monochrome
   alias ImagePipe.Plan.Operation.Pixelate
+  alias ImagePipe.Plan.Operation.Resize
   alias ImagePipe.Plan.Operation.Rotate
   alias ImagePipe.Plan.Operation.Saturation
   alias ImagePipe.Plan.Operation.Sharpen
@@ -107,6 +108,29 @@ defmodule ImagePipe.Plan.OperationTest do
                {:error,
                 {:invalid_operation, :resize,
                  [:fit, {:px, 300}, :auto, [x_offset: {:pixels, 1.0}]]}}
+    end
+  end
+
+  describe "resize/4 relative dimensions" do
+    test "accepts percent and scale width/height" do
+      assert {:ok, %Resize{width: {:percent, 50}, height: :auto}} =
+               Operation.resize(:fit, {:percent, 50}, :auto)
+
+      assert {:ok, %Resize{width: {:scale, 0.5}, height: {:px, 100}}} =
+               Operation.resize(:cover, {:scale, 0.5}, {:px, 100})
+    end
+
+    test "rejects non-positive percent and scale" do
+      assert {:error, {:invalid_operation, :resize, _}} =
+               Operation.resize(:fit, {:percent, 0}, :auto)
+
+      assert {:error, {:invalid_operation, :resize, _}} =
+               Operation.resize(:fit, {:scale, -1.0}, :auto)
+    end
+
+    test "still accepts px and auto" do
+      assert {:ok, %Resize{width: {:px, 300}, height: :auto}} =
+               Operation.resize(:fit, {:px, 300}, :auto)
     end
   end
 

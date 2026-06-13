@@ -8,6 +8,7 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
   alias ImagePipe.Plan.Pipeline
   alias ImagePipe.Plan.Source
   alias ImagePipe.Transform
+  alias ImagePipe.Transform.PlanExecutor
   alias ImagePipe.Transform.State
 
   describe "resize execution" do
@@ -677,6 +678,24 @@ defmodule ImagePipe.Transform.PlanExecutorTest do
 
     assert dimensions(state.image) == {100, 50}
     assert Image.get_pixel!(state.image, 75, 25) == [0, 0, 255]
+  end
+
+  test "chained resize with a percent second op resolves against the running width" do
+    {:ok, image} = Image.new(400, 300)
+    state = %State{image: image}
+
+    {:ok, first} = Operation.resize(:fit, {:px, 340}, :auto, enlargement: :allow)
+    {:ok, second} = Operation.resize(:fit, {:percent, 50}, :auto, enlargement: :allow)
+
+    plan = %Plan{
+      source: %Source.Path{segments: ["x"]},
+      pipelines: [%Pipeline{operations: [first, second]}],
+      output: %ImagePipe.Plan.Output{mode: :automatic}
+    }
+
+    {:ok, %State{image: result}} = PlanExecutor.execute(plan, state, [])
+
+    assert Image.width(result) == 170
   end
 
   defp plan(operations) do

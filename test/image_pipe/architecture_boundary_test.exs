@@ -53,6 +53,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Parser => "lib/image_pipe/parser.ex",
     ImagePipe.Parser.IIIF => "lib/image_pipe/parser/iiif.ex",
     ImagePipe.Parser.Imgproxy => "lib/image_pipe/parser/imgproxy.ex",
+    ImagePipe.Parser.TwicPics => "lib/image_pipe/parser/twic_pics.ex",
     ImagePipe.Renderer => "lib/image_pipe/renderer.ex",
     ImagePipe.Request => "lib/image_pipe/request.ex",
     ImagePipe.Response => "lib/image_pipe/response.ex",
@@ -99,6 +100,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     parser = boundary_declaration(ImagePipe.Parser)
     imgproxy = boundary_declaration(ImagePipe.Parser.Imgproxy)
     iiif = boundary_declaration(ImagePipe.Parser.IIIF)
+    twicpics = boundary_declaration(ImagePipe.Parser.TwicPics)
 
     assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
     # The Parser behaviour boundary must not export any concrete adapter: the core
@@ -124,6 +126,9 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_exports(iiif, [])
 
+    assert_boundary_deps(twicpics, [ImagePipe.Parser, ImagePipe.Plan])
+    assert_boundary_exports(twicpics, [])
+
     assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
 
     assert_allowed_deps(imgproxy, [
@@ -139,6 +144,8 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
       ImagePipe.Plan,
       ImagePipe.Renderer
     ])
+
+    assert_allowed_deps(twicpics, [ImagePipe.Parser, ImagePipe.Plan])
   end
 
   test "request boundary declaration depends on generic facades only" do

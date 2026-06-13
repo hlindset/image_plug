@@ -25,7 +25,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
   alias ImagePipe.Transform.State
 
   @type pixels() :: {:pixels, non_neg_integer() | float()}
-  @type dimension() :: :auto | pixels()
+  @type dimension() :: :auto | pixels() | {:percent, number()} | {:scale, number()}
   @type mode() :: :fit | :fill | :fill_down | :force
 
   @type t :: %__MODULE__{
@@ -102,6 +102,7 @@ defmodule ImagePipe.Transform.Operation.Resize do
   @spec resolve_dimensions(t(), keyword()) :: resolved_dimensions()
   def resolve_dimensions(%__MODULE__{} = operation, opts) when is_list(opts) do
     source = source_dimensions(opts)
+    operation = resolve_relative_dimensions(operation, source)
     operation = normalize(operation)
     base = resolve_base_dimensions(operation, source)
     effective_dpr = effective_dpr(operation, base, source, opts)
@@ -184,6 +185,24 @@ defmodule ImagePipe.Transform.Operation.Resize do
       height: positive_round(Keyword.fetch!(opts, :source_height))
     }
   end
+
+  defp resolve_relative_dimensions(%__MODULE__{} = operation, source) do
+    %__MODULE__{
+      operation
+      | width: resolve_relative_dimension(operation.width, source.width),
+        height: resolve_relative_dimension(operation.height, source.height),
+        min_width: resolve_relative_dimension(operation.min_width, source.width),
+        min_height: resolve_relative_dimension(operation.min_height, source.height)
+    }
+  end
+
+  defp resolve_relative_dimension({:percent, _} = unit, length),
+    do: {:pixels, max(1, to_pixels(length, unit))}
+
+  defp resolve_relative_dimension({:scale, _} = unit, length),
+    do: {:pixels, max(1, to_pixels(length, unit))}
+
+  defp resolve_relative_dimension(other, _length), do: other
 
   defp normalize(%__MODULE__{} = operation) do
     %__MODULE__{
