@@ -32,7 +32,7 @@ defmodule ImagePipe.Parser.IIIF.Path do
   @spec base_uri(Plug.Conn.t()) :: String.t()
   def base_uri(%Plug.Conn{} = conn) do
     authority = conn.host <> port_suffix(conn.scheme, conn.port)
-    prefix = conn.script_name |> Enum.map(&("/" <> &1)) |> Enum.join()
+    prefix = Enum.map_join(conn.script_name, &("/" <> &1))
     "#{conn.scheme}://#{authority}#{prefix}"
   end
 
