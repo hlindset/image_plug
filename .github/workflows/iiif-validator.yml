@@ -24,6 +24,14 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
+        with:
+          # The project mise.toml pins only elixir/node; mise must also install
+          # erlang or elixir's post-install check fails with `erl: not found` on a
+          # clean runner (mirrors .github/workflows/elixir.yml). Pin a proven combo.
+          mise_toml: |
+            [tools]
+            erlang = "28"
+            elixir = "1.20.0-otp-28"
       - name: Install Hex
         run: mise exec -- mix local.hex --force
       - name: Install Rebar
