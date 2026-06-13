@@ -51,6 +51,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     ImagePipe.Output => "lib/image_pipe/output.ex",
     ImagePipe.Plan => "lib/image_pipe/plan.ex",
     ImagePipe.Parser => "lib/image_pipe/parser.ex",
+    ImagePipe.Parser.IIIF => "lib/image_pipe/parser/iiif.ex",
     ImagePipe.Parser.Imgproxy => "lib/image_pipe/parser/imgproxy.ex",
     ImagePipe.Renderer => "lib/image_pipe/renderer.ex",
     ImagePipe.Request => "lib/image_pipe/request.ex",
@@ -97,6 +98,7 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
   test "parser boundary declarations stay limited to format, plan, renderer, and parser APIs" do
     parser = boundary_declaration(ImagePipe.Parser)
     imgproxy = boundary_declaration(ImagePipe.Parser.Imgproxy)
+    iiif = boundary_declaration(ImagePipe.Parser.IIIF)
 
     assert_boundary_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
     # The Parser behaviour boundary must not export any concrete adapter: the core
@@ -113,9 +115,25 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
 
     assert_boundary_exports(imgproxy, [ImagePipe.Parser.Imgproxy.SourceScheme])
 
+    assert_boundary_deps(iiif, [
+      ImagePipe.Format,
+      ImagePipe.Parser,
+      ImagePipe.Plan,
+      ImagePipe.Renderer
+    ])
+
+    assert_boundary_exports(iiif, [])
+
     assert_allowed_deps(parser, [ImagePipe.Format, ImagePipe.Plan, ImagePipe.Renderer])
 
     assert_allowed_deps(imgproxy, [
+      ImagePipe.Format,
+      ImagePipe.Parser,
+      ImagePipe.Plan,
+      ImagePipe.Renderer
+    ])
+
+    assert_allowed_deps(iiif, [
       ImagePipe.Format,
       ImagePipe.Parser,
       ImagePipe.Plan,
@@ -405,14 +423,21 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     assert violations == []
   end
 
-  test "core code (plug, request, source, response, cache, output, plan) does not name the imgproxy parser" do
-    violations =
+  test "core code (plug, request, source, response, cache, output, plan) does not name concrete parser adapters" do
+    imgproxy_violations =
       for file <- parser_forbidden_files(),
           violation <- imgproxy_parser_references(file) do
         "#{file}:#{violation.line} must not name #{violation.module}; an adapter must be removable without changing the core — keep Imgproxy out of plug, request, source, response, cache, output, and plan code"
       end
 
-    assert violations == []
+    iiif_violations =
+      for file <- parser_forbidden_files(),
+          violation <- iiif_parser_references(file) do
+        "#{file}:#{violation.line} must not name #{violation.module}; an adapter must be removable without changing the core — keep IIIF out of plug, request, source, response, cache, output, and plan code"
+      end
+
+    assert imgproxy_violations == []
+    assert iiif_violations == []
   end
 
   test "cache boundary declaration avoids post-fetch transform state dependencies" do
@@ -1099,6 +1124,72 @@ defmodule ImagePipe.ArchitectureBoundaryTest do
     Enum.reject(
       violations,
       &(&1.module == "Imgproxy" and MapSet.member?(grouped_alias_lines, &1.line))
+    )
+  end
+
+  defp iiif_parser_references(file) do
+    {:ok, ast} = file |> File.read!() |> Code.string_to_quoted()
+
+    {_ast, violations} =
+      Macro.prewalk(ast, [], fn
+        {:alias, meta,
+         [
+           {{:., _dot_meta, [{:__aliases__, _module_meta, [:ImagePipe, :Parser]}, :{}]},
+            _call_meta, grouped_aliases}
+         ]} = node,
+        violations ->
+          grouped_aliases
+          |> Enum.filter(&iiif_parser_alias?/1)
+          |> Enum.map(&violation(meta, iiif_parser_module(&1)))
+          |> then(&{node, &1 ++ violations})
+
+        {:__aliases__, meta, [:ImagePipe, :Parser, :IIIF]} = node, violations ->
+          {node, [violation(meta, "ImagePipe.Parser.IIIF") | violations]}
+
+        {:__aliases__, meta, [:ImagePipe, :Parser, :IIIF | _rest]} = node, violations ->
+          {node, [violation(meta, "ImagePipe.Parser.IIIF") | violations]}
+
+        {:__aliases__, meta, [:Parser, :IIIF]} = node, violations ->
+          {node, [violation(meta, "Parser.IIIF") | violations]}
+
+        {:__aliases__, meta, [:Parser, :IIIF | _rest]} = node, violations ->
+          {node, [violation(meta, "Parser.IIIF") | violations]}
+
+        {:__aliases__, meta, [:IIIF]} = node, violations ->
+          {node, [violation(meta, "IIIF") | violations]}
+
+        {:__aliases__, meta, [:IIIF | _rest]} = node, violations ->
+          {node, [violation(meta, "IIIF") | violations]}
+
+        node, violations ->
+          {node, violations}
+      end)
+
+    violations
+    |> Enum.reverse()
+    |> Enum.uniq()
+    |> reject_iiif_grouped_alias_child_duplicates()
+  end
+
+  defp iiif_parser_alias?({:__aliases__, _meta, [:IIIF]}), do: true
+  defp iiif_parser_alias?({:__aliases__, _meta, [:IIIF | _rest]}), do: true
+  defp iiif_parser_alias?(_ast), do: false
+
+  defp iiif_parser_module({:__aliases__, _meta, [:IIIF]}),
+    do: "ImagePipe.Parser.IIIF"
+
+  defp iiif_parser_module({:__aliases__, _meta, [:IIIF | _rest]}),
+    do: "ImagePipe.Parser.IIIF"
+
+  defp reject_iiif_grouped_alias_child_duplicates(violations) do
+    grouped_alias_lines =
+      violations
+      |> Enum.filter(&(&1.module == "ImagePipe.Parser.IIIF"))
+      |> MapSet.new(& &1.line)
+
+    Enum.reject(
+      violations,
+      &(&1.module == "IIIF" and MapSet.member?(grouped_alias_lines, &1.line))
     )
   end
 
