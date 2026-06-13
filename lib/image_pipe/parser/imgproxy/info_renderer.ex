@@ -31,7 +31,7 @@ defmodule ImagePipe.Parser.Imgproxy.InfoRenderer do
   @impl true
   def render(%RenderContext{info: %SourceInfo{} = info}, _params, _opts) do
     {format, mime} = wire(info.format)
-    {w, h} = display_dimensions(info.width, info.height, info.orientation)
+    {w, h} = SourceInfo.display_dimensions(info)
 
     doc =
       %{
@@ -48,10 +48,6 @@ defmodule ImagePipe.Parser.Imgproxy.InfoRenderer do
 
   defp wire(format),
     do: Map.get(@wire, format, {Atom.to_string(format), "application/octet-stream"})
-
-  # EXIF orientations 5-8 are quarter-turns: reported width/height are swapped.
-  defp display_dimensions(w, h, orientation) when orientation in [5, 6, 7, 8], do: {h, w}
-  defp display_dimensions(w, h, _orientation), do: {w, h}
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
