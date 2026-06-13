@@ -88,7 +88,7 @@ Operations are emitted into a single pipeline in IIIF order. Crop and resize are
 | `x,y,w,h` (regionByPx) | `CropRegion{x: {:px, x}, y: {:px, y}, width: {:px, w}, height: {:px, h}}` |
 | `pct:x,y,w,h` (regionByPct) | `CropRegion` with `{:ratio, n, d}` per axis; decimal percents scaled to integer ratios (e.g. `10.5` → `{:ratio, 105, 1000}`) |
 
-Per IIIF, a pixel/percent region that extends beyond the image is **clipped** to the image bounds; a region wholly outside the image, or with zero width/height, is a **400**. Clipping is the native `CropRegion` runtime behavior; the zero/out-of-bounds rejection is enforced where dimensions are known (region values themselves can be validated for zero at parse time; out-of-bounds-vs-image is a runtime clip, not an error, except the wholly-outside case).
+Per IIIF, a pixel/percent region that extends beyond the image is **clipped** to the image bounds; a region with **zero width/height** is a **400** (validatable at parse time); a region **wholly outside** the image is also a **400** but is only knowable at runtime (after decode), so the `CropRegion` op emits the `{:bad_request, _}` client-error reason there (→ 400 via the mapping in primitive 1 below). Partial overlap clips (native `CropRegion` runtime behavior); it is not an error.
 
 ### Size (→ `Resize`)
 
@@ -105,7 +105,7 @@ Per IIIF, a pixel/percent region that extends beyond the image is **clipped** to
 | `pct:n` (sizeByPct) | scale by `n%` | `:reject` (n≤100 never upscales) / `:allow` |
 
 **Enlargement semantics:**
-- No `^` on an explicit-size form (`w,`, `,h`, `w,h`, `pct:n>100`) that would upscale → **`enlargement: :reject`** (new native primitive; see below). At execution, when the computed target exceeds the input, `Resize` returns `{:error, _}`.
+- No `^` on an explicit-size form (`w,`, `,h`, `w,h`, `pct:n>100`) that would upscale → **`enlargement: :reject`** (new native primitive; see below). At execution, when the computed target exceeds the input, `Resize` returns the `{:bad_request, _}` client-error reason → **400** (the IIIF validator asserts exactly 400 here; see primitive 1).
 - No `^` on `!w,h` (confined) or `max` → `enlargement: :deny` (clamp; a smaller image legitimately stays smaller — not an error).
 - Any `^` form → `enlargement: :allow`.
 - A size that computes to zero width/height is a **400**.
@@ -141,51 +141,81 @@ Per IIIF, a pixel/percent region that extends beyond the image is **clipped** to
 
 ### EXIF auto-orientation
 
-`auto_rotate: true` by default, configurable via `iiif: [auto_rotate: …]`. IIIF region/size/rotation and the `width`/`height` in info.json are defined in the **displayed** (post-EXIF-orientation) coordinate system, which is exactly what the existing late `OrientationFlush` machinery produces — crop gravity and resize dimensions are compensated into the storage frame, composing `EXIF → user-rotate → user-flip` (the IIIF rotation param is the user-rotate). info.json reports display dimensions via `display_dimensions(width, height, orientation)`, the same path imgproxy's info uses. No divergence.
+`auto_rotate: true` by default, configurable via `iiif: [auto_rotate: …]`. IIIF region/size/rotation and the `width`/`height` in info.json are defined in the **displayed** (post-EXIF-orientation) coordinate system.
+
+**Exact mechanism (load-bearing — get this right or region pixels are silently wrong):**
+- An absolute-coordinate `CropRegion` (regionByPx/Pct) is made display-correct by the executor **flushing the EXIF pending orientation *before* the crop** and rescaling the region against the orientation-swapped `decode_shrink` (`plan_executor.ex` `do_execute_crop` for `%CropRegion{}`). This is **not** the gravity-compensation path — that applies only to `CropGuided`. (The `square` region uses `CropGuided` and *is* gravity-compensated.)
+- The IIIF **rotation** param is emitted as a trailing `%Plan.Operation.Rotate{}` that the executor **folds into `pending_orientation`**, applied at the *next* flush boundary — i.e. **after** the region crop. This is the invariant that makes region coordinates pre-rotation/display-correct: the region crop flushes only the EXIF orientation present at that point; the user-rotate has not yet been folded.
+- **Ordering invariant:** the region crop must precede the rotation op in the pipeline, and the IIIF rotation must *not* be folded into the same pending bundle as EXIF before the crop. Pinned by the combined region+rotation+gray pixel test (Tests §T1).
+- info.json reports display dimensions, computed **by the `InfoRenderer` itself** from `SourceInfo.orientation` via the shared `ImagePipe.Plan.SourceInfo.display_dimensions/1` (see primitive 6) — the render path never runs the pipeline, so this does **not** depend on `auto_rotate`. No divergence.
 
 ---
 
 ## New native primitives
 
-### 1. `Resize` `enlargement: :reject`
+> Each primitive below is product-neutral (IIIF is the first caller, not the owner). Every reference to a specific module/line is a touch-point an implementer must hit; the architecture review confirmed the seams that the first spec draft mis-stated, and those corrections are baked in here.
 
-Add `:reject` to the existing `enlargement: :allow | :deny` field on `ImagePipe.Plan.Operation.Resize` and the executable `Transform.Operation.Resize`.
+### 1. Transform-emitted client error → 400 (`{:bad_request, _}`)
 
-- `:allow` — upscale as needed (unchanged).
-- `:deny` — never upscale; clamp to input size (unchanged).
-- `:reject` — never upscale; **return `{:error, _}` at execution when the computed target exceeds the input**, instead of clamping.
+Today **every** transform-execution `{:error, _}` flattens to **422** at `Sender.handle_processing_error({:transform_error, reason}, …)` ([sender.ex:112](../../../lib/image_pipe/response/sender.ex), `send_transform_error/2` → 422). IIIF needs a **400** for two execution-time conditions (upscale-without-`^`, wholly-out-of-bounds region), and the official validator asserts **exactly 400** (`size_up.py` calls `check('size', last_status, 400, …)`, which raises on mismatch) — so 422 fails the gate.
 
-`:reject` is a product-neutral primitive ("the request asks for more pixels than exist, and the caller wants that to fail rather than silently clamp"). It flows through the existing transform-error path:
+Add a **minimal, reason-aware branch**: a transform op may return `{:error, {:bad_request, detail}}`; `Chain` wraps it as `{:transform_error, {:bad_request, detail}}` ([chain.ex:77](../../../lib/image_pipe/transform/chain.ex)); `Sender`'s `{:transform_error, reason}` clause gains a head that routes `{:bad_request, _}` → **400** ("bad request") and leaves every other reason on the existing **422** default. ~3 lines + the reason. Product-neutral (any op can signal "the request — not the image — is bad"). This is the minimal slice of [#267](https://github.com/hlindset/image_pipe/issues/267); #267 stays open for the *general, host-customizable* error→status mapping (and its source-side twin #160).
 
-`Resize.execute → {:error, reason}` → `Chain` wraps `{:transform_error, reason}` ([chain.ex:77](../../../lib/image_pipe/transform/chain.ex)) → request runner `{:processing, {:transform_error, reason}, headers}` → `Sender.handle_processing_error` ([sender.ex:112](../../../lib/image_pipe/response/sender.ex)) → **422 "invalid image transform"**.
+### 2. `Resize` `enlargement: :reject`
 
-**Divergence:** IIIF *recommends* 400 for upscale-without-`^`; we surface 422 via the existing flat mapping. 422 is semantically defensible (the request parses; it is only *unprocessable* once the image size is known). Documented in `docs/iiif_3_support_matrix.md` and tracked by [#267](https://github.com/hlindset/image_pipe/issues/267) (customizable error→status, the transform-side twin of #160). No new error surface is added in this phase.
+The **plan** op `ImagePipe.Plan.Operation.Resize` carries `enlargement :: :allow | :deny` ([plan/operation/resize.ex](../../../lib/image_pipe/plan/operation/resize.ex)); the **executable** op carries only `enlarge: boolean()` ([transform/operation/resize.ex](../../../lib/image_pipe/transform/operation/resize.ex)), set by `resize_from/2` via `enlarge: operation.enlargement == :allow` ([plan_executor.ex](../../../lib/image_pipe/transform/plan_executor.ex)). So a third value cannot just be "added to the field" — the executable boolean can't express three states.
 
-### 2. `gray` quality op (true desaturation)
+Concretely:
+- Plan side: add `:reject` to the `enlargement` type **and** to `@enlargements [:allow, :deny]` in `plan/operation.ex` (used by the constructor and the `valid_resize?` gate).
+- Executable side: replace `enlarge: boolean()` with a tri-state (`enlargement: :allow | :deny | :reject`, or add `reject_enlargement: boolean()`), and thread it through `resize_from/2`.
+- Runtime: in `Resize.execute/2`, compare the **unclamped requested box** to the source *before* `clamp_to_source/3` runs (the existing `enlarge` flag currently only suppresses the clamp). If the request would upscale and mode is `:reject`, return `{:error, {:bad_request, :upscale_required}}` → 400 (primitive 1). `:deny` keeps clamping; `:allow` keeps upscaling.
+
+Per the validation guidelines this is a legitimate runtime error from a correctly-constructed op (a data-determined condition: the request asks for more pixels than exist), **not** impossible-misuse — so it is exempt from "trust operation structs inside the transform boundary."
+
+### 3. `gray` quality op (true desaturation)
 
 - `ImagePipe.Plan.Operation.Gray{}` — semantic op, no params (plan boundary).
 - `ImagePipe.Transform.Operation.Gray` — executable op (transform boundary):
-  - `execute/2 → Image.to_colorspace(state.image, :bw)` — true luminance desaturation, **not** `Monochrome` (which tints to a color via Duotone). Must **preserve alpha** (verify and test).
-  - `requires_materialization?/1 → false` (inherited default; per-pixel point op).
-  - `name/1 → :gray`.
-- Wire `Plan.Operation.Gray → Transform.Operation.Gray` in `Transform.PlanExecutor`; add to the `Transform` `exports`/boundary and the `Plan.Operation` alias list.
+  - `execute/2 → Image.to_colorspace(state.image, :bw)` — true luminance desaturation, **not** `Monochrome` (which tints to a color via Duotone). Alpha: `vips_colourspace` carries an alpha band into `B_W` (a 2-band B_W+alpha result); **the 2-band result through the PNG/WebP/AVIF encode path is unverified** — keep the explicit alpha-preservation test (Tests §S1).
+  - `requires_materialization?/1 → false` (inherited default; per-pixel point op). Runs last in the pipeline, after rotate has already materialized — a sequential-safe point op on an in-memory image is fine (`Chain.maybe_materialize/2` short-circuits on `materialized?: true`).
+  - `name/1 → :gray`. **The literal `:gray` must appear in the compiled transform module** — `Plan.Operation.name/1` derives the atom via `String.to_existing_atom/1` and will raise otherwise.
+- **Real wiring seams (there is no `@pipeline_operations` registry):**
+  - a `Plan.Operation.semantic?(%Gray{}) -> true` clause in `plan/operation.ex` — **without it, `Plan.validated_pipelines/1` rejects every Gray plan as `:invalid_pipeline_operation`** (the fallthrough `semantic?(_) -> false`). Load-bearing.
+  - an `executable_operations(%Plan.Operation.Gray{}, …) -> [%Transform.Operation.Gray{}]` clause (+ alias) in `Transform.PlanExecutor` — the actual Plan→Transform "wire".
+  - add `Operation.Gray` to the **`Plan` Boundary `exports`** and `Transform.Operation.Gray` to the **`Transform` Boundary `exports`**.
+  - update **both** architecture-test expectation lists in `test/image_pipe/architecture_boundary_test.exs` (the Plan list is exact-match `assert_boundary_exports`, the Transform list too).
 - **AGENTS.md gate:** add a sequential-vs-random pixel-equivalence test (streamed open, `access: :sequential`, `fail_on: :error`) plus a property test over input shapes in `test/image_pipe/transform/sequential_access_test.exs`. The existing harness self-check (a known-random op must raise under the streamed open) already prevents tautological passes.
 
-### 3. Redirect parse outcome (`{:redirect, status, location}`)
+### 4. Redirect parse outcome (`{:redirect, status, location}`)
 
-Widen the neutral `ImagePipe.Parser.parse/2` return type to:
+Widen the neutral `ImagePipe.Parser.parse/2` `@callback` return type to:
 
 ```elixir
 {:ok, Plan.t()} | {:redirect, status :: 303, location :: String.t()} | {:error, any()}
 ```
 
-In `ImagePipe.Plug.do_call`, a `{:redirect, status, location}` short-circuits **before** `validate_client_plan`/`Source.resolve` — no source, decode, or cache — and is emitted by a new `ImagePipe.Response.Sender.send_redirect/3` (sets `Location`, sends `303` with empty body, plus CORS headers). Product-neutral: imgproxy simply never returns it. Flagged for the architecture/compat reviewer.
+A `{:redirect, …}` cannot ride `Plug.do_call`'s existing `with` (its first head matches `{:ok, %Plan{}}`), so detect it **around** the `with`: `case parse(...)` with a `{:redirect, status, location}` arm that calls `ImagePipe.Response.Sender.send_redirect/3` inside the existing `send_response(conn, opts, :redirect, fn -> … end)` telemetry wrapper (which reads `conn.status`, so 303 is captured), falling through to the current `with` for `{:ok, plan}`. Short-circuits **before** `validate_client_plan`/`Source.resolve` — no source, decode, or cache.
 
-### 4. info.json content-type negotiation hook (rendered-delivery path)
+Touch-points the implementer must not miss:
+- the `Parser` `@callback parse/2` typespec (every existing parser's Dialyzer surface — imgproxy returns only `{:ok|:error}`, fine);
+- `wrap_parser_error/1` already passes non-`{:error,…}` through unchanged, so `{:redirect,…}` survives — add a test;
+- `result_metadata/1` / `request_result/1` only have `:ok`/`:error` heads — ensure the redirect branch doesn't flow through them (or add a head), else a `FunctionClauseError` at telemetry-stop;
+- `Sender.send_redirect/3` lives under the response boundary; sets `Location`, sends `303` empty body, plus CORS headers.
 
-The Phase 1 `Renderer` returns a fixed content-type and never sees the conn, so Accept-based negotiation must happen where the conn is available (the `Sender`). The body is **byte-identical** regardless of `Accept` (it always embeds `@context`), so cache identity must stay Accept-independent.
+### 5. info.json content-type negotiation hook (rendered-delivery path)
 
-Add a **small, product-neutral negotiation hint** to the rendered-delivery path: the `InfoRenderer` returns the base `application/json` body plus a negotiation directive (offer `application/ld+json;profile="http://iiif.io/api/image/3/context.json"` when `Accept` allows `application/ld+json`). The `Sender`, delivering the `{:rendered, …}` result, applies the directive generically — upgrading `Content-Type` and always setting `Vary: Accept`. The `id` (body-shaping) lives in render params and folds into cache identity; the negotiated content-type does **not**. Exact directive shape finalized during planning; flagged for the architecture/compat reviewer. (Aligns with the spirit of #262's "Renderable" unification without expanding the `Renderer` behaviour itself.)
+The Phase 1 `Renderer` returns a fixed content-type and never sees the conn (`RenderRunner.run/3` passes only `%RenderContext{}` + host `opts`), and `Json.send/3` hardcodes `send_resp(200, …)` with no `Vary`. The body is **byte-identical** regardless of `Accept` (it always embeds `@context`), so cache identity must stay Accept-independent. The renderer therefore stays **Accept-blind**; negotiation happens in the `Sender`, which does have the conn.
+
+Concrete (the `{:rendered,…}` tuple has no slot today — this is a real plumbing change, not a no-op):
+- the `InfoRenderer` returns, alongside the base `application/json` body, a **static** `offers` list (parser/renderer-supplied, conn-independent) — e.g. `[{"application/ld+json;profile=\"http://iiif.io/api/image/3/context.json\"", ["application/ld+json"]}]`.
+- widen the rendered delivery to `{:rendered, content_type, body, offers, prepared}` and update **both** `@type delivery()` declarations (`request/runner.ex` and `response/sender.ex`).
+- `Json.send/4` grows a response-headers arg; the `Sender` `{:rendered, …}` clause matches the conn's `Accept` against `offers`, upgrades `Content-Type` when matched, and sets `Vary: Accept` whenever `offers != []`.
+- cache identity: the `id` (body-shaping) lives in render `params` and folds into `Cache.Key.representation_data/1` (`{module, params}`); the `offers` list is identical for all requests of an identifier, so cache identity stays Accept-independent. The negotiated `Content-Type` never enters the key.
+- the `Renderer` **behaviour** is unchanged; only the delivery tuple + `Json.send` + `Sender` clause change. `RenderContext` needs no change. (Aligns with the spirit of #262's "Renderable" unification.)
+
+### 6. `SourceInfo.display_dimensions/1` (extract, don't copy)
+
+The EXIF orientation → display-dimension swap currently lives as a private `display_dimensions/3` in the imgproxy `InfoRenderer` ([info_renderer.ex:52-54](../../../lib/image_pipe/parser/imgproxy/info_renderer.ex)). It is pure geometry over `SourceInfo`'s own fields (swap w/h for orientations 5–8), with no imgproxy entanglement, and the IIIF `InfoRenderer` needs the identical computation. **Extract** it to a public `ImagePipe.Plan.SourceInfo.display_dimensions/1` (→ `{w, h}`) — the struct deriving a fact about itself — and refactor the imgproxy `InfoRenderer` to call it. No boundary change: `SourceInfo` is already in the **plan** boundary that both info renderers depend on. (Per the brainstorming "improve the code you're working in" rule and CLAUDE.md's no-duplication stance; the imgproxy `@moduledoc` note about orientation-adjusted dimensions stays accurate.)
 
 ---
 
@@ -194,7 +224,7 @@ Add a **small, product-neutral negotiation hint** to the rendered-delivery path:
 `ImagePipe.Parser.IIIF.InfoRenderer` implements `ImagePipe.Renderer`:
 
 - `requires/1 → [:header]` (needs decoded source dimensions + orientation).
-- `render/3` receives `%RenderContext{info: %SourceInfo{width, height, orientation, ...}}` and parser-supplied `params` (the absolute `id`, the compliance level, the supported `extraFeatures`/`extraQualities`/`extraFormats` lists, and optional `maxWidth`/`maxHeight`/`maxArea`). It builds the IIIF 3.0 document:
+- `render/3` receives `%RenderContext{info: %SourceInfo{width, height, orientation, ...}}` and parser-supplied `params` (the absolute `id`, the compliance level, the supported `extraFeatures`/`extraQualities`/`extraFormats` lists, the static `offers` list for negotiation, and optional `maxWidth`/`maxHeight`/`maxArea`). It computes **display** dimensions itself via the shared `SourceInfo.display_dimensions/1` (primitive 6) — the render path never runs the pipeline, so it does not depend on `auto_rotate`. It builds the IIIF 3.0 document:
 
 ```json
 {
@@ -234,7 +264,7 @@ Configured via `iiif: [resolver: {Module, resolver_opts}]`. Ship one built-in no
 
 - `ImagePipe.Parser.IIIF.Resolver.Static` — maps a percent-decoded identifier to a pre-configured `Plan.Source` from a static map. Opaque IDs, zero source-structure leakage, and exactly what serves the validator's canonical reference image. An unknown identifier → `{:error, _}` → `404`.
 
-`validate_options!/1` validates the `iiif:` option namespace (resolver tuple, auto_rotate, max_* constraints, formats/qualities lists) with `NimbleOptions`, rejecting unknown/malformed config at boot.
+`validate_options!/1` validates the `iiif:` option namespace (resolver tuple, auto_rotate, max_* constraints, formats/qualities lists) with `NimbleOptions`, rejecting unknown/malformed config at boot. A boot-time `function_exported?(module, :resolve, 2)` check on the resolver module is appropriate (host config is a real boundary); per the validation guidelines, **runtime** dispatch just calls `module.resolve/2` directly and lets a missing callback raise — no runtime duck-typing probe. The resolver's `{:ok, %Plan.Source{}}` / `{:error, _}` return crosses a host boundary and is validated at the parser before use.
 
 The source-string resolver (imgproxy-style URL-in-identifier) is **deferred**.
 
@@ -252,10 +282,10 @@ The source-string resolver (imgproxy-style URL-in-identifier) is **deferred**.
 ## Boundaries / namespaces
 
 - `ImagePipe.Parser.IIIF.*` under the **parser** boundary; deps: `plan`, `renderer`, `format` (mirroring imgproxy's `[Format, Parser, Plan, Renderer]`). The IIIF parser must **not** name concrete transform operation modules and must emit `Plan.Operation.*` structs.
-- `Plan.Operation.Gray` under the **plan** boundary; `Transform.Operation.Gray` under the **transform** boundary; added to `Transform` exports.
-- The `enlargement: :reject` variant stays within the existing `Resize` op (plan + transform).
+- `Plan.Operation.Gray` added to the **`Plan`** Boundary `exports`; `Transform.Operation.Gray` added to the **`Transform`** Boundary `exports`.
+- The `enlargement: :reject` variant stays within the existing `Resize` op (plan + transform); the `{:bad_request, _}` → 400 mapping is a `Sender` clause (response boundary).
 - The redirect parse outcome and `Sender.send_redirect/3` touch the **request**/**response** boundaries; the `parse/2` typespec widening is on the neutral `Parser` behaviour.
-- **Architecture tests:** extend `test/image_pipe/architecture_boundary_test.exs` for the IIIF parser (no concrete transform modules; emits `Plan.Operation.*`) and the new boundaries.
+- **Architecture tests** (`test/image_pipe/architecture_boundary_test.exs`) — name the specific additions: register `ImagePipe.Parser.IIIF` in `@boundary_files` and add an `assert_boundary_deps(iiif, [Format, Plan, Renderer])` assertion mirroring imgproxy's; add `Operation.Gray` to **both** the Plan and Transform expected-`exports` lists (exact-match `assert_boundary_exports`). The generic source-scan test (`parser code does not depend on executable transform operation modules`) already globs the new `lib/image_pipe/parser/iiif/**` files, so it auto-covers the "emits `Plan.Operation.*`, names no concrete transform module" rule.
 
 ---
 
@@ -265,10 +295,14 @@ Per `AGENTS.md` test discipline — boundary contracts, representative wire-leve
 
 - **Parser unit** (`test/parser/iiif_test.exs`): URL → Plan for each region/size/rotation/quality/format token; error cases (zero-dim region/size, wholly-out-of-bounds region, unsupported quality/format, malformed identifier, malformed `path_info` shape); resolver miss → 404.
 - **Property tests:** identifier percent-encoding round-trip; `pct` decimal → integer-ratio conversion; size/region numeric parsing across shapes.
-- **Wire-level Plug tests** (real `ImagePipe.call/2`): status, `Content-Type`, `Vary`, CORS headers, optional `Link`, decoded output dimensions, and **pixel checks** for representative region/size/rotation and **`gray`**; info.json body + Accept negotiation (json vs ld+json); base-URI `303` redirect; upscale-without-`^` → `422`.
-- **`gray` op:** sequential-vs-random equivalence + property test (the AGENTS.md gate); a focused test asserting RGB bands are equal at sampled points (true desaturation) and alpha is preserved.
+- **Wire-level Plug tests** (real `ImagePipe.call/2`): status, `Content-Type`, `Vary`, CORS headers, optional `Link`, decoded output dimensions, and **pixel checks** for representative region/size/rotation and **`gray`**; info.json body + Accept negotiation (json vs ld+json); base-URI `303` redirect; **upscale-without-`^` → `400`** and **wholly-out-of-bounds region → `400`**.
+- **§T1 — combined region + IIIF-rotation + gray pixel test (highest-value, pins the orientation invariant):** an EXIF-oriented source, `regionByPx` + `/90/` (or `/270/`) + `gray`, decoded and compared against an independently-computed baseline. Guards the load-bearing ordering invariant (region crop flushes EXIF before crop; IIIF rotation folds into pending and applies *after*). Without it, display-coordinate regions can be silently mis-placed.
+- **§T2 — ETag / 304 for info.json:** an `If-None-Match` conditional GET returns `304` before any source fetch/decode, and the ETag is Accept-independent (the AGENTS.md "304 before fetch" + Accept-independent-cache-identity contracts).
+- **§T3 — cache reuse for equivalent IIIF requests:** two semantically equivalent image URLs (e.g. `max` vs the explicit dims it computes to, `pct:100` vs `max`, `default` vs `color` quality) hit the same cache entry / the second avoids source fetch.
+- **`gray` op:** sequential-vs-random equivalence + property test (the AGENTS.md gate); **§S1** — a focused test asserting RGB bands are equal at sampled points (true desaturation) **and** that a `gray` PNG/WebP/AVIF of an **RGBA** source round-trips through the full encode path with a non-opaque alpha band intact (the 2-band B_W+alpha encode path is the unverified risk).
 - **`square` region:** pixel test confirming a centered 1:1 crop from the shorter axis.
-- **`enlargement: :reject`:** unit test that a target exceeding the input returns `{:error, _}` (→ 422 at the wire), and that `:deny`/`:allow` are unaffected.
+- **`enlargement: :reject`:** unit test that a target exceeding the input returns `{:error, {:bad_request, _}}` and a wire-level test that it surfaces as **400**; that `:deny` (clamp) / `:allow` (upscale) are unaffected.
+- **Negative `Vary`:** assert **image** responses do **not** carry a spurious `Vary: Accept` from the new negotiation plumbing (IIIF format is explicit per-URL, so no `Vary` is warranted there).
 
 ---
 
@@ -288,7 +322,7 @@ The official IIIF `image-validator` performs real pixel sampling, so the gate is
 
 - The validator makes HTTP requests **out to** a running ImagePipe IIIF endpoint serving the canonical `67352ccc-…` reference image (committed as a test fixture) via the **Static resolver**. Reach the service via `docker-compose` on a shared network (use the ImagePipe service name as `--server`) or `--network host` / `host.docker.internal`.
 - Invoke `iiif-validate.py -s <server> -p <prefix> -i <identifier> --version=3.0` at Level 2; assert exit `0`. The gate goes green only once info.json is in place (the validator discovers sizes/features from it).
-- Wire via a mise task + CI workflow. Confirm whether the validator strictly requires `400` (vs accepting `4xx`) for the no-`^` upscale case; if strict, that single assertion is the only thing the documented 422 divergence affects, and #267 is the place to close it.
+- Wire via a mise task + CI workflow. The validator **requires exactly `400`** for the no-`^` upscale case (`size_up.py` `check(..., 400, ...)` raises on mismatch) — primitive 1's `{:bad_request, _}` → 400 mapping is what makes this pass; there is no 422 fallback to live with.
 
 ---
 
@@ -296,7 +330,7 @@ The official IIIF `image-validator` performs real pixel sampling, so the gate is
 
 `docs/iiif_3_support_matrix.md`, mirroring `docs/imgproxy_support_matrix.md`: per-feature status keyed to the Level 0/1/2 compliance matrix, noting the changed axis for each entry — **surface** (option/config), **stage/order** (pipeline), **behavioral/pixel** (wire conformance). Record the divergences explicitly:
 
-- Upscale-without-`^` returns **422**, not the spec-recommended 400 (tracked by #267).
+- Upscale-without-`^` and wholly-out-of-bounds region return **400** (spec-conformant) via the minimal `{:bad_request, _}` mapping; the *general, host-customizable* error→status policy remains open as #267.
 - `jp2`/`gif`/`tif`/`pdf`, bitonal, arbitrary rotation, and mirroring are unsupported `extraFeatures`.
 - `auto_rotate` defaults true (display-frame coordinates) — documented as intentional, not a divergence.
 
