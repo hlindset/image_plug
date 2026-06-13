@@ -15,7 +15,7 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
 
   `source` is an `ImagePipe.Plan.Source.*` struct already resolved by the caller.
   `id_uri` is the absolute base URI for the image identifier (the IIIF `id` field).
-  `opts` accepts `max_width`, `max_height`, `max_area`, `formats`, `qualities`.
+  `opts` accepts `formats`, `qualities`, `tile_size`.
   """
   @spec info_plan(Plan.Source.t(), String.t(), keyword()) :: {:ok, Plan.t()}
   def info_plan(source, id_uri, opts) do
@@ -27,7 +27,8 @@ defmodule ImagePipe.Parser.IIIF.PlanBuilder do
          ["application/ld+json"]}
       ],
       formats: Keyword.get(opts, :formats, [:jpg, :png, :webp, :avif]),
-      qualities: Keyword.get(opts, :qualities, [:default, :color, :gray, :bitonal])
+      qualities: Keyword.get(opts, :qualities, [:default, :color, :gray, :bitonal]),
+      tile_size: Keyword.get(opts, :tile_size, 512)
     }
 
     {:ok,

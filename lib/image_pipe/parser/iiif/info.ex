@@ -1,6 +1,7 @@
 defmodule ImagePipe.Parser.IIIF.Info do
   @moduledoc "Builds the IIIF Image API 3.0 info.json document map."
 
+  alias ImagePipe.Parser.IIIF.Tiling
   alias ImagePipe.Plan.SourceInfo
 
   @context "http://iiif.io/api/image/3/context.json"
@@ -25,6 +26,9 @@ defmodule ImagePipe.Parser.IIIF.Info do
   def document(%SourceInfo{} = info, params) do
     {w, h} = SourceInfo.display_dimensions(info)
 
+    %{scale_factors: factors, tile: tile, sizes: sizes} =
+      Tiling.tiles_and_sizes(w, h, params.tile_size)
+
     %{
       "@context" => @context,
       "id" => params.id,
@@ -33,6 +37,8 @@ defmodule ImagePipe.Parser.IIIF.Info do
       "profile" => params.level,
       "width" => w,
       "height" => h,
+      "tiles" => [%{"width" => tile.width, "height" => tile.height, "scaleFactors" => factors}],
+      "sizes" => Enum.map(sizes, &%{"width" => &1.width, "height" => &1.height}),
       # `extraQualities`/`extraFormats` list what is supported *beyond* the baseline
       # (`default` quality; `jpg`/`png` formats at Level 2), per the IIIF spec.
       "extraQualities" =>

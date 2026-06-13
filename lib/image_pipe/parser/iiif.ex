@@ -28,7 +28,8 @@ defmodule ImagePipe.Parser.IIIF do
             resolver: [type: {:custom, __MODULE__, :validate_resolver, []}, required: true],
             auto_rotate: [type: :boolean, default: true],
             formats: [type: {:list, :atom}, default: [:jpg, :png, :webp, :avif]],
-            qualities: [type: {:list, :atom}, default: [:default, :color, :gray, :bitonal]]
+            qualities: [type: {:list, :atom}, default: [:default, :color, :gray, :bitonal]],
+            tile_size: [type: :pos_integer, default: 512]
           )
 
   @impl true

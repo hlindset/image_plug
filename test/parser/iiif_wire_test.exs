@@ -87,6 +87,16 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     ]
   end
 
+  defp iiif_opts_tile(origin_plug, tile_size) do
+    [
+      parser: ImagePipe.Parser.IIIF,
+      iiif: [resolver: static_resolver(), tile_size: tile_size],
+      sources: [
+        path: {RootHTTPAdapter, root_url: "http://origin.test", req_options: [plug: origin_plug]}
+      ]
+    ]
+  end
+
   defp iiif_opts_with_rgba do
     [
       parser: ImagePipe.Parser.IIIF,
@@ -289,6 +299,33 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     assert json["profile"] == "level2"
     # OriginImage serves a 200×300 source (orientation 1), so info.json reports those.
     assert json["width"] == 200 and json["height"] == 300
+  end
+
+  # ---------------------------------------------------------------------------
+  # Contract 5b: info.json tiles/sizes derived from source dims
+  # ---------------------------------------------------------------------------
+
+  test "contract 5b: info.json emits tiles/sizes from source dims" do
+    conn = call_iiif("/img/info.json", iiif_opts(OriginImage))
+    json = JSON.decode!(conn.resp_body)
+
+    # 200x300 source, default tile 512: short side 200 -> 100, 50<64 at i=1 -> [1,2]
+    assert json["tiles"] == [%{"width" => 200, "height" => 300, "scaleFactors" => [1, 2]}]
+
+    assert json["sizes"] == [
+             %{"width" => 100, "height" => 150},
+             %{"width" => 200, "height" => 300}
+           ]
+  end
+
+  test "contract 5c: non-default tile_size flows to tiles[].width" do
+    conn = call_iiif("/img/info.json", iiif_opts_tile(OriginImage, 128))
+    json = JSON.decode!(conn.resp_body)
+
+    # tile clamps to min(128, dim): width 128, height 128 (both < 200/300)
+    assert [%{"width" => 128, "height" => 128, "scaleFactors" => factors}] = json["tiles"]
+    # short side 200 -> [1,2] regardless of tile size (ladder is dimension-only)
+    assert factors == [1, 2]
   end
 
   # ---------------------------------------------------------------------------
