@@ -111,6 +111,15 @@ defmodule ImagePipe.Response.Sender do
 
   defp handle_processing_error(
          conn,
+         {:transform_error, {:bad_request, _detail}} = reason,
+         response_headers
+       ) do
+    Logger.info("bad_request: #{inspect(reason)}")
+    send_bad_request_error(conn, response_headers)
+  end
+
+  defp handle_processing_error(
+         conn,
          {:transform_error, reason},
          response_headers
        ) do
@@ -222,6 +231,13 @@ defmodule ImagePipe.Response.Sender do
     |> put_resp_headers(response_headers)
     |> put_resp_content_type("text/plain")
     |> send_resp(413, "source image is too large")
+  end
+
+  defp send_bad_request_error(%Plug.Conn{} = conn, response_headers) do
+    conn
+    |> put_resp_headers(response_headers)
+    |> put_resp_content_type("text/plain")
+    |> send_resp(400, "bad request")
   end
 
   defp send_transform_error(%Plug.Conn{} = conn, response_headers) do
