@@ -42,7 +42,7 @@ custom classes must fully style the input
   bites `pnpm check`, not `pnpm build`). Name it `demoState`/`formState`/etc. instead.
 - Verify frontend changes with `pnpm -C fiddle/assets run test`, `… run check`,
   `… run format:check`, `… run lint`, and `… run build` (all bundled into
-  `mise run precommit:demo`). Keep the existing `assets/*.test.ts` pure-function tests
+  `mise run precommit:fiddle`). Keep the existing `assets/*.test.ts` pure-function tests
   green and untouched unless the behavior they pin actually changes.
 
 

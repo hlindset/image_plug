@@ -105,7 +105,7 @@ export type CocoClass = (typeof cocoClasses)[number];
 
 export type TrimBackgroundMode = "auto" | "color";
 
-export type DemoState = {
+export type FiddleState = {
   signatureMode: SignatureMode;
   signatureKey: string;
   signatureSalt: string;
@@ -283,7 +283,7 @@ function sourceDimension(source: SourceImage, axis: ImageDimensionAxis): number 
   return cropPixelLimit(source, axis).max;
 }
 
-export function resetCropPixelsToSource(currentState: DemoState): DemoState {
+export function resetCropPixelsToSource(currentState: FiddleState): FiddleState {
   return {
     ...currentState,
     cropWidth: sourceDimension(currentState.source, "width"),
@@ -308,7 +308,7 @@ export function debounce<Arguments extends unknown[]>(
   };
 }
 
-export const defaultDemoState: DemoState = {
+export const defaultFiddleState: FiddleState = {
   signatureMode: "unsigned",
   signatureKey: "736563726574",
   signatureSalt: "68656c6c6f",
@@ -399,7 +399,7 @@ export const defaultDemoState: DemoState = {
   preserveHdr: false,
 };
 
-export function optionSegments(currentState: DemoState): string[] {
+export function optionSegments(currentState: FiddleState): string[] {
   const segments: string[] = [];
 
   if (currentState.autoRotateEnabled) {
@@ -435,7 +435,7 @@ export function optionSegments(currentState: DemoState): string[] {
   }
 
   // Emit whenever the toggle is on, independent of cropEnabled, so the segment
-  // round-trips with parseDemoPath (which sets cropAspectRatioEnabled alone).
+  // round-trips with parseFiddlePath (which sets cropAspectRatioEnabled alone).
   if (currentState.cropAspectRatioEnabled) {
     segments.push(
       currentState.cropAspectRatioEnlarge
@@ -568,7 +568,7 @@ export function optionSegments(currentState: DemoState): string[] {
   return segments;
 }
 
-export function trimOptionSegment(currentState: DemoState): string | null {
+export function trimOptionSegment(currentState: FiddleState): string | null {
   if (!currentState.trimEnabled) {
     return null;
   }
@@ -591,7 +591,7 @@ export function trimOptionSegment(currentState: DemoState): string | null {
   return parts.join(":");
 }
 
-export function cropOptionSegment(currentState: DemoState): string | null {
+export function cropOptionSegment(currentState: FiddleState): string | null {
   if (!currentState.cropEnabled) {
     return null;
   }
@@ -617,7 +617,7 @@ export function cropOptionSegment(currentState: DemoState): string | null {
   return cropSegment.join(":");
 }
 
-export function resizeOptionSegment(currentState: DemoState): string | null {
+export function resizeOptionSegment(currentState: FiddleState): string | null {
   if (!currentState.resizeEnabled) {
     return null;
   }
@@ -661,7 +661,7 @@ export function resizeDimensionSegment(unit: ResizeDimensionUnit, pixels: number
   return String(pixels);
 }
 
-export function gravitySegment(currentState: DemoState): string {
+export function gravitySegment(currentState: FiddleState): string {
   if (currentState.gravityMode === "smart") {
     return "g:sm";
   }
@@ -703,7 +703,7 @@ export function objGravitySegment(classes: string[]): string {
 //     is inert for filtering; the class list still filters detection).
 //   - Otherwise → emit g:objw:<class>:<weight>... for ALL selected classes
 //     verbatim, including class:1 entries (the class token is load-bearing).
-export function objGravitySegmentFromState(currentState: DemoState): string {
+export function objGravitySegmentFromState(currentState: FiddleState): string {
   const { objSubMode, objSelectedClasses, objWeights } = currentState;
 
   if (objSelectedClasses.length === 0) {
@@ -757,7 +757,7 @@ function roundedUnit(value: number): number {
 }
 
 export function resolvedOutputLabel(
-  currentState: DemoState,
+  currentState: FiddleState,
   metadata: ProcessedImageMetadata | null = null,
 ): string {
   if (!currentState.formatEnabled) {
@@ -824,7 +824,7 @@ export function sourceIdentifierForRequest(source: SourceImage): string {
   return `local:///${source}`;
 }
 
-export function signedPathForState(currentState: DemoState): string {
+export function signedPathForState(currentState: FiddleState): string {
   const options = optionSegments(currentState).join("/");
   const optionsPath = options === "" ? "" : `/${options}`;
 
@@ -837,7 +837,7 @@ export function processingPathFromSignedPath(signature: string, signedPath: stri
   return `${processingPrefix}/${signature}${signedPath}`;
 }
 
-export function buildProcessingPath(currentState: DemoState, signature?: string): string {
+export function buildProcessingPath(currentState: FiddleState, signature?: string): string {
   const signedPath = signedPathForState(currentState);
 
   if (signature !== undefined) {

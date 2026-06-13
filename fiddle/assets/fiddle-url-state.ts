@@ -1,12 +1,12 @@
 import {
-  defaultDemoState,
+  defaultFiddleState,
   resetCropPixelsToSource,
   sampleImages,
   signedPathForState,
   type ColorProfile,
   type CropDimensionUnit,
   type CropGravity,
-  type DemoState,
+  type FiddleState,
   type Flip,
   type Gravity,
   type OutputFormat,
@@ -18,11 +18,11 @@ import {
   type TrimBackgroundMode,
 } from "./processing-path";
 
-// Classes offered in the demo's object-gravity UI. A subset of COCO-80 chosen
-// to match the default source images (dog, cat) and the most common demos
+// Classes offered in the fiddle's object-gravity UI. A subset of COCO-80 chosen
+// to match the default source images (dog, cat) and the most common fiddles
 // (person, face). "all" is the pseudo-class for the weighted baseline.
-export const demoObjClasses = ["face", "person", "car", "dog", "cat"] as const;
-const demoObjClassSet = new Set<string>(demoObjClasses);
+export const fiddleObjClasses = ["face", "person", "car", "dog", "cat"] as const;
+const fiddleObjClassSet = new Set<string>(fiddleObjClasses);
 
 export type ExpandedToolboxes = {
   effectsOpen: boolean;
@@ -61,19 +61,19 @@ const colorProfileAliases = new Map<string, ColorProfile>([
 ]);
 const rotations = new Set<number>([90, 180, 270]);
 
-export function demoPathForState(currentState: DemoState): string {
+export function fiddlePathForState(currentState: FiddleState): string {
   return signedPathForState(currentState);
 }
 
-export function parseDemoPath(pathname: string): DemoState {
-  const parsed = parseDemoPathParts(pathname);
+export function parseFiddlePath(pathname: string): FiddleState {
+  const parsed = parseFiddlePathParts(pathname);
 
   if (parsed === null) {
-    return { ...defaultDemoState };
+    return { ...defaultFiddleState };
   }
 
   let state = resetCropPixelsToSource({
-    ...defaultDemoState,
+    ...defaultFiddleState,
     source: parsed.source,
   });
 
@@ -81,7 +81,7 @@ export function parseDemoPath(pathname: string): DemoState {
     const nextState = applyOptionSegment(state, segment);
 
     if (nextState === null) {
-      return { ...defaultDemoState };
+      return { ...defaultFiddleState };
     }
 
     state = nextState;
@@ -90,9 +90,9 @@ export function parseDemoPath(pathname: string): DemoState {
   return state;
 }
 
-export function resetDemoSettings(currentState: DemoState): DemoState {
+export function resetFiddleSettings(currentState: FiddleState): FiddleState {
   return resetCropPixelsToSource({
-    ...defaultDemoState,
+    ...defaultFiddleState,
     source: currentState.source,
     signatureMode: currentState.signatureMode,
     signatureKey: currentState.signatureKey,
@@ -100,7 +100,7 @@ export function resetDemoSettings(currentState: DemoState): DemoState {
   });
 }
 
-export function expandedToolboxesForState(currentState: DemoState): ExpandedToolboxes {
+export function expandedToolboxesForState(currentState: FiddleState): ExpandedToolboxes {
   return {
     effectsOpen:
       currentState.blurEnabled ||
@@ -122,7 +122,7 @@ export function expandedToolboxesForState(currentState: DemoState): ExpandedTool
   };
 }
 
-function parseDemoPathParts(
+function parseFiddlePathParts(
   pathname: string,
 ): { optionSegments: string[]; source: SourceImage } | null {
   const path = pathname.endsWith("/") && pathname !== "/" ? pathname.slice(0, -1) : pathname;
@@ -155,7 +155,7 @@ function sourceFromIdentifier(identifier: string): SourceImage | null {
   return sourceImages.has(source) ? (source as SourceImage) : null;
 }
 
-function applyOptionSegment(currentState: DemoState, segment: string): DemoState | null {
+function applyOptionSegment(currentState: FiddleState, segment: string): FiddleState | null {
   const [name = "", ...args] = segment.split(":");
 
   switch (name) {
@@ -222,21 +222,21 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
     case "blur":
       return parseNonNegativeNumericOption(currentState, args, (value) => ({
         blurEnabled: value > 0,
-        blur: value > 0 ? value : defaultDemoState.blur,
+        blur: value > 0 ? value : defaultFiddleState.blur,
       }));
 
     case "sh":
     case "sharpen":
       return parseNonNegativeNumericOption(currentState, args, (value) => ({
         sharpenEnabled: value > 0,
-        sharpen: value > 0 ? value : defaultDemoState.sharpen,
+        sharpen: value > 0 ? value : defaultFiddleState.sharpen,
       }));
 
     case "pix":
     case "pixelate":
       return parseNonNegativeIntegerOption(currentState, args, (value) => ({
         pixelateEnabled: value > 1,
-        pixelate: value > 1 ? value : defaultDemoState.pixelate,
+        pixelate: value > 1 ? value : defaultFiddleState.pixelate,
       }));
 
     case "mc":
@@ -251,21 +251,21 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
     case "brightness":
       return parseAdjustmentOption(currentState, args, (value) => ({
         brightnessEnabled: value !== 0,
-        brightness: value !== 0 ? value : defaultDemoState.brightness,
+        brightness: value !== 0 ? value : defaultFiddleState.brightness,
       }));
 
     case "co":
     case "contrast":
       return parseAdjustmentOption(currentState, args, (value) => ({
         contrastEnabled: value !== 0,
-        contrast: value !== 0 ? value : defaultDemoState.contrast,
+        contrast: value !== 0 ? value : defaultFiddleState.contrast,
       }));
 
     case "sa":
     case "saturation":
       return parseAdjustmentOption(currentState, args, (value) => ({
         saturationEnabled: value !== 0,
-        saturation: value !== 0 ? value : defaultDemoState.saturation,
+        saturation: value !== 0 ? value : defaultFiddleState.saturation,
       }));
 
     case "g":
@@ -298,7 +298,7 @@ function applyOptionSegment(currentState: DemoState, segment: string): DemoState
   }
 }
 
-function parseAutoRotate(currentState: DemoState, args: string[]): DemoState | null {
+function parseAutoRotate(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1 || args[0] !== "1") {
     return null;
   }
@@ -306,7 +306,7 @@ function parseAutoRotate(currentState: DemoState, args: string[]): DemoState | n
   return { ...currentState, autoRotateEnabled: true };
 }
 
-function parseTrim(currentState: DemoState, args: string[]): DemoState | null {
+function parseTrim(currentState: FiddleState, args: string[]): FiddleState | null {
   // trim:%threshold[:%color[:%equal_hor[:%equal_ver]]]
   // threshold is required; color, equal_hor, equal_ver are optional.
   if (args.length < 1 || args.length > 4) {
@@ -324,7 +324,7 @@ function parseTrim(currentState: DemoState, args: string[]): DemoState | null {
   const evArg = args[3];
 
   let trimBackgroundMode: TrimBackgroundMode = "auto";
-  let trimColor = defaultDemoState.trimColor;
+  let trimColor = defaultFiddleState.trimColor;
 
   if (colorArg !== "") {
     const parsed = hexColor(colorArg);
@@ -359,7 +359,7 @@ function parseTrim(currentState: DemoState, args: string[]): DemoState | null {
   };
 }
 
-function parseFlip(currentState: DemoState, args: string[]): DemoState | null {
+function parseFlip(currentState: FiddleState, args: string[]): FiddleState | null {
   const flip = flipFromArgs(args);
 
   if (flip === null) {
@@ -385,7 +385,7 @@ function flipFromArgs(args: string[]): Flip | null {
   return null;
 }
 
-function parseRotate(currentState: DemoState, args: string[]): DemoState | null {
+function parseRotate(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -399,7 +399,7 @@ function parseRotate(currentState: DemoState, args: string[]): DemoState | null 
   return { ...currentState, rotate: rotate as Rotate };
 }
 
-function parseCrop(currentState: DemoState, args: string[]): DemoState | null {
+function parseCrop(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length < 2 || args.length > 4) {
     return null;
   }
@@ -426,7 +426,7 @@ function parseCrop(currentState: DemoState, args: string[]): DemoState | null {
   };
 }
 
-function parseCropAspectRatio(currentState: DemoState, args: string[]): DemoState | null {
+function parseCropAspectRatio(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length < 1 || args.length > 2) {
     return null;
   }
@@ -476,7 +476,7 @@ function parseCropDimension(value: string): ParsedDimension<CropDimensionUnit> |
   return { unit: "px", value: number };
 }
 
-function parseResize(currentState: DemoState, args: string[]): DemoState | null {
+function parseResize(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length < 4 || args.length > 5) {
     return null;
   }
@@ -529,10 +529,10 @@ function parseResizeDimension(value: string): ParsedDimension<ResizeDimensionUni
 }
 
 function parseNumericOption(
-  currentState: DemoState,
+  currentState: FiddleState,
   args: string[],
-  buildPatch: (value: number) => Partial<DemoState>,
-): DemoState | null {
+  buildPatch: (value: number) => Partial<FiddleState>,
+): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -547,10 +547,10 @@ function parseNumericOption(
 }
 
 function parseNonNegativeNumericOption(
-  currentState: DemoState,
+  currentState: FiddleState,
   args: string[],
-  buildPatch: (value: number) => Partial<DemoState>,
-): DemoState | null {
+  buildPatch: (value: number) => Partial<FiddleState>,
+): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -565,10 +565,10 @@ function parseNonNegativeNumericOption(
 }
 
 function parseNonNegativeIntegerOption(
-  currentState: DemoState,
+  currentState: FiddleState,
   args: string[],
-  buildPatch: (value: number) => Partial<DemoState>,
-): DemoState | null {
+  buildPatch: (value: number) => Partial<FiddleState>,
+): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -583,10 +583,10 @@ function parseNonNegativeIntegerOption(
 }
 
 function parseAdjustmentOption(
-  currentState: DemoState,
+  currentState: FiddleState,
   args: string[],
-  buildPatch: (value: number) => Partial<DemoState>,
-): DemoState | null {
+  buildPatch: (value: number) => Partial<FiddleState>,
+): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -600,7 +600,7 @@ function parseAdjustmentOption(
   return { ...currentState, ...buildPatch(value) };
 }
 
-function parseMonochrome(currentState: DemoState, args: string[]): DemoState | null {
+function parseMonochrome(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1 && args.length !== 2) {
     return null;
   }
@@ -611,7 +611,7 @@ function parseMonochrome(currentState: DemoState, args: string[]): DemoState | n
     return null;
   }
 
-  const color = args[1] === undefined ? defaultDemoState.monochromeColor : hexColor(args[1]);
+  const color = args[1] === undefined ? defaultFiddleState.monochromeColor : hexColor(args[1]);
 
   if (color === null) {
     return null;
@@ -620,12 +620,12 @@ function parseMonochrome(currentState: DemoState, args: string[]): DemoState | n
   return {
     ...currentState,
     monochromeEnabled: intensity > 0,
-    monochromeIntensity: intensity > 0 ? intensity : defaultDemoState.monochromeIntensity,
+    monochromeIntensity: intensity > 0 ? intensity : defaultFiddleState.monochromeIntensity,
     monochromeColor: color,
   };
 }
 
-function parseDuotone(currentState: DemoState, args: string[]): DemoState | null {
+function parseDuotone(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length < 1 || args.length > 3) {
     return null;
   }
@@ -637,9 +637,11 @@ function parseDuotone(currentState: DemoState, args: string[]): DemoState | null
   }
 
   const shadow =
-    args[1] === undefined || args[1] === "" ? defaultDemoState.duotoneShadow : hexColor(args[1]);
+    args[1] === undefined || args[1] === "" ? defaultFiddleState.duotoneShadow : hexColor(args[1]);
   const highlight =
-    args[2] === undefined || args[2] === "" ? defaultDemoState.duotoneHighlight : hexColor(args[2]);
+    args[2] === undefined || args[2] === ""
+      ? defaultFiddleState.duotoneHighlight
+      : hexColor(args[2]);
 
   if (shadow === null || highlight === null) {
     return null;
@@ -648,7 +650,7 @@ function parseDuotone(currentState: DemoState, args: string[]): DemoState | null
   return {
     ...currentState,
     duotoneEnabled: intensity > 0,
-    duotoneIntensity: intensity > 0 ? intensity : defaultDemoState.duotoneIntensity,
+    duotoneIntensity: intensity > 0 ? intensity : defaultFiddleState.duotoneIntensity,
     duotoneShadow: shadow,
     duotoneHighlight: highlight,
   };
@@ -676,7 +678,7 @@ function hexColor(value: string): string | null {
   return `#${value.toLowerCase()}`;
 }
 
-function parseAspectCanvas(currentState: DemoState, args: string[]): DemoState | null {
+function parseAspectCanvas(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length < 1 || args.length > 2) {
     return null;
   }
@@ -701,7 +703,7 @@ function parseAspectCanvas(currentState: DemoState, args: string[]): DemoState |
   };
 }
 
-function parsePadding(currentState: DemoState, args: string[]): DemoState | null {
+function parsePadding(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 4) {
     return null;
   }
@@ -726,7 +728,7 @@ function parsePadding(currentState: DemoState, args: string[]): DemoState | null
   };
 }
 
-function parseBackground(currentState: DemoState, args: string[]): DemoState | null {
+function parseBackground(currentState: FiddleState, args: string[]): FiddleState | null {
   const [color] = args as [string?];
 
   if (args.length !== 1 || color === undefined || !/^[\da-f]{6}$/i.test(color)) {
@@ -740,7 +742,7 @@ function parseBackground(currentState: DemoState, args: string[]): DemoState | n
   };
 }
 
-function parseBackgroundAlpha(currentState: DemoState, args: string[]): DemoState | null {
+function parseBackgroundAlpha(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -758,7 +760,7 @@ function parseBackgroundAlpha(currentState: DemoState, args: string[]): DemoStat
   };
 }
 
-function parseGravity(currentState: DemoState, args: string[]): DemoState | null {
+function parseGravity(currentState: FiddleState, args: string[]): FiddleState | null {
   const [modeOrGravity, xArg, yArg] = args as [string?, string?, string?];
 
   if (args.length === 1 && modeOrGravity === "sm") {
@@ -789,10 +791,10 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
       return null;
     }
 
-    // Keep only demo-offered classes plus "all". Unknown classes are silently
-    // dropped (acceptable demo limitation per spec).
-    const demoClasses = new Set(["all", ...demoObjClasses]);
-    const selectedClasses = Object.keys(weights).filter((cls) => demoClasses.has(cls));
+    // Keep only fiddle-offered classes plus "all". Unknown classes are silently
+    // dropped (acceptable fiddle limitation per spec).
+    const fiddleClasses = new Set(["all", ...fiddleObjClasses]);
+    const selectedClasses = Object.keys(weights).filter((cls) => fiddleClasses.has(cls));
 
     if (selectedClasses.length === 0) {
       return currentState;
@@ -834,10 +836,10 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
     // g:obj:%c…:all — "all" mixed with classes: all is not a COCO class so it
     // gets filtered out below; remaining known classes are kept.
 
-    // g:obj:%c1:…:%cN — explicit class list. Keep only demo-offered classes
+    // g:obj:%c1:…:%cN — explicit class list. Keep only fiddle-offered classes
     // (deduped). If every token is unknown the picker can't represent it, so
     // leave gravity unchanged.
-    const knownClasses = [...new Set(classes.filter((cls) => demoObjClassSet.has(cls)))];
+    const knownClasses = [...new Set(classes.filter((cls) => fiddleObjClassSet.has(cls)))];
 
     if (knownClasses.length === 0) {
       return currentState;
@@ -899,7 +901,7 @@ function parseGravity(currentState: DemoState, args: string[]): DemoState | null
   return null;
 }
 
-function parseFormat(currentState: DemoState, args: string[]): DemoState | null {
+function parseFormat(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1 || !outputFormats.has(args[0] ?? "")) {
     return null;
   }
@@ -911,7 +913,7 @@ function parseFormat(currentState: DemoState, args: string[]): DemoState | null 
   };
 }
 
-function parseQuality(currentState: DemoState, args: string[]): DemoState | null {
+function parseQuality(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -929,7 +931,7 @@ function parseQuality(currentState: DemoState, args: string[]): DemoState | null
   };
 }
 
-function parseStripMetadata(currentState: DemoState, args: string[]): DemoState | null {
+function parseStripMetadata(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -947,7 +949,7 @@ function parseStripMetadata(currentState: DemoState, args: string[]): DemoState 
   };
 }
 
-function parseKeepCopyright(currentState: DemoState, args: string[]): DemoState | null {
+function parseKeepCopyright(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -967,7 +969,7 @@ function parseKeepCopyright(currentState: DemoState, args: string[]): DemoState 
   };
 }
 
-function parseStripColorProfile(currentState: DemoState, args: string[]): DemoState | null {
+function parseStripColorProfile(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -984,7 +986,7 @@ function parseStripColorProfile(currentState: DemoState, args: string[]): DemoSt
   };
 }
 
-function parseColorProfile(currentState: DemoState, args: string[]): DemoState | null {
+function parseColorProfile(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }
@@ -1001,7 +1003,7 @@ function parseColorProfile(currentState: DemoState, args: string[]): DemoState |
   };
 }
 
-function parsePreserveHdr(currentState: DemoState, args: string[]): DemoState | null {
+function parsePreserveHdr(currentState: FiddleState, args: string[]): FiddleState | null {
   if (args.length !== 1) {
     return null;
   }

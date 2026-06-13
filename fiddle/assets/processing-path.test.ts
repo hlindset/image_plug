@@ -7,8 +7,8 @@ import {
   cropDimensionSegment,
   cropOptionSegment,
   cropPixelLimit,
-  type DemoState,
-  defaultDemoState,
+  type FiddleState,
+  defaultFiddleState,
   debounce,
   focalPointFromBounds,
   imageRequestBytesFromPerformance,
@@ -25,14 +25,14 @@ import {
   trimOptionSegment,
 } from "./processing-path";
 import {
-  demoPathForState,
+  fiddlePathForState,
   expandedToolboxesForState,
-  parseDemoPath,
-  resetDemoSettings,
-} from "./demo-url-state";
+  parseFiddlePath,
+  resetFiddleSettings,
+} from "./fiddle-url-state";
 
-const activeDemoState = {
-  ...defaultDemoState,
+const activeFiddleState = {
+  ...defaultFiddleState,
   resizeEnabled: true,
   gravityEnabled: true,
   qualityEnabled: true,
@@ -77,14 +77,18 @@ describe("processing path generation", () => {
   });
 
   it("defaults crop pixel dimensions to the default source dimensions", () => {
-    expect(defaultDemoState.cropWidth).toBe(cropPixelLimit(defaultDemoState.source, "width").max);
-    expect(defaultDemoState.cropHeight).toBe(cropPixelLimit(defaultDemoState.source, "height").max);
+    expect(defaultFiddleState.cropWidth).toBe(
+      cropPixelLimit(defaultFiddleState.source, "width").max,
+    );
+    expect(defaultFiddleState.cropHeight).toBe(
+      cropPixelLimit(defaultFiddleState.source, "height").max,
+    );
   });
 
   it("can reset crop pixel dimensions to the selected source dimensions", () => {
     expect(
       resetCropPixelsToSource({
-        ...defaultDemoState,
+        ...defaultFiddleState,
         source: "images/beach.jpg",
         cropWidth: 1,
         cropHeight: 1,
@@ -96,13 +100,13 @@ describe("processing path generation", () => {
   });
 
   it("builds the default processing path", () => {
-    expect(optionSegments(defaultDemoState)).toEqual([]);
-    expect(buildProcessingPath(defaultDemoState)).toBe("/img/_/plain/local:///images/dog.jpg");
+    expect(optionSegments(defaultFiddleState)).toEqual([]);
+    expect(buildProcessingPath(defaultFiddleState)).toBe("/img/_/plain/local:///images/dog.jpg");
   });
 
   it("builds a signed request path from a generated signature", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       signatureMode: "signed" as const,
       resizeEnabled: true,
     };
@@ -138,7 +142,7 @@ describe("processing path generation", () => {
   });
 
   it("keeps jpeg selected as the default explicit format", () => {
-    expect(defaultDemoState.format).toBe("jpeg");
+    expect(defaultFiddleState.format).toBe("jpeg");
   });
 
   it("reads processed byte size from the latest matching resource timing entry", () => {
@@ -180,7 +184,7 @@ describe("processing path generation", () => {
 
   it("includes auto rotate as an explicit orientation option", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       autoRotateEnabled: true,
     };
 
@@ -189,25 +193,25 @@ describe("processing path generation", () => {
   });
 
   it("includes flip options for each supported flip axis", () => {
-    expect(optionSegments({ ...defaultDemoState, flip: "horizontal" })).toEqual(["fl:1"]);
-    expect(optionSegments({ ...defaultDemoState, flip: "vertical" })).toEqual(["fl:0:1"]);
-    expect(optionSegments({ ...defaultDemoState, flip: "both" })).toEqual(["fl"]);
+    expect(optionSegments({ ...defaultFiddleState, flip: "horizontal" })).toEqual(["fl:1"]);
+    expect(optionSegments({ ...defaultFiddleState, flip: "vertical" })).toEqual(["fl:0:1"]);
+    expect(optionSegments({ ...defaultFiddleState, flip: "both" })).toEqual(["fl"]);
   });
 
   it("includes rotate when a right-angle rotation is selected", () => {
-    expect(optionSegments({ ...defaultDemoState, rotate: 90 })).toEqual(["rot:90"]);
-    expect(optionSegments({ ...defaultDemoState, rotate: 180 })).toEqual(["rot:180"]);
-    expect(optionSegments({ ...defaultDemoState, rotate: 270 })).toEqual(["rot:270"]);
+    expect(optionSegments({ ...defaultFiddleState, rotate: 90 })).toEqual(["rot:90"]);
+    expect(optionSegments({ ...defaultFiddleState, rotate: 180 })).toEqual(["rot:180"]);
+    expect(optionSegments({ ...defaultFiddleState, rotate: 270 })).toEqual(["rot:270"]);
   });
 
   it("emits nothing for trim when disabled", () => {
-    expect(trimOptionSegment(defaultDemoState)).toBeNull();
-    expect(optionSegments(defaultDemoState)).toEqual([]);
+    expect(trimOptionSegment(defaultFiddleState)).toBeNull();
+    expect(optionSegments(defaultFiddleState)).toEqual([]);
   });
 
   it("emits trim with threshold only when background is auto and flags are off", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       trimEnabled: true,
       trimThreshold: 10,
       trimBackgroundMode: "auto" as const,
@@ -222,7 +226,7 @@ describe("processing path generation", () => {
 
   it("emits trim with color when background mode is color", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       trimEnabled: true,
       trimThreshold: 10,
       trimBackgroundMode: "color" as const,
@@ -236,7 +240,7 @@ describe("processing path generation", () => {
 
   it("emits trim with empty color slot when auto background but flags are set", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       trimEnabled: true,
       trimThreshold: 10,
       trimBackgroundMode: "auto" as const,
@@ -249,7 +253,7 @@ describe("processing path generation", () => {
 
   it("emits trim with color and flags", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       trimEnabled: true,
       trimThreshold: 20,
       trimBackgroundMode: "color" as const,
@@ -263,7 +267,7 @@ describe("processing path generation", () => {
 
   it("emits trim before crop in the option segment order", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       trimEnabled: true,
       trimThreshold: 10,
       cropEnabled: true,
@@ -282,7 +286,7 @@ describe("processing path generation", () => {
 
   it("includes resize extend as the resize segment extend argument", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: true,
       resizeExtendEnabled: true,
     };
@@ -294,15 +298,15 @@ describe("processing path generation", () => {
   });
 
   it("builds the resize tool summary from the emitted resize segment", () => {
-    expect(resizeOptionSegment(defaultDemoState)).toBeNull();
+    expect(resizeOptionSegment(defaultFiddleState)).toBeNull();
 
-    expect(resizeOptionSegment({ ...defaultDemoState, resizeEnabled: true })).toBe(
+    expect(resizeOptionSegment({ ...defaultFiddleState, resizeEnabled: true })).toBe(
       "rs:fill:640:360:0",
     );
 
     expect(
       resizeOptionSegment({
-        ...defaultDemoState,
+        ...defaultFiddleState,
         resizeEnabled: true,
         resizeWidthUnit: "auto" as const,
         resizeHeightUnit: "px" as const,
@@ -313,7 +317,7 @@ describe("processing path generation", () => {
 
   it("emits resize auto dimensions as zero per axis", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: true,
       resizeWidthUnit: "auto" as const,
       resizeHeightUnit: "px" as const,
@@ -325,7 +329,7 @@ describe("processing path generation", () => {
 
   it("allows both resize dimensions to be auto", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: true,
       resizeMode: "force" as const,
       resizeWidthUnit: "auto" as const,
@@ -337,7 +341,7 @@ describe("processing path generation", () => {
 
   it("does not emit resize extend when resize is disabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeExtendEnabled: true,
     };
 
@@ -347,7 +351,7 @@ describe("processing path generation", () => {
 
   it("includes extend aspect ratio when aspect canvas is enabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       aspectCanvasEnabled: true,
       aspectCanvasGravity: "ce" as const,
     };
@@ -358,7 +362,7 @@ describe("processing path generation", () => {
 
   it("round-trips exar with gravity", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       aspectCanvasEnabled: true,
       aspectCanvasGravity: "no" as const,
     };
@@ -367,7 +371,7 @@ describe("processing path generation", () => {
 
   it("includes explicit four-sided padding after aspect canvas options", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       aspectCanvasEnabled: true,
       paddingEnabled: true,
       paddingTop: 8,
@@ -384,7 +388,7 @@ describe("processing path generation", () => {
 
   it("includes background color and opacity after padding", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       paddingEnabled: true,
       paddingTop: 8,
       paddingRight: 8,
@@ -403,7 +407,7 @@ describe("processing path generation", () => {
 
   it("includes basic effects after background options", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       backgroundEnabled: true,
       backgroundColor: "#ffcc00",
       blurEnabled: true,
@@ -445,7 +449,7 @@ describe("processing path generation", () => {
 
   it("omits background alpha when opacity is full", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       backgroundEnabled: true,
       backgroundColor: "#ffcc00",
       backgroundAlpha: 1,
@@ -457,7 +461,7 @@ describe("processing path generation", () => {
 
   it("preserves custom background opacity decimals", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       backgroundEnabled: true,
       backgroundColor: "#ffcc00",
       backgroundAlpha: 0.42,
@@ -468,7 +472,7 @@ describe("processing path generation", () => {
 
   it("allows fully transparent background opacity", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       backgroundEnabled: true,
       backgroundColor: "#ffcc00",
       backgroundAlpha: 0,
@@ -479,7 +483,7 @@ describe("processing path generation", () => {
 
   it("includes crop options before resize options when crop is enabled", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       cropEnabled: true,
       cropWidth: 320,
       cropHeight: 240,
@@ -490,7 +494,7 @@ describe("processing path generation", () => {
 
   it("does not write inherited crop gravity into the crop segment", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       cropEnabled: true,
       cropGravity: "inherit" as const,
       gravity: "nowe" as const,
@@ -501,7 +505,7 @@ describe("processing path generation", () => {
 
   it("uses shared gravity as the top-level gravity option", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       gravity: "sowe" as const,
     };
 
@@ -510,7 +514,7 @@ describe("processing path generation", () => {
 
   it("includes focal point global gravity", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: true,
       gravityEnabled: true,
       gravityMode: "focalPoint" as const,
@@ -523,7 +527,7 @@ describe("processing path generation", () => {
 
   it("includes focal point global gravity without requiring resize or crop", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       gravityEnabled: true,
       gravityMode: "focalPoint" as const,
       gravityFocalX: 0.25,
@@ -531,12 +535,12 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["g:fp:0.25:0.75"]);
-    expect(demoPathForState(state)).toBe("/g:fp:0.25:0.75/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(state)).toBe("/g:fp:0.25:0.75/plain/local:///images/dog.jpg");
   });
 
   it("includes offset global gravity", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: true,
       gravityEnabled: true,
       gravityMode: "offset" as const,
@@ -550,7 +554,7 @@ describe("processing path generation", () => {
 
   it("includes smart global gravity without offsets", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: true,
       gravityEnabled: true,
       gravityMode: "smart" as const,
@@ -559,20 +563,20 @@ describe("processing path generation", () => {
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:sm"]);
   });
 
-  it("round-trips smart global gravity through the demo path", () => {
-    const parsed = parseDemoPath("/g:sm/plain/local:///images/dog.jpg");
+  it("round-trips smart global gravity through the fiddle path", () => {
+    const parsed = parseFiddlePath("/g:sm/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
       gravityMode: "smart",
     });
 
-    expect(demoPathForState(parsed)).toBe("/g:sm/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:sm/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips smart crop gravity through the demo path", () => {
+  it("round-trips smart crop gravity through the fiddle path", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       cropEnabled: true,
       cropGravity: "sm" as const,
     };
@@ -580,7 +584,7 @@ describe("processing path generation", () => {
     const segments = optionSegments(state);
     expect(segments).toContain("c:5011:7516:sm");
 
-    const parsed = parseDemoPath(demoPathForState(state));
+    const parsed = parseFiddlePath(fiddlePathForState(state));
     expect(parsed).toMatchObject({
       cropEnabled: true,
       cropGravity: "sm",
@@ -589,7 +593,7 @@ describe("processing path generation", () => {
 
   it("includes object (face) global gravity without offsets", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: true,
       gravityEnabled: true,
       gravityMode: "objFace" as const,
@@ -598,20 +602,20 @@ describe("processing path generation", () => {
     expect(optionSegments(state)).toEqual(["rs:fill:640:360:0", "g:obj:face"]);
   });
 
-  it("round-trips object (face) global gravity through the demo path", () => {
-    const parsed = parseDemoPath("/g:obj:face/plain/local:///images/dog.jpg");
+  it("round-trips object (face) global gravity through the fiddle path", () => {
+    const parsed = parseFiddlePath("/g:obj:face/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
       gravityMode: "objFace",
     });
 
-    expect(demoPathForState(parsed)).toBe("/g:obj:face/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:obj:face/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips object (face) crop gravity through the demo path", () => {
+  it("round-trips object (face) crop gravity through the fiddle path", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       cropEnabled: true,
       cropGravity: "obj:face" as const,
     };
@@ -619,7 +623,7 @@ describe("processing path generation", () => {
     const segments = optionSegments(state);
     expect(segments).toContain("c:5011:7516:obj:face");
 
-    const parsed = parseDemoPath(demoPathForState(state));
+    const parsed = parseFiddlePath(fiddlePathForState(state));
     expect(parsed).toMatchObject({
       cropEnabled: true,
       cropGravity: "obj:face",
@@ -630,7 +634,7 @@ describe("processing path generation", () => {
 
   it("emits bare g:obj for object gravity with no classes selected (simple)", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       gravityEnabled: true,
       gravityMode: "object" as const,
       objSubMode: "simple" as const,
@@ -642,7 +646,7 @@ describe("processing path generation", () => {
 
   it("emits g:obj:car:dog for simple mode with two classes (sorted)", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       gravityEnabled: true,
       gravityMode: "object" as const,
       objSubMode: "simple" as const,
@@ -653,8 +657,8 @@ describe("processing path generation", () => {
     expect(optionSegments(state)).toEqual(["g:obj:car:dog"]);
   });
 
-  it("round-trips bare g:obj through the demo path", () => {
-    const parsed = parseDemoPath("/g:obj/plain/local:///images/dog.jpg");
+  it("round-trips bare g:obj through the fiddle path", () => {
+    const parsed = parseFiddlePath("/g:obj/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -663,11 +667,11 @@ describe("processing path generation", () => {
       objSelectedClasses: [],
     });
 
-    expect(demoPathForState(parsed)).toBe("/g:obj/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:obj/plain/local:///images/dog.jpg");
   });
 
   it("normalizes g:obj:all to bare g:obj (empty selection = all objects)", () => {
-    const parsed = parseDemoPath("/g:obj:all/plain/local:///images/dog.jpg");
+    const parsed = parseFiddlePath("/g:obj:all/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -676,11 +680,11 @@ describe("processing path generation", () => {
       objSelectedClasses: [],
     });
 
-    expect(demoPathForState(parsed)).toBe("/g:obj/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:obj/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips g:obj with explicit classes through the demo path", () => {
-    const parsed = parseDemoPath("/g:obj:car:dog/plain/local:///images/dog.jpg");
+  it("round-trips g:obj with explicit classes through the fiddle path", () => {
+    const parsed = parseFiddlePath("/g:obj:car:dog/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -689,12 +693,12 @@ describe("processing path generation", () => {
       objSelectedClasses: expect.arrayContaining(["car", "dog"]),
     });
 
-    expect(demoPathForState(parsed)).toBe("/g:obj:car:dog/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:obj:car:dog/plain/local:///images/dog.jpg");
   });
 
-  it("drops class tokens not offered in the demo UI, keeping only demo-offered classes", () => {
-    // 'car' is a demo class; 'spaceship' is not
-    const parsed = parseDemoPath("/g:obj:car:spaceship/plain/local:///images/dog.jpg");
+  it("drops class tokens not offered in the fiddle UI, keeping only fiddle-offered classes", () => {
+    // 'car' is a fiddle class; 'spaceship' is not
+    const parsed = parseFiddlePath("/g:obj:car:spaceship/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -702,19 +706,19 @@ describe("processing path generation", () => {
       objSelectedClasses: ["car"],
     });
 
-    expect(demoPathForState(parsed)).toBe("/g:obj:car/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:obj:car/plain/local:///images/dog.jpg");
   });
 
   it("leaves gravity unchanged for an all-unknown g:obj segment", () => {
-    const parsed = parseDemoPath("/g:obj:spaceship/plain/local:///images/dog.jpg");
+    const parsed = parseFiddlePath("/g:obj:spaceship/plain/local:///images/dog.jpg");
 
     // every token unknown -> the picker can't represent it, gravity is unchanged
     expect(parsed.gravityMode).not.toBe("object");
   });
 
   it("g:obj:car:all — 'all' mixed with classes falls through to known-class filter", () => {
-    // 'all' is not in demoObjClassSet so it gets dropped; 'car' is kept
-    const parsed = parseDemoPath("/g:obj:car:all/plain/local:///images/dog.jpg");
+    // 'all' is not in fiddleObjClassSet so it gets dropped; 'car' is kept
+    const parsed = parseFiddlePath("/g:obj:car:all/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -722,11 +726,11 @@ describe("processing path generation", () => {
       objSelectedClasses: ["car"],
     });
 
-    expect(demoPathForState(parsed)).toBe("/g:obj:car/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:obj:car/plain/local:///images/dog.jpg");
   });
 
   it("preserves g:obj:face as the legacy objFace mode", () => {
-    const parsed = parseDemoPath("/g:obj:face/plain/local:///images/dog.jpg");
+    const parsed = parseFiddlePath("/g:obj:face/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -734,9 +738,9 @@ describe("processing path generation", () => {
     });
   });
 
-  it("round-trips bare crop obj gravity through the demo path", () => {
+  it("round-trips bare crop obj gravity through the fiddle path", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       cropEnabled: true,
       cropGravity: "obj" as const,
     };
@@ -744,16 +748,16 @@ describe("processing path generation", () => {
     const segments = optionSegments(state);
     expect(segments).toContain("c:5011:7516:obj");
 
-    const parsed = parseDemoPath(demoPathForState(state));
+    const parsed = parseFiddlePath(fiddlePathForState(state));
     expect(parsed).toMatchObject({
       cropEnabled: true,
       cropGravity: "obj",
     });
   });
 
-  it("round-trips explicit obj:all crop gravity through the demo path", () => {
+  it("round-trips explicit obj:all crop gravity through the fiddle path", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       cropEnabled: true,
       cropGravity: "obj:all" as const,
     };
@@ -761,7 +765,7 @@ describe("processing path generation", () => {
     const segments = optionSegments(state);
     expect(segments).toContain("c:5011:7516:obj:all");
 
-    const parsed = parseDemoPath(demoPathForState(state));
+    const parsed = parseFiddlePath(fiddlePathForState(state));
     expect(parsed).toMatchObject({
       cropEnabled: true,
       cropGravity: "obj:all",
@@ -778,7 +782,7 @@ describe("processing path generation", () => {
 
   it("weighted mode with empty selection emits bare g:obj", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       gravityEnabled: true,
       gravityMode: "object" as const,
       objSubMode: "weighted" as const,
@@ -793,7 +797,7 @@ describe("processing path generation", () => {
     // car=1, dog=1 — uniform, inert → compact g:obj:car:dog
     expect(
       objGravitySegmentFromState({
-        ...defaultDemoState,
+        ...defaultFiddleState,
         objSubMode: "weighted",
         objSelectedClasses: ["car", "dog"],
         objWeights: { car: 1, dog: 1 },
@@ -803,7 +807,7 @@ describe("processing path generation", () => {
     // single class, any weight → uniform, compact form
     expect(
       objGravitySegmentFromState({
-        ...defaultDemoState,
+        ...defaultFiddleState,
         objSubMode: "weighted",
         objSelectedClasses: ["car"],
         objWeights: { car: 2 },
@@ -815,7 +819,7 @@ describe("processing path generation", () => {
     // car=1, dog=2 — not uniform, car:1 must NOT be dropped
     expect(
       objGravitySegmentFromState({
-        ...defaultDemoState,
+        ...defaultFiddleState,
         objSubMode: "weighted",
         objSelectedClasses: ["car", "dog"],
         objWeights: { car: 1, dog: 2 },
@@ -826,7 +830,7 @@ describe("processing path generation", () => {
   it("weighted mode with all=2 and face=3 emits g:objw:all:2:face:3", () => {
     expect(
       objGravitySegmentFromState({
-        ...defaultDemoState,
+        ...defaultFiddleState,
         objSubMode: "weighted",
         objSelectedClasses: ["all", "face"],
         objWeights: { all: 2, face: 3 },
@@ -837,8 +841,8 @@ describe("processing path generation", () => {
   it("g:objw:all:1:face:3 preserves both classes (NOT normalized — different semantics)", () => {
     // g:objw:all:1:face:3 detects ALL objects with face boosted 3×.
     // g:objw:face:3 filters to face only.
-    // These are DIFFERENT requests — the demo must NOT rewrite one into the other.
-    const parsed = parseDemoPath("/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
+    // These are DIFFERENT requests — the fiddle must NOT rewrite one into the other.
+    const parsed = parseFiddlePath("/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityMode: "object",
@@ -849,11 +853,11 @@ describe("processing path generation", () => {
 
     // Serializes back with both all and face (uniform weights → compact obj form,
     // but all:1 face:3 are NOT uniform so → objw verbatim)
-    expect(demoPathForState(parsed)).toBe("/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:objw:all:1:face:3/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips g:objw:face:3 (single face weight) through the demo path", () => {
-    const parsed = parseDemoPath("/g:objw:face:3/plain/local:///images/dog.jpg");
+  it("round-trips g:objw:face:3 (single face weight) through the fiddle path", () => {
+    const parsed = parseFiddlePath("/g:objw:face:3/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -864,11 +868,11 @@ describe("processing path generation", () => {
     });
 
     // Single class with weight 3 → uniform (only one) → compact g:obj:face form
-    expect(demoPathForState(parsed)).toBe("/g:obj:face/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:obj:face/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips g:objw:all:2:face:3 through the demo path", () => {
-    const parsed = parseDemoPath("/g:objw:all:2:face:3/plain/local:///images/dog.jpg");
+  it("round-trips g:objw:all:2:face:3 through the fiddle path", () => {
+    const parsed = parseFiddlePath("/g:objw:all:2:face:3/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       gravityEnabled: true,
@@ -877,12 +881,12 @@ describe("processing path generation", () => {
       objWeights: expect.objectContaining({ all: 2, face: 3 }),
     });
 
-    expect(demoPathForState(parsed)).toBe("/g:objw:all:2:face:3/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/g:objw:all:2:face:3/plain/local:///images/dog.jpg");
   });
 
   it("emits g:objw for object gravity with non-uniform weighted mode", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       gravityEnabled: true,
       gravityMode: "object" as const,
       objSubMode: "weighted" as const,
@@ -891,22 +895,26 @@ describe("processing path generation", () => {
     };
 
     expect(optionSegments(state)).toEqual(["g:objw:face:3:person:1"]);
-    expect(demoPathForState(state)).toBe("/g:objw:face:3:person:1/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(state)).toBe("/g:objw:face:3:person:1/plain/local:///images/dog.jpg");
   });
 
-  it("rejects invalid objw gravity values in demo routes", () => {
+  it("rejects invalid objw gravity values in fiddle routes", () => {
     // bare g:objw (no pairs)
-    expect(parseDemoPath("/g:objw/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseFiddlePath("/g:objw/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
     // odd arity
-    expect(parseDemoPath("/g:objw:face/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+    expect(parseFiddlePath("/g:objw:face/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
     // non-positive weight
-    expect(parseDemoPath("/g:objw:face:0/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/g:objw:face:-2/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
+    expect(parseFiddlePath("/g:objw:face:0/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
+    expect(parseFiddlePath("/g:objw:face:-2/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
     );
     // non-numeric weight
-    expect(parseDemoPath("/g:objw:face:bad/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
+    expect(parseFiddlePath("/g:objw:face:bad/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
     );
   });
 
@@ -954,7 +962,7 @@ describe("processing path generation", () => {
 
   it("allows crop to use an explicit gravity", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       cropEnabled: true,
       cropGravity: "soea" as const,
       gravity: "ce" as const,
@@ -969,13 +977,13 @@ describe("processing path generation", () => {
   });
 
   it("builds the crop tool summary from the emitted crop segment", () => {
-    expect(cropOptionSegment(defaultDemoState)).toBeNull();
+    expect(cropOptionSegment(defaultFiddleState)).toBeNull();
 
-    expect(cropOptionSegment({ ...defaultDemoState, cropEnabled: true })).toBe("c:5011:7516");
+    expect(cropOptionSegment({ ...defaultFiddleState, cropEnabled: true })).toBe("c:5011:7516");
 
     expect(
       cropOptionSegment({
-        ...defaultDemoState,
+        ...defaultFiddleState,
         cropEnabled: true,
         cropWidthUnit: "percent" as const,
         cropWidthPercent: 50,
@@ -987,7 +995,7 @@ describe("processing path generation", () => {
 
   it("emits mixed relative and pixel crop dimensions", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       cropEnabled: true,
       cropWidthUnit: "percent" as const,
       cropWidthPercent: 50,
@@ -1000,7 +1008,7 @@ describe("processing path generation", () => {
 
   it("emits full crop dimensions as zero per axis", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       cropEnabled: true,
       cropWidthUnit: "full" as const,
       cropHeightUnit: "percent" as const,
@@ -1017,7 +1025,7 @@ describe("processing path generation", () => {
 
   it("includes enabled resize extras after the resize segment", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: true,
       zoomEnabled: true,
       zoom: 1.5,
@@ -1040,7 +1048,7 @@ describe("processing path generation", () => {
 
   it("includes enabled resize extras even when resize is disabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       zoomEnabled: true,
       zoom: 1.5,
       dprEnabled: true,
@@ -1059,7 +1067,7 @@ describe("processing path generation", () => {
 
   it("omits explicit format when format is disabled", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       formatEnabled: false,
       format: "png" as const,
     };
@@ -1069,7 +1077,7 @@ describe("processing path generation", () => {
 
   it("includes explicit format when format is enabled", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       formatEnabled: true,
       format: "png" as const,
     };
@@ -1079,7 +1087,7 @@ describe("processing path generation", () => {
 
   it("omits quality when quality is disabled", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       qualityEnabled: false,
       quality: 42,
     };
@@ -1092,7 +1100,7 @@ describe("processing path generation", () => {
 
   it("includes zero quality when quality is enabled", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       qualityEnabled: true,
       quality: 0,
     };
@@ -1105,7 +1113,7 @@ describe("processing path generation", () => {
 
   it("omits top-level gravity when gravity is disabled", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       gravityEnabled: false,
       gravity: "sowe" as const,
     };
@@ -1118,7 +1126,7 @@ describe("processing path generation", () => {
 
   it("keeps global gravity when resize is disabled", () => {
     const state = {
-      ...activeDemoState,
+      ...activeFiddleState,
       resizeEnabled: false,
     };
 
@@ -1128,7 +1136,7 @@ describe("processing path generation", () => {
 
   it("emits car with enlarge", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       cropEnabled: true,
       cropAspectRatioEnabled: true,
       cropAspectRatio: 1,
@@ -1139,7 +1147,7 @@ describe("processing path generation", () => {
 
   it("emits car without enlarge", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       cropEnabled: true,
       cropAspectRatioEnabled: true,
       cropAspectRatio: 1.5,
@@ -1150,7 +1158,7 @@ describe("processing path generation", () => {
 
   it("does not emit an empty option segment when all tools are disabled", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: false,
       cropEnabled: false,
       gravityEnabled: false,
@@ -1163,16 +1171,16 @@ describe("processing path generation", () => {
   });
 
   it("shows automatic output as pending until response metadata is available", () => {
-    expect(resolvedOutputLabel(defaultDemoState, null)).toBe("auto");
+    expect(resolvedOutputLabel(defaultFiddleState, null)).toBe("auto");
     expect(
-      resolvedOutputLabel(defaultDemoState, {
+      resolvedOutputLabel(defaultFiddleState, {
         width: 640,
         height: 480,
         bytes: 10_000,
         contentType: "image/avif",
       }),
     ).toBe("auto -> avif");
-    expect(resolvedOutputLabel({ ...defaultDemoState, formatEnabled: true, format: "png" })).toBe(
+    expect(resolvedOutputLabel({ ...defaultFiddleState, formatEnabled: true, format: "png" })).toBe(
       "png",
     );
   });
@@ -1192,23 +1200,23 @@ describe("processing path generation", () => {
   });
 });
 
-describe("demo URL state", () => {
-  it("builds a shareable demo route from generated request options", () => {
+describe("fiddle URL state", () => {
+  it("builds a shareable fiddle route from generated request options", () => {
     const state = {
-      ...defaultDemoState,
+      ...defaultFiddleState,
       resizeEnabled: true,
       gravityEnabled: true,
       formatEnabled: true,
       qualityEnabled: true,
     };
 
-    expect(demoPathForState(state)).toBe(
+    expect(fiddlePathForState(state)).toBe(
       "/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/local:///images/dog.jpg",
     );
   });
 
-  it("parses a shareable demo route into enabled controls", () => {
-    const parsed = parseDemoPath(
+  it("parses a shareable fiddle route into enabled controls", () => {
+    const parsed = parseFiddlePath(
       "/rs:fill:640:360:0/g:ce/f:jpeg/q:85/plain/local:///images/dog.jpg",
     );
 
@@ -1228,8 +1236,8 @@ describe("demo URL state", () => {
     });
   });
 
-  it("round-trips trim with threshold only through the demo path", () => {
-    const parsed = parseDemoPath("/trim:10/plain/local:///images/dog.jpg");
+  it("round-trips trim with threshold only through the fiddle path", () => {
+    const parsed = parseFiddlePath("/trim:10/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       trimEnabled: true,
@@ -1239,11 +1247,11 @@ describe("demo URL state", () => {
       trimEqualVer: false,
     });
 
-    expect(demoPathForState(parsed)).toBe("/trim:10/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/trim:10/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips trim with color through the demo path", () => {
-    const parsed = parseDemoPath("/trim:10:ff00ff/plain/local:///images/dog.jpg");
+  it("round-trips trim with color through the fiddle path", () => {
+    const parsed = parseFiddlePath("/trim:10:ff00ff/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       trimEnabled: true,
@@ -1252,11 +1260,11 @@ describe("demo URL state", () => {
       trimColor: "#ff00ff",
     });
 
-    expect(demoPathForState(parsed)).toBe("/trim:10:ff00ff/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/trim:10:ff00ff/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips trim with empty color slot and flags through the demo path", () => {
-    const parsed = parseDemoPath("/trim:10::1:1/plain/local:///images/dog.jpg");
+  it("round-trips trim with empty color slot and flags through the fiddle path", () => {
+    const parsed = parseFiddlePath("/trim:10::1:1/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       trimEnabled: true,
@@ -1266,11 +1274,11 @@ describe("demo URL state", () => {
       trimEqualVer: true,
     });
 
-    expect(demoPathForState(parsed)).toBe("/trim:10::1:1/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/trim:10::1:1/plain/local:///images/dog.jpg");
   });
 
-  it("round-trips trim short alias (t) through the demo path", () => {
-    const parsed = parseDemoPath("/t:15/plain/local:///images/dog.jpg");
+  it("round-trips trim short alias (t) through the fiddle path", () => {
+    const parsed = parseFiddlePath("/t:15/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({
       trimEnabled: true,
@@ -1278,23 +1286,25 @@ describe("demo URL state", () => {
     });
 
     // Re-emits using the long form "trim:"
-    expect(demoPathForState(parsed)).toBe("/trim:15/plain/local:///images/dog.jpg");
+    expect(fiddlePathForState(parsed)).toBe("/trim:15/plain/local:///images/dog.jpg");
   });
 
-  it("rejects invalid trim values in demo routes", () => {
-    expect(parseDemoPath("/trim:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/trim:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/trim:10:zzz/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/trim:10:ff00ff:2:0/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
+  it("rejects invalid trim values in fiddle routes", () => {
+    expect(parseFiddlePath("/trim:-1/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/trim:bad/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/trim:10:zzz/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
     );
-    expect(parseDemoPath("/trim:10:ff00ff:0:2/plain/local:///images/dog.jpg")).toEqual(
-      defaultDemoState,
+    expect(parseFiddlePath("/trim:10:ff00ff:2:0/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
+    expect(parseFiddlePath("/trim:10:ff00ff:0:2/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
     );
   });
 
   it("parses crop, orientation, scale, canvas, padding, background, and effects options", () => {
-    const parsed = parseDemoPath(
+    const parsed = parseFiddlePath(
       "/ar:1/fl:0:1/rot:90/c:0.5:0.25:no/z:1.25/dpr:2/mw:320/mh:240/exar:1/pd:1:2:3:4/bg:ffcc00/bga:0.42/bl:2.5/sh:0.7/pix:8/mc:0.5:ffcc00/dt:0.25:112233:ffeecc/br:20/co:-15/sa:35/plain/local:///images/beach.jpg",
     );
 
@@ -1351,7 +1361,7 @@ describe("demo URL state", () => {
 
   it("parses long aliases for color effect options", () => {
     expect(
-      parseDemoPath("/brightness:20/contrast:-15/saturation:35/plain/local:///images/dog.jpg"),
+      parseFiddlePath("/brightness:20/contrast:-15/saturation:35/plain/local:///images/dog.jpg"),
     ).toMatchObject({
       brightnessEnabled: true,
       brightness: 20,
@@ -1362,57 +1372,59 @@ describe("demo URL state", () => {
     });
   });
 
-  it("uses duotone defaults for omitted demo route colors", () => {
-    expect(parseDemoPath("/dt:0.5:112233/plain/local:///images/dog.jpg")).toMatchObject({
+  it("uses duotone defaults for omitted fiddle route colors", () => {
+    expect(parseFiddlePath("/dt:0.5:112233/plain/local:///images/dog.jpg")).toMatchObject({
       duotoneEnabled: true,
       duotoneIntensity: 0.5,
       duotoneShadow: "#112233",
-      duotoneHighlight: defaultDemoState.duotoneHighlight,
+      duotoneHighlight: defaultFiddleState.duotoneHighlight,
     });
 
-    expect(parseDemoPath("/dt:0.5::ffeecc/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/dt:0.5::ffeecc/plain/local:///images/dog.jpg")).toMatchObject({
       duotoneEnabled: true,
       duotoneIntensity: 0.5,
-      duotoneShadow: defaultDemoState.duotoneShadow,
+      duotoneShadow: defaultFiddleState.duotoneShadow,
       duotoneHighlight: "#ffeecc",
     });
   });
 
-  it("treats pixelate size one as a demo no-op", () => {
-    expect(parseDemoPath("/pix:1/plain/local:///images/dog.jpg")).toEqual({
-      ...defaultDemoState,
+  it("treats pixelate size one as a fiddle no-op", () => {
+    expect(parseFiddlePath("/pix:1/plain/local:///images/dog.jpg")).toEqual({
+      ...defaultFiddleState,
       pixelateEnabled: false,
-      pixelate: defaultDemoState.pixelate,
+      pixelate: defaultFiddleState.pixelate,
     });
   });
 
-  it("treats zero-valued effects as demo no-ops", () => {
-    expect(parseDemoPath("/bl:0/sh:0/pix:0/br:0/co:0/sa:0/plain/local:///images/dog.jpg")).toEqual({
-      ...defaultDemoState,
+  it("treats zero-valued effects as fiddle no-ops", () => {
+    expect(
+      parseFiddlePath("/bl:0/sh:0/pix:0/br:0/co:0/sa:0/plain/local:///images/dog.jpg"),
+    ).toEqual({
+      ...defaultFiddleState,
       blurEnabled: false,
-      blur: defaultDemoState.blur,
+      blur: defaultFiddleState.blur,
       sharpenEnabled: false,
-      sharpen: defaultDemoState.sharpen,
+      sharpen: defaultFiddleState.sharpen,
       pixelateEnabled: false,
-      pixelate: defaultDemoState.pixelate,
+      pixelate: defaultFiddleState.pixelate,
       monochromeEnabled: false,
-      monochromeIntensity: defaultDemoState.monochromeIntensity,
-      monochromeColor: defaultDemoState.monochromeColor,
+      monochromeIntensity: defaultFiddleState.monochromeIntensity,
+      monochromeColor: defaultFiddleState.monochromeColor,
       duotoneEnabled: false,
-      duotoneIntensity: defaultDemoState.duotoneIntensity,
-      duotoneShadow: defaultDemoState.duotoneShadow,
-      duotoneHighlight: defaultDemoState.duotoneHighlight,
+      duotoneIntensity: defaultFiddleState.duotoneIntensity,
+      duotoneShadow: defaultFiddleState.duotoneShadow,
+      duotoneHighlight: defaultFiddleState.duotoneHighlight,
       brightnessEnabled: false,
-      brightness: defaultDemoState.brightness,
+      brightness: defaultFiddleState.brightness,
       contrastEnabled: false,
-      contrast: defaultDemoState.contrast,
+      contrast: defaultFiddleState.contrast,
       saturationEnabled: false,
-      saturation: defaultDemoState.saturation,
+      saturation: defaultFiddleState.saturation,
     });
   });
 
   it("expands accordions that contain active URL state", () => {
-    const state = parseDemoPath("/ar:1/z:1.5/br:20/plain/local:///images/dog.jpg");
+    const state = parseFiddlePath("/ar:1/z:1.5/br:20/plain/local:///images/dog.jpg");
 
     expect(expandedToolboxesForState(state)).toEqual({
       effectsOpen: true,
@@ -1423,19 +1435,19 @@ describe("demo URL state", () => {
   });
 
   it("parses car with and without enlarge", () => {
-    expect(parseDemoPath("/car:1.5/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/car:1.5/plain/local:///images/dog.jpg")).toMatchObject({
       cropAspectRatioEnabled: true,
       cropAspectRatio: 1.5,
       cropAspectRatioEnlarge: false,
     });
 
-    expect(parseDemoPath("/car:1.5:1/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/car:1.5:1/plain/local:///images/dog.jpg")).toMatchObject({
       cropAspectRatioEnabled: true,
       cropAspectRatio: 1.5,
       cropAspectRatioEnlarge: true,
     });
 
-    expect(parseDemoPath("/car:2:0/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/car:2:0/plain/local:///images/dog.jpg")).toMatchObject({
       cropAspectRatioEnabled: true,
       cropAspectRatio: 2,
       cropAspectRatioEnlarge: false,
@@ -1443,62 +1455,68 @@ describe("demo URL state", () => {
   });
 
   it("round-trips a car-only path through parse and emit", () => {
-    const parsed = parseDemoPath("/car:1.5:1/plain/local:///images/dog.jpg");
+    const parsed = parseFiddlePath("/car:1.5:1/plain/local:///images/dog.jpg");
 
     expect(parsed).not.toBeNull();
     // car must survive serialization even though cropEnabled stays false.
-    expect(optionSegments(parsed as DemoState)).toContain("car:1.5:1");
+    expect(optionSegments(parsed as FiddleState)).toContain("car:1.5:1");
   });
 
-  it("rejects invalid car values in demo routes", () => {
-    expect(parseDemoPath("/car:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/car:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/car:1.5:bad/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+  it("rejects invalid car values in fiddle routes", () => {
+    expect(parseFiddlePath("/car:-1/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/car:bad/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/car:1.5:bad/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
+    expect(parseFiddlePath("/car:1:2:3/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
   });
 
-  it("falls back to defaults for invalid demo routes", () => {
-    expect(parseDemoPath("/not-supported/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/rs:fill:640:360:0/plain/images/dog.jpg")).toEqual(defaultDemoState);
+  it("falls back to defaults for invalid fiddle routes", () => {
+    expect(parseFiddlePath("/not-supported/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
+    expect(parseFiddlePath("/rs:fill:640:360:0/plain/images/dog.jpg")).toEqual(defaultFiddleState);
     expect(
-      parseDemoPath("/not-a-valid-option/rs:fill:640:360:0/plain/local:///images/dog.jpg"),
-    ).toEqual(defaultDemoState);
+      parseFiddlePath("/not-a-valid-option/rs:fill:640:360:0/plain/local:///images/dog.jpg"),
+    ).toEqual(defaultFiddleState);
   });
 
-  it("rejects invalid quality values in demo routes", () => {
-    expect(parseDemoPath("/q:-1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/q:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/q:85.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+  it("rejects invalid quality values in fiddle routes", () => {
+    expect(parseFiddlePath("/q:-1/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/q:101/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/q:85.5/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
   });
 
-  it("rejects invalid color effect values in demo routes", () => {
-    expect(parseDemoPath("/br:-101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/co:101/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/sa:100.5/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/mc:1.1/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/dt:0.5:zzz/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+  it("rejects invalid color effect values in fiddle routes", () => {
+    expect(parseFiddlePath("/br:-101/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/co:101/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/sa:100.5/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/mc:1.1/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/dt:0.5:zzz/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
   });
 
   it("emits nothing for default metadata and color-profile state (all true)", () => {
-    expect(optionSegments(defaultDemoState)).toEqual([]);
+    expect(optionSegments(defaultFiddleState)).toEqual([]);
   });
 
   it("emits sm:0 when stripMetadata is false", () => {
-    const state = { ...defaultDemoState, stripMetadata: false, keepCopyright: false };
+    const state = { ...defaultFiddleState, stripMetadata: false, keepCopyright: false };
 
     expect(optionSegments(state)).toContain("sm:0");
     expect(optionSegments(state)).not.toContain("kcr:0");
   });
 
   it("emits kcr:0 when stripMetadata is true but keepCopyright is false", () => {
-    const state = { ...defaultDemoState, stripMetadata: true, keepCopyright: false };
+    const state = { ...defaultFiddleState, stripMetadata: true, keepCopyright: false };
 
     expect(optionSegments(state)).toContain("kcr:0");
     expect(optionSegments(state)).not.toContain("sm:0");
   });
 
   it("does not emit kcr when stripMetadata is false (canonical omission)", () => {
-    const state = { ...defaultDemoState, stripMetadata: false, keepCopyright: true };
+    const state = { ...defaultFiddleState, stripMetadata: false, keepCopyright: true };
 
     const segments = optionSegments(state);
 
@@ -1508,13 +1526,13 @@ describe("demo URL state", () => {
   });
 
   it("emits scp:0 when stripColorProfile is false", () => {
-    const state = { ...defaultDemoState, stripColorProfile: false };
+    const state = { ...defaultFiddleState, stripColorProfile: false };
 
     expect(optionSegments(state)).toContain("scp:0");
   });
 
   it("round-trips sm:0 through parse and emit", () => {
-    const parsed = parseDemoPath("/sm:0/plain/local:///images/dog.jpg");
+    const parsed = parseFiddlePath("/sm:0/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({ stripMetadata: false, keepCopyright: false });
     expect(optionSegments(parsed)).toContain("sm:0");
@@ -1522,7 +1540,7 @@ describe("demo URL state", () => {
   });
 
   it("round-trips kcr:0 through parse and emit", () => {
-    const parsed = parseDemoPath("/kcr:0/plain/local:///images/dog.jpg");
+    const parsed = parseFiddlePath("/kcr:0/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({ stripMetadata: true, keepCopyright: false });
     expect(optionSegments(parsed)).toContain("kcr:0");
@@ -1530,109 +1548,113 @@ describe("demo URL state", () => {
   });
 
   it("round-trips scp:0 through parse and emit", () => {
-    const parsed = parseDemoPath("/scp:0/plain/local:///images/dog.jpg");
+    const parsed = parseFiddlePath("/scp:0/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({ stripColorProfile: false });
     expect(optionSegments(parsed)).toContain("scp:0");
   });
 
   it("omits cp for the default (none) color-profile state", () => {
-    expect(optionSegments(defaultDemoState)).not.toContain("cp:none");
-    expect(optionSegments(defaultDemoState).some((seg) => seg.startsWith("cp:"))).toBe(false);
+    expect(optionSegments(defaultFiddleState)).not.toContain("cp:none");
+    expect(optionSegments(defaultFiddleState).some((seg) => seg.startsWith("cp:"))).toBe(false);
   });
 
   it("emits cp:<target> for non-none color profiles", () => {
-    expect(optionSegments({ ...defaultDemoState, colorProfile: "srgb" })).toContain("cp:srgb");
-    expect(optionSegments({ ...defaultDemoState, colorProfile: "display-p3" })).toContain(
+    expect(optionSegments({ ...defaultFiddleState, colorProfile: "srgb" })).toContain("cp:srgb");
+    expect(optionSegments({ ...defaultFiddleState, colorProfile: "display-p3" })).toContain(
       "cp:display-p3",
     );
-    expect(optionSegments({ ...defaultDemoState, colorProfile: "adobe-rgb" })).toContain(
+    expect(optionSegments({ ...defaultFiddleState, colorProfile: "adobe-rgb" })).toContain(
       "cp:adobe-rgb",
     );
   });
 
   it("round-trips cp targets through parse and emit", () => {
-    const parsed = parseDemoPath("/cp:display-p3/plain/local:///images/dog.jpg");
+    const parsed = parseFiddlePath("/cp:display-p3/plain/local:///images/dog.jpg");
 
     expect(parsed).toMatchObject({ colorProfile: "display-p3" });
     expect(optionSegments(parsed)).toContain("cp:display-p3");
   });
 
   it("accepts the icc alias and canonicalizes color-profile aliases", () => {
-    expect(parseDemoPath("/icc:srgb/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/icc:srgb/plain/local:///images/dog.jpg")).toMatchObject({
       colorProfile: "srgb",
     });
-    expect(parseDemoPath("/cp:p3/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/cp:p3/plain/local:///images/dog.jpg")).toMatchObject({
       colorProfile: "display-p3",
     });
-    expect(parseDemoPath("/cp:adobergb/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/cp:adobergb/plain/local:///images/dog.jpg")).toMatchObject({
       colorProfile: "adobe-rgb",
     });
   });
 
-  it("rejects unknown cp values in demo routes", () => {
-    expect(parseDemoPath("/cp:cmyk/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/cp:/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/cp:srgb:extra/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+  it("rejects unknown cp values in fiddle routes", () => {
+    expect(parseFiddlePath("/cp:cmyk/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/cp:/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/cp:srgb:extra/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
   });
 
-  it("round-trips ph:1 through the demo path", () => {
-    const state = { ...defaultDemoState, preserveHdr: true };
+  it("round-trips ph:1 through the fiddle path", () => {
+    const state = { ...defaultFiddleState, preserveHdr: true };
 
     expect(optionSegments(state)).toContain("ph:1");
 
-    const parsed = parseDemoPath(demoPathForState(state));
+    const parsed = parseFiddlePath(fiddlePathForState(state));
     expect(parsed).toMatchObject({ preserveHdr: true });
   });
 
   it("normalizes keepCopyright to false when sm:0 is parsed without kcr", () => {
-    const parsedSmOnly = parseDemoPath("/sm:0/plain/local:///images/dog.jpg");
+    const parsedSmOnly = parseFiddlePath("/sm:0/plain/local:///images/dog.jpg");
 
     expect(parsedSmOnly).toMatchObject({ stripMetadata: false, keepCopyright: false });
   });
 
   it("normalizes keepCopyright to false regardless of sm/kcr segment order", () => {
-    const kcrThenSm = parseDemoPath("/kcr:1/sm:0/plain/local:///images/dog.jpg");
-    const smThenKcr = parseDemoPath("/sm:0/kcr:1/plain/local:///images/dog.jpg");
+    const kcrThenSm = parseFiddlePath("/kcr:1/sm:0/plain/local:///images/dog.jpg");
+    const smThenKcr = parseFiddlePath("/sm:0/kcr:1/plain/local:///images/dog.jpg");
 
     expect(kcrThenSm).toMatchObject({ stripMetadata: false, keepCopyright: false });
     expect(smThenKcr).toMatchObject({ stripMetadata: false, keepCopyright: false });
   });
 
   it("accepts boolean aliases for sm, kcr, and scp", () => {
-    expect(parseDemoPath("/sm:1/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/sm:1/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: true,
     });
-    expect(parseDemoPath("/sm:t/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/sm:t/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: true,
     });
-    expect(parseDemoPath("/sm:true/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/sm:true/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: true,
     });
-    expect(parseDemoPath("/sm:f/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/sm:f/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: false,
     });
-    expect(parseDemoPath("/sm:false/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/sm:false/plain/local:///images/dog.jpg")).toMatchObject({
       stripMetadata: false,
     });
-    expect(parseDemoPath("/kcr:0/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/kcr:0/plain/local:///images/dog.jpg")).toMatchObject({
       keepCopyright: false,
     });
-    expect(parseDemoPath("/scp:f/plain/local:///images/dog.jpg")).toMatchObject({
+    expect(parseFiddlePath("/scp:f/plain/local:///images/dog.jpg")).toMatchObject({
       stripColorProfile: false,
     });
   });
 
-  it("rejects invalid sm/kcr/scp values in demo routes", () => {
-    expect(parseDemoPath("/sm:yes/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/kcr:2/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/scp:/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
-    expect(parseDemoPath("/sm:0:extra/plain/local:///images/dog.jpg")).toEqual(defaultDemoState);
+  it("rejects invalid sm/kcr/scp values in fiddle routes", () => {
+    expect(parseFiddlePath("/sm:yes/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/kcr:2/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/scp:/plain/local:///images/dog.jpg")).toEqual(defaultFiddleState);
+    expect(parseFiddlePath("/sm:0:extra/plain/local:///images/dog.jpg")).toEqual(
+      defaultFiddleState,
+    );
   });
 
   it("resets processing options while keeping source and signature settings", () => {
-    const reset = resetDemoSettings({
-      ...defaultDemoState,
+    const reset = resetFiddleSettings({
+      ...defaultFiddleState,
       source: "images/beach.jpg",
       signatureMode: "signed",
       signatureKey: "abcd",
@@ -1646,7 +1668,7 @@ describe("demo URL state", () => {
     });
 
     expect(reset).toMatchObject({
-      ...defaultDemoState,
+      ...defaultFiddleState,
       source: "images/beach.jpg",
       signatureMode: "signed",
       signatureKey: "abcd",
@@ -1655,6 +1677,6 @@ describe("demo URL state", () => {
       cropHeight: cropPixelLimit("images/beach.jpg", "height").max,
     });
     expect(optionSegments(reset)).toEqual([]);
-    expect(demoPathForState(reset)).toBe("/plain/local:///images/beach.jpg");
+    expect(fiddlePathForState(reset)).toBe("/plain/local:///images/beach.jpg");
   });
 });

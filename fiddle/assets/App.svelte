@@ -6,19 +6,19 @@
   import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
   import ToolToggleHeader from "./ToolToggleHeader.svelte";
   import {
-    demoObjClasses,
-    demoPathForState,
+    fiddleObjClasses,
+    fiddlePathForState,
     expandedToolboxesForState,
-    parseDemoPath,
-    resetDemoSettings,
-  } from "./demo-url-state";
+    parseFiddlePath,
+    resetFiddleSettings,
+  } from "./fiddle-url-state";
   import {
     buildProcessingPath,
     controlLimits,
     cropOptionSegment,
     cropPixelLimit,
     debounce,
-    defaultDemoState,
+    defaultFiddleState,
     focalPointFromBounds,
     gravitySegment,
     processedSizeLabel,
@@ -30,7 +30,7 @@
     signedPathForState,
     trimOptionSegment,
     resolvedOutputLabel,
-    type DemoState,
+    type FiddleState,
     type ProcessedImageMetadata,
     type SourceImage,
   } from "./processing-path";
@@ -42,9 +42,9 @@
     type ThemeMode,
   } from "./theme";
 
-  // Demo object classes shown in the picker (subset of COCO-80 + "all" pseudo-class).
+  // Fiddle object classes shown in the picker (subset of COCO-80 + "all" pseudo-class).
   // "all" is offered only in weighted sub-mode to set the baseline weight.
-  const demoObjClassesForPicker = demoObjClasses as readonly string[];
+  const fiddleObjClassesForPicker = fiddleObjClasses as readonly string[];
 
   let copyLabel = $state("Copy URL");
   let drawerOpen = $state(false);
@@ -54,8 +54,8 @@
   let requestOpen = $state(true);
   let effectsOpen = $state(true);
   let themeMode: ThemeMode = $state(readStoredThemeMode());
-  const initialState = initialDemoState();
-  let demoState: DemoState = $state(initialState);
+  const initialState = initialFiddleState();
+  let fiddleState: FiddleState = $state(initialState);
   let path = $state(buildProcessingPath(initialState));
   let previewImageUrl: string | null = $state(null);
   let previewLoading = $state(true);
@@ -85,7 +85,7 @@
 
     void loadPreview(nextPath);
   }, 150);
-  const updateDemoLocation = debounce((nextPath: string) => {
+  const updateFiddleLocation = debounce((nextPath: string) => {
     if (typeof window === "undefined" || window.location.pathname === nextPath) {
       return;
     }
@@ -114,16 +114,16 @@
   });
 
   $effect(() => {
-    updateProcessingPath(demoState);
+    updateProcessingPath(fiddleState);
   });
   $effect(() => {
     updatePreviewPath(path);
   });
   $effect(() => {
-    updateDemoLocation(demoPathForState(demoState));
+    updateFiddleLocation(fiddlePathForState(fiddleState));
   });
   $effect(() => {
-    ensureActiveToolboxesOpen(demoState);
+    ensureActiveToolboxesOpen(fiddleState);
   });
   $effect(() => {
     applyThemeMode(themeMode);
@@ -133,82 +133,82 @@
   });
 
   const previewParameters = $derived(path.replace(/^\/[^/]+\/[^/]+\//, ""));
-  const outputLabel = $derived(resolvedOutputLabel(demoState, processedMetadata));
+  const outputLabel = $derived(resolvedOutputLabel(fiddleState, processedMetadata));
   const sizeLabel = $derived(previewError ?? processedSizeLabel(processedMetadata));
   const requestSummary = $derived(
-    `${demoState.source.replace(/^images\//, "")} / ${requestSignatureLabel(demoState, signingError)}`,
+    `${fiddleState.source.replace(/^images\//, "")} / ${requestSignatureLabel(fiddleState, signingError)}`,
   );
   const orientationSummary = $derived(
     [
-      demoState.autoRotateEnabled ? "ar:1" : null,
-      flipSegment(demoState.flip),
-      demoState.rotate === 0 ? null : `rot:${demoState.rotate}`,
+      fiddleState.autoRotateEnabled ? "ar:1" : null,
+      flipSegment(fiddleState.flip),
+      fiddleState.rotate === 0 ? null : `rot:${fiddleState.rotate}`,
     ]
       .filter(Boolean)
       .join("/") || "Off",
   );
   const trimSummary = $derived(
-    demoState.trimEnabled ? (trimOptionSegment(demoState) ?? "Off") : "Off",
+    fiddleState.trimEnabled ? (trimOptionSegment(fiddleState) ?? "Off") : "Off",
   );
   const resizeSummary = $derived(
-    demoState.resizeEnabled ? (resizeOptionSegment(demoState) ?? "Off") : "Off",
+    fiddleState.resizeEnabled ? (resizeOptionSegment(fiddleState) ?? "Off") : "Off",
   );
   const aspectCanvasSummary = $derived(
-    demoState.aspectCanvasEnabled
-      ? demoState.aspectCanvasGravity === "ce"
+    fiddleState.aspectCanvasEnabled
+      ? fiddleState.aspectCanvasGravity === "ce"
         ? "exar:1"
-        : `exar:1:${demoState.aspectCanvasGravity}`
+        : `exar:1:${fiddleState.aspectCanvasGravity}`
       : "Off",
   );
   const paddingSummary = $derived(
-    demoState.paddingEnabled
-      ? `pd:${demoState.paddingTop}:${demoState.paddingRight}:${demoState.paddingBottom}:${demoState.paddingLeft}`
+    fiddleState.paddingEnabled
+      ? `pd:${fiddleState.paddingTop}:${fiddleState.paddingRight}:${fiddleState.paddingBottom}:${fiddleState.paddingLeft}`
       : "Off",
   );
   const backgroundSummary = $derived(
-    demoState.backgroundEnabled
-      ? `bg:${demoState.backgroundColor.replace(/^#/, "")}${backgroundOpacitySummary(demoState.backgroundAlpha)}`
+    fiddleState.backgroundEnabled
+      ? `bg:${fiddleState.backgroundColor.replace(/^#/, "")}${backgroundOpacitySummary(fiddleState.backgroundAlpha)}`
       : "Off",
   );
-  const effectsSummary = $derived(effectSegments(demoState).join("/") || "Off");
-  const metadataSummary = $derived(metadataSegments(demoState).join("/") || "On");
+  const effectsSummary = $derived(effectSegments(fiddleState).join("/") || "Off");
+  const metadataSummary = $derived(metadataSegments(fiddleState).join("/") || "On");
   const cropSummary = $derived(
-    demoState.cropEnabled ? (cropOptionSegment(demoState) ?? "Off") : "Off",
+    fiddleState.cropEnabled ? (cropOptionSegment(fiddleState) ?? "Off") : "Off",
   );
   const cropAspectRatioSummary = $derived(
-    demoState.cropAspectRatioEnabled
-      ? demoState.cropAspectRatioEnlarge
-        ? `car:${demoState.cropAspectRatio}:1`
-        : `car:${demoState.cropAspectRatio}`
+    fiddleState.cropAspectRatioEnabled
+      ? fiddleState.cropAspectRatioEnlarge
+        ? `car:${fiddleState.cropAspectRatio}:1`
+        : `car:${fiddleState.cropAspectRatio}`
       : "Off",
   );
   const resizeExtras = $derived(
     [
-      demoState.zoomEnabled ? `z:${demoState.zoom}` : null,
-      demoState.dprEnabled ? `dpr:${demoState.dpr}` : null,
-      demoState.minWidthEnabled ? `mw:${demoState.minWidth}` : null,
-      demoState.minHeightEnabled ? `mh:${demoState.minHeight}` : null,
+      fiddleState.zoomEnabled ? `z:${fiddleState.zoom}` : null,
+      fiddleState.dprEnabled ? `dpr:${fiddleState.dpr}` : null,
+      fiddleState.minWidthEnabled ? `mw:${fiddleState.minWidth}` : null,
+      fiddleState.minHeightEnabled ? `mh:${fiddleState.minHeight}` : null,
     ]
       .filter(Boolean)
       .join("/"),
   );
-  const cropWidthLimit = $derived(cropPixelLimit(demoState.source, "width"));
-  const cropHeightLimit = $derived(cropPixelLimit(demoState.source, "height"));
+  const cropWidthLimit = $derived(cropPixelLimit(fiddleState.source, "width"));
+  const cropHeightLimit = $derived(cropPixelLimit(fiddleState.source, "height"));
 
-  function initialDemoState(): DemoState {
+  function initialFiddleState(): FiddleState {
     if (typeof window === "undefined") {
-      return { ...defaultDemoState };
+      return { ...defaultFiddleState };
     }
 
-    return parseDemoPath(window.location.pathname);
+    return parseFiddlePath(window.location.pathname);
   }
 
   function restoreStateFromLocation(): void {
-    demoState = parseDemoPath(window.location.pathname);
-    ensureActiveToolboxesOpen(demoState);
+    fiddleState = parseFiddlePath(window.location.pathname);
+    ensureActiveToolboxesOpen(fiddleState);
   }
 
-  function ensureActiveToolboxesOpen(currentState: DemoState): void {
+  function ensureActiveToolboxesOpen(currentState: FiddleState): void {
     const expandedToolboxes = expandedToolboxesForState(currentState);
 
     if (expandedToolboxes.orientationOpen) {
@@ -224,7 +224,7 @@
     }
   }
 
-  function flipSegment(flip: DemoState["flip"]): string | null {
+  function flipSegment(flip: FiddleState["flip"]): string | null {
     if (flip === "horizontal") {
       return "fl:1";
     }
@@ -248,7 +248,7 @@
     return `/bga:${alpha}`;
   }
 
-  function metadataSegments(currentState: DemoState): string[] {
+  function metadataSegments(currentState: FiddleState): string[] {
     const segs: string[] = [];
 
     if (!currentState.stripMetadata) {
@@ -272,7 +272,7 @@
     return segs;
   }
 
-  function effectSegments(currentState: DemoState): string[] {
+  function effectSegments(currentState: FiddleState): string[] {
     return [
       currentState.blurEnabled ? `bl:${currentState.blur}` : null,
       currentState.sharpenEnabled ? `sh:${currentState.sharpen}` : null,
@@ -293,7 +293,7 @@
   }
 
   function requestSignatureLabel(
-    currentState: DemoState,
+    currentState: FiddleState,
     currentSigningError: string | null,
   ): string {
     if (currentState.signatureMode === "signed") {
@@ -303,7 +303,7 @@
     return currentState.signatureMode;
   }
 
-  function updateProcessingPath(currentState: DemoState): void {
+  function updateProcessingPath(currentState: FiddleState): void {
     const requestId = ++pathRequestId;
     const signedPath = signedPathForState(currentState);
 
@@ -477,8 +477,8 @@
       focalPickerSurface.getBoundingClientRect(),
     );
 
-    demoState.gravityFocalX = focalPoint.x;
-    demoState.gravityFocalY = focalPoint.y;
+    fiddleState.gravityFocalX = focalPoint.x;
+    fiddleState.gravityFocalY = focalPoint.y;
   }
 
   function startFocalPointDrag(event: PointerEvent): void {
@@ -496,20 +496,20 @@
 
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      demoState.gravityFocalX = Math.max(0, roundedFocalPoint(demoState.gravityFocalX - step));
+      fiddleState.gravityFocalX = Math.max(0, roundedFocalPoint(fiddleState.gravityFocalX - step));
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      demoState.gravityFocalX = Math.min(1, roundedFocalPoint(demoState.gravityFocalX + step));
+      fiddleState.gravityFocalX = Math.min(1, roundedFocalPoint(fiddleState.gravityFocalX + step));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      demoState.gravityFocalY = Math.max(0, roundedFocalPoint(demoState.gravityFocalY - step));
+      fiddleState.gravityFocalY = Math.max(0, roundedFocalPoint(fiddleState.gravityFocalY - step));
     } else if (event.key === "ArrowDown") {
       event.preventDefault();
-      demoState.gravityFocalY = Math.min(1, roundedFocalPoint(demoState.gravityFocalY + step));
+      fiddleState.gravityFocalY = Math.min(1, roundedFocalPoint(fiddleState.gravityFocalY + step));
     } else if (event.key === "Home") {
       event.preventDefault();
-      demoState.gravityFocalX = 0.5;
-      demoState.gravityFocalY = 0.5;
+      fiddleState.gravityFocalX = 0.5;
+      fiddleState.gravityFocalY = 0.5;
     }
   }
 
@@ -526,10 +526,10 @@
   }
 
   function updateCropEnabled(enabled: boolean): void {
-    demoState.cropEnabled = enabled;
+    fiddleState.cropEnabled = enabled;
 
     if (enabled) {
-      demoState = resetCropPixelsToSource(demoState);
+      fiddleState = resetCropPixelsToSource(fiddleState);
     }
   }
 
@@ -540,8 +540,8 @@
       return;
     }
 
-    demoState = resetCropPixelsToSource({
-      ...demoState,
+    fiddleState = resetCropPixelsToSource({
+      ...fiddleState,
       source: select.value as SourceImage,
     });
   }
@@ -551,18 +551,18 @@
   }
 
   function updateStripMetadata(checked: boolean): void {
-    demoState.stripMetadata = checked;
+    fiddleState.stripMetadata = checked;
 
     if (!checked) {
-      demoState.keepCopyright = false;
+      fiddleState.keepCopyright = false;
     }
   }
 
   function syncObjClasses(nextClasses: string[]): void {
     // Add default weight for newly selected classes; remove weight for deselected ones.
-    const prev = new Set(demoState.objSelectedClasses);
+    const prev = new Set(fiddleState.objSelectedClasses);
     const next = new Set(nextClasses);
-    let weights = { ...demoState.objWeights };
+    let weights = { ...fiddleState.objWeights };
 
     for (const cls of next) {
       if (!prev.has(cls)) {
@@ -578,8 +578,8 @@
       }
     }
 
-    demoState.objSelectedClasses = nextClasses;
-    demoState.objWeights = weights;
+    fiddleState.objSelectedClasses = nextClasses;
+    fiddleState.objWeights = weights;
   }
 
   function objClassTriggerLabel(selected: string[]): string {
@@ -595,7 +595,7 @@
   }
 
   function resetSettings(): void {
-    demoState = resetDemoSettings(demoState);
+    fiddleState = resetFiddleSettings(fiddleState);
   }
 
   function closeTools(): void {
@@ -707,7 +707,7 @@
           <Collapsible.Content class="collapsible-content">
             <label class="field">
               <span>Source image</span>
-              <select value={demoState.source} onchange={updateSource}>
+              <select value={fiddleState.source} onchange={updateSource}>
                 {#each sampleImages as image}
                   <option value={image.path}>{image.label}</option>
                 {/each}
@@ -716,19 +716,19 @@
 
             <label class="field">
               <span>Signature</span>
-              <select bind:value={demoState.signatureMode}>
+              <select bind:value={fiddleState.signatureMode}>
                 <option value="unsigned">unsigned</option>
                 <option value="signed">signed</option>
               </select>
             </label>
 
-            {#if demoState.signatureMode === "signed"}
+            {#if fiddleState.signatureMode === "signed"}
               <div class="signature-secret-grid">
                 <label class="field">
                   <span>Key</span>
                   <input
                     class="text-input text-input-mono"
-                    bind:value={demoState.signatureKey}
+                    bind:value={fiddleState.signatureKey}
                     spellcheck="false"
                     autocomplete="off"
                   />
@@ -738,7 +738,7 @@
                   <span>Salt</span>
                   <input
                     class="text-input text-input-mono"
-                    bind:value={demoState.signatureSalt}
+                    bind:value={fiddleState.signatureSalt}
                     spellcheck="false"
                     autocomplete="off"
                   />
@@ -757,26 +757,26 @@
         <ToolToggleHeader
           title="Resize"
           summary={resizeSummary}
-          bind:checked={demoState.resizeEnabled}
+          bind:checked={fiddleState.resizeEnabled}
         />
 
-        {#if demoState.resizeEnabled}
+        {#if fiddleState.resizeEnabled}
           <ResizeDimensionControl
             label="Width"
-            bind:unit={demoState.resizeWidthUnit}
-            bind:pixels={demoState.width}
+            bind:unit={fiddleState.resizeWidthUnit}
+            bind:pixels={fiddleState.width}
             maxPixels={controlLimits.resize.width.max}
           />
           <ResizeDimensionControl
             label="Height"
-            bind:unit={demoState.resizeHeightUnit}
-            bind:pixels={demoState.height}
+            bind:unit={fiddleState.resizeHeightUnit}
+            bind:pixels={fiddleState.height}
             maxPixels={controlLimits.resize.height.max}
           />
 
           <label class="field">
             <span>Type</span>
-            <select bind:value={demoState.resizeMode}>
+            <select bind:value={fiddleState.resizeMode}>
               <option value="fit">fit</option>
               <option value="fill">fill</option>
               <option value="fill-down">fill-down</option>
@@ -786,14 +786,14 @@
           </label>
 
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={demoState.enlarge}>
+            <Switch.Root class="switch-root" bind:checked={fiddleState.enlarge}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Allow enlargement</span>
           </label>
 
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={demoState.resizeExtendEnabled}>
+            <Switch.Root class="switch-root" bind:checked={fiddleState.resizeExtendEnabled}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Extend result</span>
@@ -805,29 +805,29 @@
         <ToolToggleHeader
           title="Crop"
           summary={cropSummary}
-          checked={demoState.cropEnabled}
+          checked={fiddleState.cropEnabled}
           onCheckedChange={updateCropEnabled}
         />
 
-        {#if demoState.cropEnabled}
+        {#if fiddleState.cropEnabled}
           <CropDimensionControl
             label="Width"
-            bind:unit={demoState.cropWidthUnit}
-            bind:pixels={demoState.cropWidth}
-            bind:percent={demoState.cropWidthPercent}
+            bind:unit={fiddleState.cropWidthUnit}
+            bind:pixels={fiddleState.cropWidth}
+            bind:percent={fiddleState.cropWidthPercent}
             maxPixels={cropWidthLimit.max}
           />
           <CropDimensionControl
             label="Height"
-            bind:unit={demoState.cropHeightUnit}
-            bind:pixels={demoState.cropHeight}
-            bind:percent={demoState.cropHeightPercent}
+            bind:unit={fiddleState.cropHeightUnit}
+            bind:pixels={fiddleState.cropHeight}
+            bind:percent={fiddleState.cropHeightPercent}
             maxPixels={cropHeightLimit.max}
           />
 
           <label class="field">
             <span>Gravity</span>
-            <select bind:value={demoState.cropGravity}>
+            <select bind:value={fiddleState.cropGravity}>
               <option value="inherit">&lt;inherit&gt;</option>
               <option value="ce">center</option>
               <option value="no">north</option>
@@ -851,19 +851,19 @@
         <ToolToggleHeader
           title="Crop aspect ratio"
           summary={cropAspectRatioSummary}
-          bind:checked={demoState.cropAspectRatioEnabled}
+          bind:checked={fiddleState.cropAspectRatioEnabled}
         />
 
-        {#if demoState.cropAspectRatioEnabled}
+        {#if fiddleState.cropAspectRatioEnabled}
           <RangeNumber
             label="Ratio"
-            bind:value={demoState.cropAspectRatio}
+            bind:value={fiddleState.cropAspectRatio}
             min={0}
             max={10}
             step={0.1}
           />
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={demoState.cropAspectRatioEnlarge}>
+            <Switch.Root class="switch-root" bind:checked={fiddleState.cropAspectRatioEnlarge}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Enlarge</span>
@@ -874,14 +874,14 @@
       <section class="tool-section">
         <ToolToggleHeader
           title="Gravity"
-          summary={demoState.gravityEnabled ? gravitySegment(demoState) : "Off"}
-          bind:checked={demoState.gravityEnabled}
+          summary={fiddleState.gravityEnabled ? gravitySegment(fiddleState) : "Off"}
+          bind:checked={fiddleState.gravityEnabled}
         />
 
-        {#if demoState.gravityEnabled}
+        {#if fiddleState.gravityEnabled}
           <label class="field">
             <span>Mode</span>
-            <select bind:value={demoState.gravityMode}>
+            <select bind:value={fiddleState.gravityMode}>
               <option value="anchor">anchor</option>
               <option value="focalPoint">focal point</option>
               <option value="offset">anchor + offset</option>
@@ -891,10 +891,10 @@
             </select>
           </label>
 
-          {#if demoState.gravityMode === "anchor" || demoState.gravityMode === "offset"}
+          {#if fiddleState.gravityMode === "anchor" || fiddleState.gravityMode === "offset"}
             <label class="field">
               <span>Anchor</span>
-              <select bind:value={demoState.gravity}>
+              <select bind:value={fiddleState.gravity}>
                 <option value="ce">center</option>
                 <option value="no">north</option>
                 <option value="so">south</option>
@@ -908,23 +908,23 @@
             </label>
           {/if}
 
-          {#if demoState.gravityMode === "focalPoint"}
+          {#if fiddleState.gravityMode === "focalPoint"}
             <div class="focal-picker-field">
               <span>Focal point</span>
               <button
                 class="focal-picker"
                 type="button"
-                aria-label={`Set focal point, currently ${demoState.gravityFocalX}, ${demoState.gravityFocalY}`}
+                aria-label={`Set focal point, currently ${fiddleState.gravityFocalX}, ${fiddleState.gravityFocalY}`}
                 onclick={updateFocalPoint}
                 onkeydown={moveFocalPoint}
                 onpointerdown={startFocalPointDrag}
                 onpointermove={dragFocalPoint}
               >
                 <span class="focal-image-surface" bind:this={focalPickerSurface}>
-                  <img src={`/${demoState.source}`} alt="" draggable="false" />
+                  <img src={`/${fiddleState.source}`} alt="" draggable="false" />
                   <span
                     class="focal-marker"
-                    style={`left: ${demoState.gravityFocalX * 100}%; top: ${demoState.gravityFocalY * 100}%;`}
+                    style={`left: ${fiddleState.gravityFocalX * 100}%; top: ${fiddleState.gravityFocalY * 100}%;`}
                   ></span>
                 </span>
               </button>
@@ -932,47 +932,47 @@
 
             <RangeNumber
               label="Focal X"
-              bind:value={demoState.gravityFocalX}
+              bind:value={fiddleState.gravityFocalX}
               min={controlLimits.focalPoint.min}
               max={controlLimits.focalPoint.max}
               step={controlLimits.focalPoint.step}
             />
             <RangeNumber
               label="Focal Y"
-              bind:value={demoState.gravityFocalY}
+              bind:value={fiddleState.gravityFocalY}
               min={controlLimits.focalPoint.min}
               max={controlLimits.focalPoint.max}
               step={controlLimits.focalPoint.step}
             />
           {/if}
 
-          {#if demoState.gravityMode === "offset"}
+          {#if fiddleState.gravityMode === "offset"}
             <RangeNumber
               label="Offset X"
-              bind:value={demoState.gravityOffsetX}
+              bind:value={fiddleState.gravityOffsetX}
               min={controlLimits.gravityOffset.min}
               max={controlLimits.gravityOffset.max}
               step={controlLimits.gravityOffset.step}
             />
             <RangeNumber
               label="Offset Y"
-              bind:value={demoState.gravityOffsetY}
+              bind:value={fiddleState.gravityOffsetY}
               min={controlLimits.gravityOffset.min}
               max={controlLimits.gravityOffset.max}
               step={controlLimits.gravityOffset.step}
             />
           {/if}
 
-          {#if demoState.gravityMode === "object"}
+          {#if fiddleState.gravityMode === "object"}
             <!-- Object-gravity mode: filter detection to named classes + optional weights.
                  Simple = g:obj:<classes> (filters but no weight bias).
                  Weighted = g:objw:<class>:<weight>... (filters AND weights).
                  Empty selection = bare g:obj (all objects, no filter). -->
             <Tabs.Root
               class="obj-submode-tabs"
-              value={demoState.objSubMode}
+              value={fiddleState.objSubMode}
               onValueChange={(v) => {
-                demoState.objSubMode = v as "simple" | "weighted";
+                fiddleState.objSubMode = v as "simple" | "weighted";
               }}
             >
               <Tabs.List class="obj-submode-list">
@@ -983,7 +983,7 @@
 
             <div class="field">
               <span>
-                {demoState.gravityMode === "object" && demoState.objSubMode === "weighted"
+                {fiddleState.gravityMode === "object" && fiddleState.objSubMode === "weighted"
                   ? "Classes + weights"
                   : "Classes"}
               </span>
@@ -992,16 +992,16 @@
                    In weighted mode "all" is offered as a baseline option. -->
               <Select.Root
                 type="multiple"
-                value={demoState.objSelectedClasses}
+                value={fiddleState.objSelectedClasses}
                 onValueChange={syncObjClasses}
               >
                 <Select.Trigger class="obj-class-trigger">
-                  {objClassTriggerLabel(demoState.objSelectedClasses)}
+                  {objClassTriggerLabel(fiddleState.objSelectedClasses)}
                   <span class="obj-class-trigger-chevron" aria-hidden="true"></span>
                 </Select.Trigger>
                 <Select.Content class="obj-class-content" sideOffset={4}>
                   <Select.Viewport class="obj-class-viewport">
-                    {#if demoState.objSubMode === "weighted"}
+                    {#if fiddleState.objSubMode === "weighted"}
                       <Select.Item class="obj-class-item" value="all" label="all">
                         {#snippet children({ selected })}
                           <span class="obj-class-item-check" aria-hidden="true">
@@ -1011,7 +1011,7 @@
                         {/snippet}
                       </Select.Item>
                     {/if}
-                    {#each demoObjClassesForPicker as cls}
+                    {#each fiddleObjClassesForPicker as cls}
                       <Select.Item class="obj-class-item" value={cls} label={cls}>
                         {#snippet children({ selected })}
                           <span class="obj-class-item-check" aria-hidden="true">
@@ -1024,22 +1024,22 @@
                   </Select.Viewport>
                 </Select.Content>
               </Select.Root>
-              {#if demoState.objSelectedClasses.length === 0}
+              {#if fiddleState.objSelectedClasses.length === 0}
                 <p class="field-hint">No classes selected — detects all objects.</p>
               {/if}
             </div>
 
-            {#if demoState.objSubMode === "weighted" && demoState.objSelectedClasses.length > 0}
-              {#each demoState.objSelectedClasses as cls (cls)}
+            {#if fiddleState.objSubMode === "weighted" && fiddleState.objSelectedClasses.length > 0}
+              {#each fiddleState.objSelectedClasses as cls (cls)}
                 <RangeNumber
                   label={cls === "all" ? "Baseline weight (all)" : `${cls} weight`}
-                  value={demoState.objWeights[cls] ?? 1}
+                  value={fiddleState.objWeights[cls] ?? 1}
                   min={0.1}
                   max={10}
                   step={0.1}
                   inputStep="any"
                   onValueChange={(w) => {
-                    demoState.objWeights = { ...demoState.objWeights, [cls]: w };
+                    fiddleState.objWeights = { ...fiddleState.objWeights, [cls]: w };
                   }}
                 />
               {/each}
@@ -1067,15 +1067,15 @@
 
           <Collapsible.Content class="collapsible-content">
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.zoomEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.zoomEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Zoom</span>
             </label>
-            {#if demoState.zoomEnabled}
+            {#if fiddleState.zoomEnabled}
               <RangeNumber
                 label="Zoom"
-                bind:value={demoState.zoom}
+                bind:value={fiddleState.zoom}
                 min={controlLimits.scale.zoom.min}
                 max={controlLimits.scale.zoom.max}
                 step={controlLimits.scale.zoom.step}
@@ -1083,15 +1083,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.dprEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.dprEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>DPR</span>
             </label>
-            {#if demoState.dprEnabled}
+            {#if fiddleState.dprEnabled}
               <RangeNumber
                 label="DPR"
-                bind:value={demoState.dpr}
+                bind:value={fiddleState.dpr}
                 min={controlLimits.scale.dpr.min}
                 max={controlLimits.scale.dpr.max}
                 step={controlLimits.scale.dpr.step}
@@ -1099,15 +1099,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.minWidthEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.minWidthEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Minimum width</span>
             </label>
-            {#if demoState.minWidthEnabled}
+            {#if fiddleState.minWidthEnabled}
               <RangeNumber
                 label="Min width"
-                bind:value={demoState.minWidth}
+                bind:value={fiddleState.minWidth}
                 min={controlLimits.scale.minWidth.min}
                 max={controlLimits.scale.minWidth.max}
                 step={controlLimits.scale.minWidth.step}
@@ -1116,15 +1116,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.minHeightEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.minHeightEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Minimum height</span>
             </label>
-            {#if demoState.minHeightEnabled}
+            {#if fiddleState.minHeightEnabled}
               <RangeNumber
                 label="Min height"
-                bind:value={demoState.minHeight}
+                bind:value={fiddleState.minHeight}
                 min={controlLimits.scale.minHeight.min}
                 max={controlLimits.scale.minHeight.max}
                 step={controlLimits.scale.minHeight.step}
@@ -1150,7 +1150,7 @@
 
           <Collapsible.Content class="collapsible-content">
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.autoRotateEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.autoRotateEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Auto rotate from EXIF</span>
@@ -1158,7 +1158,7 @@
 
             <label class="field">
               <span>Flip</span>
-              <select bind:value={demoState.flip}>
+              <select bind:value={fiddleState.flip}>
                 <option value="none">none</option>
                 <option value="horizontal">horizontal</option>
                 <option value="vertical">vertical</option>
@@ -1168,7 +1168,7 @@
 
             <label class="field">
               <span>Rotate</span>
-              <select bind:value={demoState.rotate}>
+              <select bind:value={fiddleState.rotate}>
                 <option value={0}>none</option>
                 <option value={90}>90°</option>
                 <option value={180}>180°</option>
@@ -1180,12 +1180,16 @@
       </section>
 
       <section class="tool-section">
-        <ToolToggleHeader title="Trim" summary={trimSummary} bind:checked={demoState.trimEnabled} />
+        <ToolToggleHeader
+          title="Trim"
+          summary={trimSummary}
+          bind:checked={fiddleState.trimEnabled}
+        />
 
-        {#if demoState.trimEnabled}
+        {#if fiddleState.trimEnabled}
           <RangeNumber
             label="Threshold"
-            bind:value={demoState.trimThreshold}
+            bind:value={fiddleState.trimThreshold}
             min={0}
             max={100}
             step={1}
@@ -1193,28 +1197,28 @@
 
           <label class="field">
             <span>Background</span>
-            <select bind:value={demoState.trimBackgroundMode}>
+            <select bind:value={fiddleState.trimBackgroundMode}>
               <option value="auto">auto (smart detect)</option>
               <option value="color">color</option>
             </select>
           </label>
 
-          {#if demoState.trimBackgroundMode === "color"}
+          {#if fiddleState.trimBackgroundMode === "color"}
             <label class="field trim-color-field">
               <span>Color</span>
-              <input class="color-input" type="color" bind:value={demoState.trimColor} />
+              <input class="color-input" type="color" bind:value={fiddleState.trimColor} />
             </label>
           {/if}
 
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={demoState.trimEqualHor}>
+            <Switch.Root class="switch-root" bind:checked={fiddleState.trimEqualHor}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Equal horizontal</span>
           </label>
 
           <label class="switch-field">
-            <Switch.Root class="switch-root" bind:checked={demoState.trimEqualVer}>
+            <Switch.Root class="switch-root" bind:checked={fiddleState.trimEqualVer}>
               <Switch.Thumb class="switch-thumb" />
             </Switch.Root>
             <span>Equal vertical</span>
@@ -1226,13 +1230,13 @@
         <ToolToggleHeader
           title="Aspect canvas"
           summary={aspectCanvasSummary}
-          bind:checked={demoState.aspectCanvasEnabled}
+          bind:checked={fiddleState.aspectCanvasEnabled}
         />
 
-        {#if demoState.aspectCanvasEnabled}
+        {#if fiddleState.aspectCanvasEnabled}
           <label class="field">
             <span>Gravity</span>
-            <select bind:value={demoState.aspectCanvasGravity}>
+            <select bind:value={fiddleState.aspectCanvasGravity}>
               <option value="ce">center</option>
               <option value="no">north</option>
               <option value="so">south</option>
@@ -1251,13 +1255,13 @@
         <ToolToggleHeader
           title="Padding"
           summary={paddingSummary}
-          bind:checked={demoState.paddingEnabled}
+          bind:checked={fiddleState.paddingEnabled}
         />
 
-        {#if demoState.paddingEnabled}
+        {#if fiddleState.paddingEnabled}
           <RangeNumber
             label="Top"
-            bind:value={demoState.paddingTop}
+            bind:value={fiddleState.paddingTop}
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
@@ -1265,7 +1269,7 @@
           />
           <RangeNumber
             label="Right"
-            bind:value={demoState.paddingRight}
+            bind:value={fiddleState.paddingRight}
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
@@ -1273,7 +1277,7 @@
           />
           <RangeNumber
             label="Bottom"
-            bind:value={demoState.paddingBottom}
+            bind:value={fiddleState.paddingBottom}
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
@@ -1281,7 +1285,7 @@
           />
           <RangeNumber
             label="Left"
-            bind:value={demoState.paddingLeft}
+            bind:value={fiddleState.paddingLeft}
             min={controlLimits.padding.min}
             max={controlLimits.padding.max}
             step={controlLimits.padding.step}
@@ -1294,20 +1298,20 @@
         <ToolToggleHeader
           title="Background"
           summary={backgroundSummary}
-          bind:checked={demoState.backgroundEnabled}
+          bind:checked={fiddleState.backgroundEnabled}
         />
 
-        {#if demoState.backgroundEnabled}
+        {#if fiddleState.backgroundEnabled}
           <div class="background-controls">
             <label class="field background-color-field">
               <span>Color</span>
-              <input class="color-input" type="color" bind:value={demoState.backgroundColor} />
+              <input class="color-input" type="color" bind:value={fiddleState.backgroundColor} />
             </label>
 
             <div class="background-opacity-field">
               <RangeNumber
                 label="Opacity"
-                bind:value={demoState.backgroundAlpha}
+                bind:value={fiddleState.backgroundAlpha}
                 min={controlLimits.alpha.min}
                 max={controlLimits.alpha.max}
                 step={controlLimits.alpha.step}
@@ -1333,15 +1337,15 @@
 
           <Collapsible.Content class="collapsible-content">
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.blurEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.blurEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Blur</span>
             </label>
-            {#if demoState.blurEnabled}
+            {#if fiddleState.blurEnabled}
               <RangeNumber
                 label="Blur sigma"
-                bind:value={demoState.blur}
+                bind:value={fiddleState.blur}
                 min={controlLimits.effects.blur.min}
                 max={controlLimits.effects.blur.max}
                 step={controlLimits.effects.blur.step}
@@ -1350,15 +1354,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.sharpenEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.sharpenEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Sharpen</span>
             </label>
-            {#if demoState.sharpenEnabled}
+            {#if fiddleState.sharpenEnabled}
               <RangeNumber
                 label="Sharpen sigma"
-                bind:value={demoState.sharpen}
+                bind:value={fiddleState.sharpen}
                 min={controlLimits.effects.sharpen.min}
                 max={controlLimits.effects.sharpen.max}
                 step={controlLimits.effects.sharpen.step}
@@ -1367,15 +1371,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.pixelateEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.pixelateEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Pixelate</span>
             </label>
-            {#if demoState.pixelateEnabled}
+            {#if fiddleState.pixelateEnabled}
               <RangeNumber
                 label="Block size"
-                bind:value={demoState.pixelate}
+                bind:value={fiddleState.pixelate}
                 min={controlLimits.effects.pixelate.min}
                 max={controlLimits.effects.pixelate.max}
                 step={controlLimits.effects.pixelate.step}
@@ -1384,16 +1388,16 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.monochromeEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.monochromeEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Monochrome</span>
             </label>
-            {#if demoState.monochromeEnabled}
+            {#if fiddleState.monochromeEnabled}
               <div class="monochrome-control-row">
                 <RangeNumber
                   label="Intensity"
-                  bind:value={demoState.monochromeIntensity}
+                  bind:value={fiddleState.monochromeIntensity}
                   min={controlLimits.effects.intensity.min}
                   max={controlLimits.effects.intensity.max}
                   step={controlLimits.effects.intensity.step}
@@ -1401,22 +1405,26 @@
                 />
                 <label class="field monochrome-color-field">
                   <span>Color</span>
-                  <input class="color-input" type="color" bind:value={demoState.monochromeColor} />
+                  <input
+                    class="color-input"
+                    type="color"
+                    bind:value={fiddleState.monochromeColor}
+                  />
                 </label>
               </div>
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.duotoneEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.duotoneEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Duotone</span>
             </label>
-            {#if demoState.duotoneEnabled}
+            {#if fiddleState.duotoneEnabled}
               <div class="duotone-control-row">
                 <RangeNumber
                   label="Intensity"
-                  bind:value={demoState.duotoneIntensity}
+                  bind:value={fiddleState.duotoneIntensity}
                   min={controlLimits.effects.intensity.min}
                   max={controlLimits.effects.intensity.max}
                   step={controlLimits.effects.intensity.step}
@@ -1425,14 +1433,18 @@
                 <div class="duotone-color-controls">
                   <label class="field">
                     <span>Shadow</span>
-                    <input class="color-input" type="color" bind:value={demoState.duotoneShadow} />
+                    <input
+                      class="color-input"
+                      type="color"
+                      bind:value={fiddleState.duotoneShadow}
+                    />
                   </label>
                   <label class="field">
                     <span>Highlight</span>
                     <input
                       class="color-input"
                       type="color"
-                      bind:value={demoState.duotoneHighlight}
+                      bind:value={fiddleState.duotoneHighlight}
                     />
                   </label>
                 </div>
@@ -1440,15 +1452,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.brightnessEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.brightnessEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Brightness</span>
             </label>
-            {#if demoState.brightnessEnabled}
+            {#if fiddleState.brightnessEnabled}
               <RangeNumber
                 label="Brightness"
-                bind:value={demoState.brightness}
+                bind:value={fiddleState.brightness}
                 min={controlLimits.effects.brightness.min}
                 max={controlLimits.effects.brightness.max}
                 step={controlLimits.effects.brightness.step}
@@ -1457,15 +1469,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.contrastEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.contrastEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Contrast</span>
             </label>
-            {#if demoState.contrastEnabled}
+            {#if fiddleState.contrastEnabled}
               <RangeNumber
                 label="Contrast"
-                bind:value={demoState.contrast}
+                bind:value={fiddleState.contrast}
                 min={controlLimits.effects.contrast.min}
                 max={controlLimits.effects.contrast.max}
                 step={controlLimits.effects.contrast.step}
@@ -1474,15 +1486,15 @@
             {/if}
 
             <label class="switch-field">
-              <Switch.Root class="switch-root" bind:checked={demoState.saturationEnabled}>
+              <Switch.Root class="switch-root" bind:checked={fiddleState.saturationEnabled}>
                 <Switch.Thumb class="switch-thumb" />
               </Switch.Root>
               <span>Saturation</span>
             </label>
-            {#if demoState.saturationEnabled}
+            {#if fiddleState.saturationEnabled}
               <RangeNumber
                 label="Saturation"
-                bind:value={demoState.saturation}
+                bind:value={fiddleState.saturation}
                 min={controlLimits.effects.saturation.min}
                 max={controlLimits.effects.saturation.max}
                 step={controlLimits.effects.saturation.step}
@@ -1496,14 +1508,14 @@
       <section class="tool-section">
         <ToolToggleHeader
           title="Format"
-          summary={demoState.formatEnabled ? `f:${demoState.format}` : "Off"}
-          bind:checked={demoState.formatEnabled}
+          summary={fiddleState.formatEnabled ? `f:${fiddleState.format}` : "Off"}
+          bind:checked={fiddleState.formatEnabled}
         />
 
-        {#if demoState.formatEnabled}
+        {#if fiddleState.formatEnabled}
           <label class="field">
             <span>Format</span>
-            <select bind:value={demoState.format}>
+            <select bind:value={fiddleState.format}>
               <option value="webp">webp</option>
               <option value="avif">avif</option>
               <option value="jpeg">jpeg</option>
@@ -1516,14 +1528,14 @@
       <section class="tool-section">
         <ToolToggleHeader
           title="Quality"
-          summary={demoState.qualityEnabled ? `q:${demoState.quality}` : "Off"}
-          bind:checked={demoState.qualityEnabled}
+          summary={fiddleState.qualityEnabled ? `q:${fiddleState.quality}` : "Off"}
+          bind:checked={fiddleState.qualityEnabled}
         />
 
-        {#if demoState.qualityEnabled}
+        {#if fiddleState.qualityEnabled}
           <RangeNumber
             label="Quality"
-            bind:value={demoState.quality}
+            bind:value={fiddleState.quality}
             min={controlLimits.quality.min}
             max={controlLimits.quality.max}
             step={controlLimits.quality.step}
@@ -1542,7 +1554,7 @@
         <label class="switch-field">
           <Switch.Root
             class="switch-root"
-            checked={demoState.stripMetadata}
+            checked={fiddleState.stripMetadata}
             onCheckedChange={updateStripMetadata}
           >
             <Switch.Thumb class="switch-thumb" />
@@ -1553,16 +1565,16 @@
         <label class="switch-field">
           <Switch.Root
             class="switch-root"
-            bind:checked={demoState.keepCopyright}
-            disabled={!demoState.stripMetadata}
+            bind:checked={fiddleState.keepCopyright}
+            disabled={!fiddleState.stripMetadata}
           >
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
-          <span class:muted-label={!demoState.stripMetadata}>Keep copyright (kcr)</span>
+          <span class:muted-label={!fiddleState.stripMetadata}>Keep copyright (kcr)</span>
         </label>
 
         <label class="switch-field">
-          <Switch.Root class="switch-root" bind:checked={demoState.stripColorProfile}>
+          <Switch.Root class="switch-root" bind:checked={fiddleState.stripColorProfile}>
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
           <span>Strip color profile (scp)</span>
@@ -1570,7 +1582,7 @@
 
         <label class="field">
           <span>Color profile (cp)</span>
-          <select bind:value={demoState.colorProfile}>
+          <select bind:value={fiddleState.colorProfile}>
             <option value="none">none</option>
             <option value="srgb">srgb</option>
             <option value="display-p3">display-p3</option>
@@ -1579,7 +1591,7 @@
         </label>
 
         <label class="switch-field">
-          <Switch.Root class="switch-root" bind:checked={demoState.preserveHdr}>
+          <Switch.Root class="switch-root" bind:checked={fiddleState.preserveHdr}>
             <Switch.Thumb class="switch-thumb" />
           </Switch.Root>
           <span>Preserve HDR (ph)</span>

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { sampleImages } from "virtual:sample-images";
 
 describe("sample image virtual module", () => {
-  it("lists demo images with usable compile-time metadata", () => {
+  it("lists fiddle images with usable compile-time metadata", () => {
     expect(sampleImages.length).toBeGreaterThan(0);
     expect(sampleImages.map((image) => image.path)).toEqual(
       [...sampleImages].map((image) => image.path).sort((left, right) => left.localeCompare(right)),
