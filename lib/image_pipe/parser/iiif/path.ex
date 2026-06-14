@@ -16,10 +16,20 @@ defmodule ImagePipe.Parser.IIIF.Path do
     do: {:info, decode(id)}
 
   def classify(%Plug.Conn{path_info: [id, region, size, rotation, quality_format]}) do
+    # Percent-decode every token (not just the id): path_info segments may arrive
+    # encoded (e.g. a browser sends `^` as `%5E`, `:` as `%3A`), and RFC 3986 requires
+    # treating the encoded and literal forms identically. Split quality/format on the
+    # structural `.` first, then decode each part, so an encoded `.` can't mis-split.
     case split_quality_format(quality_format) do
       {:ok, quality, format} ->
         {:image, decode(id),
-         %{region: region, size: size, rotation: rotation, quality: quality, format: format}}
+         %{
+           region: decode(region),
+           size: decode(size),
+           rotation: decode(rotation),
+           quality: decode(quality),
+           format: decode(format)
+         }}
 
       :error ->
         :not_found

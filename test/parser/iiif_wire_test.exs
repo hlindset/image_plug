@@ -414,6 +414,15 @@ defmodule ImagePipe.Parser.IIIFWireTest do
     assert conn.status == 400
   end
 
+  test "contract 9b2: percent-encoded ^ upscale (%5E400,) → 200, decoded width == 400" do
+    # `^` arrives as %5E; classify must percent-decode the size token so the upscale
+    # flag is honored. Without decoding, `%5E400,` is an invalid size → 400. Source is
+    # 200×300, so `^400,` upscales width 200 → 400.
+    conn = call_iiif("/img/full/%5E400,/0/default.jpg", iiif_opts(OriginImage))
+    assert conn.status == 200
+    assert elem(dimensions(conn), 0) == 400
+  end
+
   test "contract 9c: bad rotation (45) → 400" do
     conn = call_iiif("/img/full/max/45/default.jpg", iiif_opts(OriginImage))
     assert conn.status == 400
