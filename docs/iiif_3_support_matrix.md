@@ -102,6 +102,7 @@ Emitted from the **display** dimensions (`SourceInfo.display_dimensions/1`, so E
 | --- | --- | --- |
 | `baseUriRedirect` | ✅ | `{identifier}` (bare) → **303** to `{identifier}/info.json`. Short-circuits before any source fetch (`{:redirect, 303, location}` parse outcome). |
 | `cors` | ✅ | `Access-Control-Allow-Origin: *` on every IIIF response (image, info.json, redirect, errors) + `OPTIONS` preflight → 200, applied by the mount-level `ImagePipe.Parser.IIIF.CORS` plug (the parser's `parse/2` returns a tuple, not a conn, so CORS *must* be mount-level). |
+| Percent-encoded path segments | ✅ | Every token (`{identifier}`/`{region}`/`{size}`/`{rotation}`/`{quality}`/`{format}`) is percent-decoded per RFC 3986, so e.g. `^` sent as `%5E` or `:` as `%3A` is treated identically to its literal form (`ImagePipe.Parser.IIIF.Path.classify/1`). |
 | `jsonldMediaType` | ✅ | See info.json negotiation. |
 | Canonical `Link` header (`rel="canonical"`) | ➖ | Optional (`may` per spec); not implemented. Computing the canonical-spelling URL and threading a per-request response header is deferred; the validator does not require it. |
 
