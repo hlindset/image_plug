@@ -2,11 +2,19 @@
   import { onMount } from "svelte";
   import { Collapsible, RadioGroup } from "bits-ui";
   import ImgproxyControls from "./ImgproxyControls.svelte";
-  import { fiddlePathForState, parseFiddlePath, resetFiddleSettings } from "./fiddle-url-state";
+  import IiifControls from "./IiifControls.svelte";
+  import {
+    appPathForState,
+    defaultAppState,
+    parseAppPath,
+    providers,
+    resetFiddleSettings,
+    type AppState,
+  } from "./fiddle-url-state";
+  import { defaultIiifState, iiifFetchPath } from "./iiif-path";
   import {
     buildProcessingPath,
     debounce,
-    defaultFiddleState,
     processedSizeLabel,
     processingPathFromSignedPath,
     resetCropPixelsToSource,
@@ -31,9 +39,13 @@
   let mobileTools = $state(false);
   let requestOpen = $state(true);
   let themeMode: ThemeMode = $state(readStoredThemeMode());
-  const initialState = initialFiddleState();
-  let fiddleState: FiddleState = $state(initialState);
-  let path = $state(buildProcessingPath(initialState));
+  const initial = initialAppState();
+  let appState: AppState = $state(initial);
+  let path = $state(
+    initial.provider === "iiif"
+      ? iiifFetchPath(initial.iiif)
+      : buildProcessingPath(initial.imgproxy),
+  );
   let previewImageUrl: string | null = $state(null);
   let previewLoading = $state(true);
   let previewError: string | null = $state(null);
@@ -90,13 +102,18 @@
   });
 
   $effect(() => {
-    updateProcessingPath(fiddleState);
+    if (appState.provider === "imgproxy") {
+      updateProcessingPath(appState.imgproxy);
+    } else {
+      pathRequestId += 1; // invalidate any in-flight imgproxy signing so it can't clobber `path`
+      path = iiifFetchPath(appState.iiif);
+    }
   });
   $effect(() => {
     updatePreviewPath(path);
   });
   $effect(() => {
-    updateFiddleLocation(fiddlePathForState(fiddleState));
+    updateFiddleLocation(appPathForState(appState));
   });
   $effect(() => {
     applyThemeMode(themeMode);
@@ -105,23 +122,40 @@
     persistThemeMode(themeMode);
   });
 
-  const previewParameters = $derived(path.replace(/^\/[^/]+\/[^/]+\//, ""));
-  const outputLabel = $derived(resolvedOutputLabel(fiddleState, processedMetadata));
+  const previewParameters = $derived(
+    appState.provider === "imgproxy"
+      ? path.replace(/^\/[^/]+\/[^/]+\//, "")
+      : path.replace(/^\/iiif-image\//, ""),
+  );
+  const outputLabel = $derived(
+    appState.provider === "imgproxy"
+      ? resolvedOutputLabel(appState.imgproxy, processedMetadata)
+      : appState.iiif.format,
+  );
   const sizeLabel = $derived(previewError ?? processedSizeLabel(processedMetadata));
   const requestSummary = $derived(
-    `${fiddleState.source.replace(/^images\//, "")} / ${requestSignatureLabel(fiddleState, signingError)}`,
+    appState.provider === "imgproxy"
+      ? `${appState.imgproxy.source.replace(/^images\//, "")} / ${requestSignatureLabel(appState.imgproxy, signingError)}`
+      : appState.iiif.source.replace(/^images\//, ""),
+  );
+  const currentSource = $derived(
+    appState.provider === "iiif" ? appState.iiif.source : appState.imgproxy.source,
   );
 
-  function initialFiddleState(): FiddleState {
+  function initialAppState(): AppState {
     if (typeof window === "undefined") {
-      return { ...defaultFiddleState };
+      return defaultAppState();
     }
 
-    return parseFiddlePath(window.location.pathname);
+    return parseAppPath(window.location.pathname);
   }
 
   function restoreStateFromLocation(): void {
-    fiddleState = parseFiddlePath(window.location.pathname);
+    const parsed = parseAppPath(window.location.pathname);
+    appState =
+      parsed.provider === "iiif"
+        ? { provider: "iiif", imgproxy: appState.imgproxy, iiif: parsed.iiif }
+        : { provider: "imgproxy", imgproxy: parsed.imgproxy, iiif: appState.iiif };
   }
 
   function requestSignatureLabel(
@@ -301,10 +335,12 @@
       return;
     }
 
-    fiddleState = resetCropPixelsToSource({
-      ...fiddleState,
-      source: select.value as SourceImage,
-    });
+    const source = select.value as SourceImage;
+    // Source is shared, so update BOTH slices (not just the active one) — switching
+    // provider later then shows the selected image — and reset each provider's
+    // source-dimension-bound pixels (imgproxy crop, IIIF px region).
+    appState.imgproxy = resetCropPixelsToSource({ ...appState.imgproxy, source });
+    appState.iiif = { ...appState.iiif, source, region: { kind: "full" } };
   }
 
   function setThemeMode(nextMode: string): void {
@@ -312,7 +348,11 @@
   }
 
   function resetSettings(): void {
-    fiddleState = resetFiddleSettings(fiddleState);
+    if (appState.provider === "imgproxy") {
+      appState.imgproxy = resetFiddleSettings(appState.imgproxy);
+    } else {
+      appState.iiif = { ...defaultIiifState, source: appState.iiif.source };
+    }
   }
 
   function closeTools(): void {
@@ -409,6 +449,15 @@
 
     <div class="tool-stack">
       <section class="tool-section">
+        <label class="field">
+          <span>Provider</span>
+          <select bind:value={appState.provider}>
+            {#each providers as provider}
+              <option value={provider.id}>{provider.label}</option>
+            {/each}
+          </select>
+        </label>
+
         <Collapsible.Root class="collapsible-root" bind:open={requestOpen}>
           <Collapsible.Trigger
             class="accordion-heading"
@@ -424,53 +473,59 @@
           <Collapsible.Content class="collapsible-content">
             <label class="field">
               <span>Source image</span>
-              <select value={fiddleState.source} onchange={updateSource}>
+              <select value={currentSource} onchange={updateSource}>
                 {#each sampleImages as image}
                   <option value={image.path}>{image.label}</option>
                 {/each}
               </select>
             </label>
 
-            <label class="field">
-              <span>Signature</span>
-              <select bind:value={fiddleState.signatureMode}>
-                <option value="unsigned">unsigned</option>
-                <option value="signed">signed</option>
-              </select>
-            </label>
+            {#if appState.provider === "imgproxy"}
+              <label class="field">
+                <span>Signature</span>
+                <select bind:value={appState.imgproxy.signatureMode}>
+                  <option value="unsigned">unsigned</option>
+                  <option value="signed">signed</option>
+                </select>
+              </label>
 
-            {#if fiddleState.signatureMode === "signed"}
-              <div class="signature-secret-grid">
-                <label class="field">
-                  <span>Key</span>
-                  <input
-                    class="text-input text-input-mono"
-                    bind:value={fiddleState.signatureKey}
-                    spellcheck="false"
-                    autocomplete="off"
-                  />
-                </label>
+              {#if appState.imgproxy.signatureMode === "signed"}
+                <div class="signature-secret-grid">
+                  <label class="field">
+                    <span>Key</span>
+                    <input
+                      class="text-input text-input-mono"
+                      bind:value={appState.imgproxy.signatureKey}
+                      spellcheck="false"
+                      autocomplete="off"
+                    />
+                  </label>
 
-                <label class="field">
-                  <span>Salt</span>
-                  <input
-                    class="text-input text-input-mono"
-                    bind:value={fiddleState.signatureSalt}
-                    spellcheck="false"
-                    autocomplete="off"
-                  />
-                </label>
-              </div>
+                  <label class="field">
+                    <span>Salt</span>
+                    <input
+                      class="text-input text-input-mono"
+                      bind:value={appState.imgproxy.signatureSalt}
+                      spellcheck="false"
+                      autocomplete="off"
+                    />
+                  </label>
+                </div>
 
-              {#if signingError !== null}
-                <p class="field-error">{signingError}</p>
+                {#if signingError !== null}
+                  <p class="field-error">{signingError}</p>
+                {/if}
               {/if}
             {/if}
           </Collapsible.Content>
         </Collapsible.Root>
       </section>
 
-      <ImgproxyControls bind:fiddleState source={fiddleState.source} />
+      {#if appState.provider === "imgproxy"}
+        <ImgproxyControls bind:fiddleState={appState.imgproxy} source={appState.imgproxy.source} />
+      {:else}
+        <IiifControls bind:iiifState={appState.iiif} source={appState.iiif.source} />
+      {/if}
     </div>
 
     <div class="drawer-actions">
