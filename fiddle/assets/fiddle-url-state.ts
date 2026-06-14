@@ -17,6 +17,12 @@ import {
   type ObjSubMode,
   type TrimBackgroundMode,
 } from "./processing-path";
+import {
+  defaultIiifState,
+  iiifBrowserPath,
+  parseIiifTail,
+  type IiifState,
+} from "./iiif-path";
 
 // Classes offered in the fiddle's object-gravity UI. A subset of COCO-80 chosen
 // to match the default source images (dog, cat) and the most common fiddles
@@ -1109,4 +1115,57 @@ function parseNumber(value: string | undefined): number | null {
   const number = Number(value);
 
   return Number.isFinite(number) ? number : null;
+}
+
+export type Provider = "imgproxy" | "iiif";
+
+export const providers: readonly { id: Provider; label: string }[] = [
+  { id: "imgproxy", label: "imgproxy" },
+  { id: "iiif", label: "IIIF (Image API 3.0)" },
+];
+
+export type AppState = {
+  provider: Provider;
+  imgproxy: FiddleState;
+  iiif: IiifState;
+};
+
+export function defaultAppState(): AppState {
+  return { provider: "imgproxy", imgproxy: { ...defaultFiddleState }, iiif: { ...defaultIiifState } };
+}
+
+// Builds the browser URL for the ACTIVE provider only. The /imgproxy prefix lives
+// here, never in the imgproxy signed-path builder (fiddlePathForState).
+export function appPathForState(state: AppState): string {
+  if (state.provider === "iiif") {
+    return iiifBrowserPath(state.iiif);
+  }
+
+  return `/imgproxy${fiddlePathForState(state.imgproxy)}`;
+}
+
+// Parses a browser URL into an AppState. The inactive slice is defaulted here;
+// App.svelte merges to preserve the in-memory inactive slice across popstate.
+// Dispatch is on the first path segment.
+export function parseAppPath(pathname: string): AppState {
+  const [, first = "", ...rest] = pathname.split("/");
+
+  if (first === "iiif") {
+    const iiif = parseIiifTail(rest.join("/"));
+    return {
+      provider: "iiif",
+      imgproxy: { ...defaultFiddleState },
+      iiif: iiif ?? { ...defaultIiifState },
+    };
+  }
+
+  if (first === "imgproxy") {
+    return {
+      provider: "imgproxy",
+      imgproxy: parseFiddlePath("/" + rest.join("/")),
+      iiif: { ...defaultIiifState },
+    };
+  }
+
+  return defaultAppState();
 }
