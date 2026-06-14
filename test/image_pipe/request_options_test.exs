@@ -35,6 +35,34 @@ defmodule ImagePipe.RequestOptionsTest do
     end
   end
 
+  test "validate! rejects a near-miss typo of a validated option" do
+    assert_raise ArgumentError, ~r/did you mean :max_input_pixels/, fn ->
+      Options.validate!(Keyword.put(@base_opts, :max_input_pixles, 100))
+    end
+  end
+
+  test "validate! rejects a near-miss typo of a source-runtime option" do
+    assert_raise ArgumentError, ~r/did you mean :receive_timeout/, fn ->
+      Options.validate!(Keyword.put(@base_opts, :recieve_timeout, 1_000))
+    end
+  end
+
+  test "validate! rejects a near-miss typo of a modern-format option" do
+    assert_raise ArgumentError, ~r/did you mean :auto_webp/, fn ->
+      Options.validate!(Keyword.put(@base_opts, :auto_webpp, false))
+    end
+  end
+
+  test "validate! ignores an unknown option that is not close to any known option" do
+    # Parser config namespaces and DI/runtime seams are far from every known
+    # key, so they pass through untouched (preserving today's behavior).
+    opts =
+      Options.validate!(Keyword.merge(@base_opts, imgproxy: [], image_open_module: __MODULE__))
+
+    assert Keyword.fetch!(opts, :imgproxy) == []
+    assert Keyword.fetch!(opts, :image_open_module) == __MODULE__
+  end
+
   test "request safety limits have defaults" do
     opts = Options.validate!(@base_opts)
 

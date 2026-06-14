@@ -99,6 +99,21 @@ defmodule ImagePipe.Source.HTTPTest do
     assert resolved.identity[:host] == "assets.example.com"
   end
 
+  test "resolve matches a mixed-case allowed_hosts config entry against a lowercased host" do
+    assert {:ok, opts} = HTTP.validate_options(allowed_hosts: ["Assets.Example.Com"])
+
+    source = %URL{
+      scheme: :https,
+      host: "assets.example.com",
+      port: nil,
+      path: ["cat.jpg"],
+      query: nil
+    }
+
+    assert {:ok, %Resolved{} = resolved} = HTTP.resolve(source, opts, [])
+    assert resolved.identity[:host] == "assets.example.com"
+  end
+
   test "resolve honors HTTP internal cache disabled option" do
     assert {:ok, opts} =
              HTTP.validate_options(
