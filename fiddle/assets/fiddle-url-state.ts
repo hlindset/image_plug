@@ -17,12 +17,7 @@ import {
   type ObjSubMode,
   type TrimBackgroundMode,
 } from "./processing-path";
-import {
-  defaultIiifState,
-  iiifBrowserPath,
-  parseIiifTail,
-  type IiifState,
-} from "./iiif-path";
+import { defaultIiifState, iiifBrowserPath, parseIiifTail, type IiifState } from "./iiif-path";
 
 // Classes offered in the fiddle's object-gravity UI. A subset of COCO-80 chosen
 // to match the default source images (dog, cat) and the most common fiddles
@@ -1131,7 +1126,11 @@ export type AppState = {
 };
 
 export function defaultAppState(): AppState {
-  return { provider: "imgproxy", imgproxy: { ...defaultFiddleState }, iiif: { ...defaultIiifState } };
+  return {
+    provider: "imgproxy",
+    imgproxy: { ...defaultFiddleState },
+    iiif: { ...defaultIiifState },
+  };
 }
 
 // Builds the browser URL for the ACTIVE provider only. The /imgproxy prefix lives

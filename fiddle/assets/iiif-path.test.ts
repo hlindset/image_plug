@@ -38,32 +38,42 @@ describe("iiif segment building", () => {
   });
 
   it("encodes each region form", () => {
-    expect(iiifPathTail({ ...defaultIiifState, region: { kind: "square" } }))
-      .toBe("dog/square/max/0/default.jpg");
-    expect(iiifPathTail({ ...defaultIiifState, region: { kind: "px", x: 0, y: 0, w: 100, h: 100 } }))
-      .toBe("dog/0,0,100,100/max/0/default.jpg");
-    expect(iiifPathTail({ ...defaultIiifState, region: { kind: "pct", x: 10.5, y: 0, w: 50, h: 50 } }))
-      .toBe("dog/pct:10.5,0,50,50/max/0/default.jpg");
+    expect(iiifPathTail({ ...defaultIiifState, region: { kind: "square" } })).toBe(
+      "dog/square/max/0/default.jpg",
+    );
+    expect(
+      iiifPathTail({ ...defaultIiifState, region: { kind: "px", x: 0, y: 0, w: 100, h: 100 } }),
+    ).toBe("dog/0,0,100,100/max/0/default.jpg");
+    expect(
+      iiifPathTail({ ...defaultIiifState, region: { kind: "pct", x: 10.5, y: 0, w: 50, h: 50 } }),
+    ).toBe("dog/pct:10.5,0,50,50/max/0/default.jpg");
   });
 
   it("encodes each size form and the upscale flag", () => {
-    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "w", w: 400 } }))
-      .toBe("dog/full/400,/0/default.jpg");
-    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "h", h: 300 } }))
-      .toBe("dog/full/,300/0/default.jpg");
-    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "wh", w: 400, h: 300 } }))
-      .toBe("dog/full/400,300/0/default.jpg");
-    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "confined", w: 400, h: 300 } }))
-      .toBe("dog/full/!400,300/0/default.jpg");
-    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "pct", n: 50 } }))
-      .toBe("dog/full/pct:50/0/default.jpg");
-    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "pct", n: 200 }, upscale: true }))
-      .toBe("dog/full/^pct:200/0/default.jpg");
+    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "w", w: 400 } })).toBe(
+      "dog/full/400,/0/default.jpg",
+    );
+    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "h", h: 300 } })).toBe(
+      "dog/full/,300/0/default.jpg",
+    );
+    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "wh", w: 400, h: 300 } })).toBe(
+      "dog/full/400,300/0/default.jpg",
+    );
+    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "confined", w: 400, h: 300 } })).toBe(
+      "dog/full/!400,300/0/default.jpg",
+    );
+    expect(iiifPathTail({ ...defaultIiifState, size: { kind: "pct", n: 50 } })).toBe(
+      "dog/full/pct:50/0/default.jpg",
+    );
+    expect(
+      iiifPathTail({ ...defaultIiifState, size: { kind: "pct", n: 200 }, upscale: true }),
+    ).toBe("dog/full/^pct:200/0/default.jpg");
   });
 
   it("encodes rotation, quality, format", () => {
-    expect(iiifPathTail({ ...defaultIiifState, rotation: 90, quality: "gray", format: "png" }))
-      .toBe("dog/full/max/90/gray.png");
+    expect(
+      iiifPathTail({ ...defaultIiifState, rotation: 90, quality: "gray", format: "png" }),
+    ).toBe("dog/full/max/90/gray.png");
   });
 
   it("builds browser and fetch paths with distinct prefixes", () => {
