@@ -449,14 +449,11 @@
 
     <div class="tool-stack">
       <section class="tool-section">
-        <label class="field">
-          <span>Provider</span>
-          <select bind:value={appState.provider}>
-            {#each providers as provider}
-              <option value={provider.id}>{provider.label}</option>
-            {/each}
-          </select>
-        </label>
+        <select aria-label="Provider" bind:value={appState.provider}>
+          {#each providers as provider}
+            <option value={provider.id}>{provider.label}</option>
+          {/each}
+        </select>
 
         <Collapsible.Root class="collapsible-root" bind:open={requestOpen}>
           <Collapsible.Trigger
@@ -663,90 +660,6 @@
     border: 3px solid var(--surface-sidebar);
     border-radius: 999px;
     background: var(--border-strong);
-  }
-
-  .tool-section {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 14px;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  :global(.accordion-heading) {
-    min-height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    width: 100%;
-
-    > div {
-      min-width: 0;
-    }
-
-    :where(h2, p) {
-      margin: 0;
-    }
-
-    h2 {
-      font-size: 16px;
-      line-height: 20px;
-      font-weight: 600;
-      color: var(--text-heading);
-    }
-
-    p {
-      margin-block-start: 2px;
-      color: var(--text-muted);
-      font-family: var(--font-mono);
-      font-size: 12px;
-      line-height: 16px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-
-  :global(.accordion-heading) {
-    border: 0;
-    background: transparent;
-    color: inherit;
-    cursor: pointer;
-    font: inherit;
-    padding: 0;
-    text-align: start;
-  }
-
-  :global(.collapsible-root) {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  :global(.collapsible-content) {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  :global(.collapsible-content[hidden]) {
-    display: none;
-  }
-
-  .accordion-chevron {
-    width: 8px;
-    height: 8px;
-    margin-inline-end: 6px;
-    flex-shrink: 0;
-    border-inline-end: 2px solid currentColor;
-    border-block-end: 2px solid currentColor;
-    transform: rotate(45deg) translate(-1px, -1px);
-    transition: transform 150ms ease;
-  }
-
-  :global(.accordion-heading[data-state="closed"]) .accordion-chevron {
-    transform: rotate(-45deg);
   }
 
   .preview-workspace {
@@ -1130,10 +1043,6 @@
       height: auto;
       flex: 1;
       padding: 0 18px;
-    }
-
-    .tool-section {
-      padding: 14px;
     }
 
     .drawer-actions {

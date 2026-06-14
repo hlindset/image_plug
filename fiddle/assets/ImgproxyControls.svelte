@@ -1112,14 +1112,6 @@
 </section>
 
 <style>
-  .tool-section {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-    padding: 14px;
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
   .focal-picker-field {
     color: var(--text-label);
     font-size: 13px;

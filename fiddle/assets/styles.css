@@ -190,6 +190,85 @@ select {
   background-repeat: no-repeat;
 }
 
+/* Shared sidebar section/accordion structure (global for the same reason as the
+   form controls: every provider panel renders its own sections, and Svelte scopes
+   component styles). */
+.tool-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.accordion-heading {
+  min-height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: start;
+}
+
+.accordion-heading > div {
+  min-width: 0;
+}
+
+.accordion-heading :where(h2, p) {
+  margin: 0;
+}
+
+.accordion-heading h2 {
+  font-size: 16px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--text-heading);
+}
+
+.accordion-heading p {
+  margin-block-start: 2px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collapsible-root,
+.collapsible-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.collapsible-content[hidden] {
+  display: none;
+}
+
+.accordion-chevron {
+  width: 8px;
+  height: 8px;
+  margin-inline-end: 6px;
+  flex-shrink: 0;
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: rotate(45deg) translate(-1px, -1px);
+  transition: transform 150ms ease;
+}
+
+.accordion-heading[data-state="closed"] .accordion-chevron {
+  transform: rotate(-45deg);
+}
+
 button,
 a {
   -webkit-tap-highlight-color: transparent;
