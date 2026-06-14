@@ -87,7 +87,6 @@ defmodule ImagePipe.CDNHTTPCacheWireTest do
         parser: ImagePipe.Parser.Imgproxy,
         sources: [path: {StableSource, test_pid: self()}],
         cache: {CacheProbe, test_pid: self()},
-        test_pid: self(),
         http_cache: [mode: :enabled]
       )
 
