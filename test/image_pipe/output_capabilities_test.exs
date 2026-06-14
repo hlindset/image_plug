@@ -20,19 +20,13 @@ defmodule ImagePipe.Output.CapabilitiesTest do
   end
 
   describe "supports?/2 with an injected capability map" do
-    test "the override decides avif/webp" do
-      opts = [output_capabilities: %{avif: false, webp: true}]
-      refute Capabilities.supports?(:avif, opts)
-      assert Capabilities.supports?(:webp, opts)
-    end
-
-    test "falls back to the probe when the format is absent from the map" do
-      opts = [output_capabilities: %{webp: false}]
-      assert is_boolean(Capabilities.supports?(:avif, opts))
-    end
-
-    test "without the key, behaves like supports?/1" do
-      assert Capabilities.supports?(:jpeg, [])
+    # The override branch (injected verdict decides) is exercised end-to-end at
+    # the consumer layer (output negotiation, output policy, wire conformance).
+    # Only the fall-through branch — a format absent from a non-empty map still
+    # gets its real capability — is pinned directly here.
+    test "a format absent from the injected map falls through to the real capability" do
+      opts = [output_capabilities: %{avif: false}]
+      assert Capabilities.supports?(:jpeg, opts)
     end
   end
 
