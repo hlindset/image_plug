@@ -447,14 +447,16 @@
       </button>
     </div>
 
+    <div class="sidebar-header">
+      <select aria-label="Provider" bind:value={appState.provider}>
+        {#each providers as provider}
+          <option value={provider.id}>{provider.label}</option>
+        {/each}
+      </select>
+    </div>
+
     <div class="tool-stack">
       <section class="tool-section">
-        <select aria-label="Provider" bind:value={appState.provider}>
-          {#each providers as provider}
-            <option value={provider.id}>{provider.label}</option>
-          {/each}
-        </select>
-
         <Collapsible.Root class="collapsible-root" bind:open={requestOpen}>
           <Collapsible.Trigger
             class="accordion-heading"
@@ -643,9 +645,22 @@
     display: none;
   }
 
+  /* Fixed provider bar at the top of the sidebar; height matches the preview
+     command bar so the two form one continuous header row. Lives outside
+     .tool-stack so it doesn't scroll with the controls. */
+  .sidebar-header {
+    height: 64px;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding-inline: 18px;
+    border-block-end: 1px solid var(--border-subtle);
+    background: var(--surface-bar);
+  }
+
   .tool-stack {
     min-height: 0;
-    height: 100%;
+    flex: 1;
     padding: 18px;
     overflow-y: auto;
     scrollbar-width: thin;
