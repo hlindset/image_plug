@@ -2,7 +2,14 @@
   import { Switch } from "bits-ui";
   import RangeNumber from "./RangeNumber.svelte";
   import { cropPixelLimit, type SourceImage } from "./processing-path";
-  import { iiifControlLimits, type IiifState, type IiifRegion, type IiifSize } from "./iiif-path";
+  import {
+    iiifControlLimits,
+    iiifRegionSegment,
+    iiifSizeSegment,
+    type IiifState,
+    type IiifRegion,
+    type IiifSize,
+  } from "./iiif-path";
 
   type Props = {
     iiifState: IiifState;
@@ -13,6 +20,12 @@
 
   const widthLimit = $derived(cropPixelLimit(source, "width"));
   const heightLimit = $derived(cropPixelLimit(source, "height"));
+
+  // Section summaries mirror the URL tokens they produce.
+  const regionSummary = $derived(iiifRegionSegment(iiifState.region));
+  const sizeSummary = $derived(iiifSizeSegment(iiifState.size, iiifState.upscale));
+  const rotationSummary = $derived(`${iiifState.rotation}°`);
+  const outputSummary = $derived(`${iiifState.quality} · ${iiifState.format}`);
 
   function setRegionKind(kind: IiifRegion["kind"]): void {
     switch (kind) {
@@ -35,8 +48,8 @@
     switch (kind) {
       case "max":
         iiifState.size = { kind: "max" };
-        // `^max` is inert here (no maxWidth/maxHeight/maxArea support), so don't
-        // emit it — `^` only meaningfully applies to an explicit target size.
+        // `^max` is inert until maxWidth/maxHeight/maxArea support lands (#296), so
+        // don't emit it — `^` only meaningfully applies to an explicit target size.
         iiifState.upscale = false;
         break;
       case "w":
@@ -59,10 +72,15 @@
 </script>
 
 <section class="tool-section">
-  <div class="accordion-heading"><div><h2>IIIF parameters</h2></div></div>
+  <div class="accordion-heading">
+    <div>
+      <h2>Region</h2>
+      <p>{regionSummary}</p>
+    </div>
+  </div>
 
   <label class="field">
-    <span>Region</span>
+    <span>Form</span>
     <select
       value={iiifState.region.kind}
       onchange={(e) => setRegionKind(e.currentTarget.value as IiifRegion["kind"])}
@@ -113,9 +131,18 @@
       inputStep="any"
     />
   {/if}
+</section>
+
+<section class="tool-section">
+  <div class="accordion-heading">
+    <div>
+      <h2>Size</h2>
+      <p>{sizeSummary}</p>
+    </div>
+  </div>
 
   <label class="field">
-    <span>Size</span>
+    <span>Form</span>
     <select
       value={iiifState.size.kind}
       onchange={(e) => setSizeKind(e.currentTarget.value as IiifSize["kind"])}
@@ -183,9 +210,18 @@
       <span>Allow upscaling (^)</span>
     </label>
   {/if}
+</section>
+
+<section class="tool-section">
+  <div class="accordion-heading">
+    <div>
+      <h2>Rotation</h2>
+      <p>{rotationSummary}</p>
+    </div>
+  </div>
 
   <label class="field">
-    <span>Rotation</span>
+    <span>Degrees</span>
     <select bind:value={iiifState.rotation}>
       <option value={0}>0°</option>
       <option value={90}>90°</option>
@@ -193,6 +229,15 @@
       <option value={270}>270°</option>
     </select>
   </label>
+</section>
+
+<section class="tool-section">
+  <div class="accordion-heading">
+    <div>
+      <h2>Output</h2>
+      <p>{outputSummary}</p>
+    </div>
+  </div>
 
   <label class="field">
     <span>Quality</span>

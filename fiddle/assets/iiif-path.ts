@@ -66,7 +66,7 @@ export const iiifControlLimits = {
   pct: { min: 1, max: 1000, step: 1 },
 } satisfies { size: NumericLimit; pct: NumericLimit };
 
-function regionSegment(region: IiifRegion): string {
+export function iiifRegionSegment(region: IiifRegion): string {
   switch (region.kind) {
     case "full":
       return "full";
@@ -79,7 +79,7 @@ function regionSegment(region: IiifRegion): string {
   }
 }
 
-function sizeSegment(size: IiifSize, upscale: boolean): string {
+export function iiifSizeSegment(size: IiifSize, upscale: boolean): string {
   const prefix = upscale ? "^" : "";
   switch (size.kind) {
     case "max":
@@ -99,8 +99,8 @@ function sizeSegment(size: IiifSize, upscale: boolean): string {
 
 export function iiifPathTail(state: IiifState): string {
   const id = iiifIdForSource(state.source);
-  const region = regionSegment(state.region);
-  const size = sizeSegment(state.size, state.upscale);
+  const region = iiifRegionSegment(state.region);
+  const size = iiifSizeSegment(state.size, state.upscale);
   return `${id}/${region}/${size}/${state.rotation}/${state.quality}.${state.format}`;
 }
 
