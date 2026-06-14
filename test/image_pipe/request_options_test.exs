@@ -117,6 +117,29 @@ defmodule ImagePipe.RequestOptionsTest do
     end
   end
 
+  test "auto format options default to true" do
+    opts = Options.validate!(@base_opts)
+
+    assert Keyword.fetch!(opts, :auto_avif) == true
+    assert Keyword.fetch!(opts, :auto_webp) == true
+  end
+
+  test "auto format options accept explicit booleans" do
+    opts =
+      Options.validate!(Keyword.merge(@base_opts, auto_avif: false, auto_webp: false))
+
+    assert Keyword.fetch!(opts, :auto_avif) == false
+    assert Keyword.fetch!(opts, :auto_webp) == false
+  end
+
+  test "auto format options reject non-boolean values" do
+    for key <- [:auto_avif, :auto_webp] do
+      assert_raise ArgumentError, ~r/invalid ImagePipe options/, fn ->
+        Options.validate!(Keyword.put(@base_opts, key, "yes"))
+      end
+    end
+  end
+
   test "request options accept sources without root_url" do
     assert opts =
              Options.validate!(

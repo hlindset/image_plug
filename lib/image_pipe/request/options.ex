@@ -22,7 +22,9 @@ defmodule ImagePipe.Request.Options do
     :max_input_pixels,
     :max_result_width,
     :max_result_height,
-    :max_result_pixels
+    :max_result_pixels,
+    :auto_avif,
+    :auto_webp
   ]
   @stale_origin_option_keys [
     :root_url,
@@ -79,6 +81,14 @@ defmodule ImagePipe.Request.Options do
                     detector_required: [
                       type: :boolean,
                       default: false
+                    ],
+                    auto_avif: [
+                      type: :boolean,
+                      default: true
+                    ],
+                    auto_webp: [
+                      type: :boolean,
+                      default: true
                     ]
                   )
 
