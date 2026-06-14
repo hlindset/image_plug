@@ -1,0 +1,1407 @@
+<script lang="ts">
+  import { Collapsible, Select, Switch, Tabs } from "bits-ui";
+  import CropDimensionControl from "./CropDimensionControl.svelte";
+  import RangeNumber from "./RangeNumber.svelte";
+  import ResizeDimensionControl from "./ResizeDimensionControl.svelte";
+  import ToolToggleHeader from "./ToolToggleHeader.svelte";
+  import { fiddleObjClasses, expandedToolboxesForState } from "./fiddle-url-state";
+  import {
+    controlLimits,
+    cropOptionSegment,
+    cropPixelLimit,
+    focalPointFromBounds,
+    gravitySegment,
+    resizeOptionSegment,
+    resetCropPixelsToSource,
+    trimOptionSegment,
+    type FiddleState,
+    type SourceImage,
+  } from "./processing-path";
+
+  type Props = {
+    fiddleState: FiddleState;
+    source: SourceImage;
+  };
+
+  let { fiddleState = $bindable(), source }: Props = $props();
+
+  let orientationOpen = $state(true);
+  let scaleOptionsOpen = $state(true);
+  let effectsOpen = $state(true);
+
+  let focalPickerSurface: HTMLSpanElement | null = $state(null);
+
+  const fiddleObjClassesForPicker = fiddleObjClasses as readonly string[];
+
+  const cropWidthLimit = $derived(cropPixelLimit(source, "width"));
+  const cropHeightLimit = $derived(cropPixelLimit(source, "height"));
+
+  $effect(() => {
+    const open = expandedToolboxesForState(fiddleState);
+    if (open.orientationOpen) orientationOpen = true;
+    if (open.scaleOptionsOpen) scaleOptionsOpen = true;
+    if (open.effectsOpen) effectsOpen = true;
+  });
+
+  const orientationSummary = $derived(
+    [
+      fiddleState.autoRotateEnabled ? "ar:1" : null,
+      flipSegment(fiddleState.flip),
+      fiddleState.rotate === 0 ? null : `rot:${fiddleState.rotate}`,
+    ]
+      .filter(Boolean)
+      .join("/") || "Off",
+  );
+  const trimSummary = $derived(
+    fiddleState.trimEnabled ? (trimOptionSegment(fiddleState) ?? "Off") : "Off",
+  );
+  const resizeSummary = $derived(
+    fiddleState.resizeEnabled ? (resizeOptionSegment(fiddleState) ?? "Off") : "Off",
+  );
+  const aspectCanvasSummary = $derived(
+    fiddleState.aspectCanvasEnabled
+      ? fiddleState.aspectCanvasGravity === "ce"
+        ? "exar:1"
+        : `exar:1:${fiddleState.aspectCanvasGravity}`
+      : "Off",
+  );
+  const paddingSummary = $derived(
+    fiddleState.paddingEnabled
+      ? `pd:${fiddleState.paddingTop}:${fiddleState.paddingRight}:${fiddleState.paddingBottom}:${fiddleState.paddingLeft}`
+      : "Off",
+  );
+  const backgroundSummary = $derived(
+    fiddleState.backgroundEnabled
+      ? `bg:${fiddleState.backgroundColor.replace(/^#/, "")}${backgroundOpacitySummary(fiddleState.backgroundAlpha)}`
+      : "Off",
+  );
+  const effectsSummary = $derived(effectSegments(fiddleState).join("/") || "Off");
+  const metadataSummary = $derived(metadataSegments(fiddleState).join("/") || "On");
+  const cropSummary = $derived(
+    fiddleState.cropEnabled ? (cropOptionSegment(fiddleState) ?? "Off") : "Off",
+  );
+  const cropAspectRatioSummary = $derived(
+    fiddleState.cropAspectRatioEnabled
+      ? fiddleState.cropAspectRatioEnlarge
+        ? `car:${fiddleState.cropAspectRatio}:1`
+        : `car:${fiddleState.cropAspectRatio}`
+      : "Off",
+  );
+  const resizeExtras = $derived(
+    [
+      fiddleState.zoomEnabled ? `z:${fiddleState.zoom}` : null,
+      fiddleState.dprEnabled ? `dpr:${fiddleState.dpr}` : null,
+      fiddleState.minWidthEnabled ? `mw:${fiddleState.minWidth}` : null,
+      fiddleState.minHeightEnabled ? `mh:${fiddleState.minHeight}` : null,
+    ]
+      .filter(Boolean)
+      .join("/"),
+  );
+
+  function flipSegment(flip: FiddleState["flip"]): string | null {
+    if (flip === "horizontal") {
+      return "fl:1";
+    }
+
+    if (flip === "vertical") {
+      return "fl:0:1";
+    }
+
+    if (flip === "both") {
+      return "fl";
+    }
+
+    return null;
+  }
+
+  function backgroundOpacitySummary(alpha: number): string {
+    if (alpha >= 1) {
+      return "";
+    }
+
+    return `/bga:${alpha}`;
+  }
+
+  function metadataSegments(currentState: FiddleState): string[] {
+    const segs: string[] = [];
+
+    if (!currentState.stripMetadata) {
+      segs.push("sm:0");
+    } else if (!currentState.keepCopyright) {
+      segs.push("kcr:0");
+    }
+
+    if (!currentState.stripColorProfile) {
+      segs.push("scp:0");
+    }
+
+    if (currentState.colorProfile !== "none") {
+      segs.push(`cp:${currentState.colorProfile}`);
+    }
+
+    if (currentState.preserveHdr) {
+      segs.push("ph:1");
+    }
+
+    return segs;
+  }
+
+  function effectSegments(currentState: FiddleState): string[] {
+    return [
+      currentState.blurEnabled ? `bl:${currentState.blur}` : null,
+      currentState.sharpenEnabled ? `sh:${currentState.sharpen}` : null,
+      currentState.pixelateEnabled ? `pix:${currentState.pixelate}` : null,
+      currentState.monochromeEnabled
+        ? `mc:${currentState.monochromeIntensity}:${currentState.monochromeColor.replace(/^#/, "")}`
+        : null,
+      currentState.duotoneEnabled
+        ? `dt:${currentState.duotoneIntensity}:${currentState.duotoneShadow.replace(
+            /^#/,
+            "",
+          )}:${currentState.duotoneHighlight.replace(/^#/, "")}`
+        : null,
+      currentState.brightnessEnabled ? `br:${currentState.brightness}` : null,
+      currentState.contrastEnabled ? `co:${currentState.contrast}` : null,
+      currentState.saturationEnabled ? `sa:${currentState.saturation}` : null,
+    ].filter((segment): segment is string => segment !== null);
+  }
+
+  function updateCropEnabled(enabled: boolean): void {
+    fiddleState.cropEnabled = enabled;
+
+    if (enabled) {
+      fiddleState = resetCropPixelsToSource(fiddleState);
+    }
+  }
+
+  function updateStripMetadata(checked: boolean): void {
+    fiddleState.stripMetadata = checked;
+
+    if (!checked) {
+      fiddleState.keepCopyright = false;
+    }
+  }
+
+  function syncObjClasses(nextClasses: string[]): void {
+    // Add default weight for newly selected classes; remove weight for deselected ones.
+    const prev = new Set(fiddleState.objSelectedClasses);
+    const next = new Set(nextClasses);
+    let weights = { ...fiddleState.objWeights };
+
+    for (const cls of next) {
+      if (!prev.has(cls)) {
+        weights = { ...weights, [cls]: weights[cls] ?? 1 };
+      }
+    }
+
+    for (const cls of prev) {
+      if (!next.has(cls)) {
+        const { [cls]: _removed, ...rest } = weights;
+
+        weights = rest;
+      }
+    }
+
+    fiddleState.objSelectedClasses = nextClasses;
+    fiddleState.objWeights = weights;
+  }
+
+  function objClassTriggerLabel(selected: string[]): string {
+    if (selected.length === 0) {
+      return "All objects";
+    }
+
+    if (selected.length === 1) {
+      return selected[0]!;
+    }
+
+    return `${selected.length} classes`;
+  }
+
+  function updateFocalPoint(event: MouseEvent | PointerEvent): void {
+    if (event instanceof MouseEvent && event.type === "click" && event.detail === 0) {
+      return;
+    }
+
+    if (focalPickerSurface === null) {
+      return;
+    }
+
+    const focalPoint = focalPointFromBounds(
+      event.clientX,
+      event.clientY,
+      focalPickerSurface.getBoundingClientRect(),
+    );
+
+    fiddleState.gravityFocalX = focalPoint.x;
+    fiddleState.gravityFocalY = focalPoint.y;
+  }
+
+  function startFocalPointDrag(event: PointerEvent): void {
+    const target = event.currentTarget;
+
+    if (target instanceof HTMLElement) {
+      target.setPointerCapture(event.pointerId);
+    }
+
+    updateFocalPoint(event);
+  }
+
+  function moveFocalPoint(event: KeyboardEvent): void {
+    const step = event.shiftKey ? 0.1 : 0.01;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      fiddleState.gravityFocalX = Math.max(0, roundedFocalPoint(fiddleState.gravityFocalX - step));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      fiddleState.gravityFocalX = Math.min(1, roundedFocalPoint(fiddleState.gravityFocalX + step));
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      fiddleState.gravityFocalY = Math.max(0, roundedFocalPoint(fiddleState.gravityFocalY - step));
+    } else if (event.key === "ArrowDown") {
+      event.preventDefault();
+      fiddleState.gravityFocalY = Math.min(1, roundedFocalPoint(fiddleState.gravityFocalY + step));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      fiddleState.gravityFocalX = 0.5;
+      fiddleState.gravityFocalY = 0.5;
+    }
+  }
+
+  function roundedFocalPoint(value: number): number {
+    return Math.round(value * 100) / 100;
+  }
+
+  function dragFocalPoint(event: PointerEvent): void {
+    if (event.buttons !== 1) {
+      return;
+    }
+
+    updateFocalPoint(event);
+  }
+</script>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Resize"
+    summary={resizeSummary}
+    bind:checked={fiddleState.resizeEnabled}
+  />
+
+  {#if fiddleState.resizeEnabled}
+    <ResizeDimensionControl
+      label="Width"
+      bind:unit={fiddleState.resizeWidthUnit}
+      bind:pixels={fiddleState.width}
+      maxPixels={controlLimits.resize.width.max}
+    />
+    <ResizeDimensionControl
+      label="Height"
+      bind:unit={fiddleState.resizeHeightUnit}
+      bind:pixels={fiddleState.height}
+      maxPixels={controlLimits.resize.height.max}
+    />
+
+    <label class="field">
+      <span>Type</span>
+      <select bind:value={fiddleState.resizeMode}>
+        <option value="fit">fit</option>
+        <option value="fill">fill</option>
+        <option value="fill-down">fill-down</option>
+        <option value="force">force</option>
+        <option value="auto">auto</option>
+      </select>
+    </label>
+
+    <label class="switch-field">
+      <Switch.Root class="switch-root" bind:checked={fiddleState.enlarge}>
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>Allow enlargement</span>
+    </label>
+
+    <label class="switch-field">
+      <Switch.Root class="switch-root" bind:checked={fiddleState.resizeExtendEnabled}>
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>Extend result</span>
+    </label>
+  {/if}
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Crop"
+    summary={cropSummary}
+    checked={fiddleState.cropEnabled}
+    onCheckedChange={updateCropEnabled}
+  />
+
+  {#if fiddleState.cropEnabled}
+    <CropDimensionControl
+      label="Width"
+      bind:unit={fiddleState.cropWidthUnit}
+      bind:pixels={fiddleState.cropWidth}
+      bind:percent={fiddleState.cropWidthPercent}
+      maxPixels={cropWidthLimit.max}
+    />
+    <CropDimensionControl
+      label="Height"
+      bind:unit={fiddleState.cropHeightUnit}
+      bind:pixels={fiddleState.cropHeight}
+      bind:percent={fiddleState.cropHeightPercent}
+      maxPixels={cropHeightLimit.max}
+    />
+
+    <label class="field">
+      <span>Gravity</span>
+      <select bind:value={fiddleState.cropGravity}>
+        <option value="inherit">&lt;inherit&gt;</option>
+        <option value="ce">center</option>
+        <option value="no">north</option>
+        <option value="so">south</option>
+        <option value="ea">east</option>
+        <option value="we">west</option>
+        <option value="noea">north east</option>
+        <option value="nowe">north west</option>
+        <option value="soea">south east</option>
+        <option value="sowe">south west</option>
+        <option value="sm">smart</option>
+        <option value="obj:face">object (face)</option>
+        <option value="obj">object (all, bare)</option>
+        <option value="obj:all">object (all, explicit)</option>
+      </select>
+    </label>
+  {/if}
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Crop aspect ratio"
+    summary={cropAspectRatioSummary}
+    bind:checked={fiddleState.cropAspectRatioEnabled}
+  />
+
+  {#if fiddleState.cropAspectRatioEnabled}
+    <RangeNumber
+      label="Ratio"
+      bind:value={fiddleState.cropAspectRatio}
+      min={0}
+      max={10}
+      step={0.1}
+    />
+    <label class="switch-field">
+      <Switch.Root class="switch-root" bind:checked={fiddleState.cropAspectRatioEnlarge}>
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>Enlarge</span>
+    </label>
+  {/if}
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Gravity"
+    summary={fiddleState.gravityEnabled ? gravitySegment(fiddleState) : "Off"}
+    bind:checked={fiddleState.gravityEnabled}
+  />
+
+  {#if fiddleState.gravityEnabled}
+    <label class="field">
+      <span>Mode</span>
+      <select bind:value={fiddleState.gravityMode}>
+        <option value="anchor">anchor</option>
+        <option value="focalPoint">focal point</option>
+        <option value="offset">anchor + offset</option>
+        <option value="smart">smart</option>
+        <option value="objFace">object (face)</option>
+        <option value="object">object (detect)</option>
+      </select>
+    </label>
+
+    {#if fiddleState.gravityMode === "anchor" || fiddleState.gravityMode === "offset"}
+      <label class="field">
+        <span>Anchor</span>
+        <select bind:value={fiddleState.gravity}>
+          <option value="ce">center</option>
+          <option value="no">north</option>
+          <option value="so">south</option>
+          <option value="ea">east</option>
+          <option value="we">west</option>
+          <option value="noea">north east</option>
+          <option value="nowe">north west</option>
+          <option value="soea">south east</option>
+          <option value="sowe">south west</option>
+        </select>
+      </label>
+    {/if}
+
+    {#if fiddleState.gravityMode === "focalPoint"}
+      <div class="focal-picker-field">
+        <span>Focal point</span>
+        <button
+          class="focal-picker"
+          type="button"
+          aria-label={`Set focal point, currently ${fiddleState.gravityFocalX}, ${fiddleState.gravityFocalY}`}
+          onclick={updateFocalPoint}
+          onkeydown={moveFocalPoint}
+          onpointerdown={startFocalPointDrag}
+          onpointermove={dragFocalPoint}
+        >
+          <span class="focal-image-surface" bind:this={focalPickerSurface}>
+            <img src={`/${source}`} alt="" draggable="false" />
+            <span
+              class="focal-marker"
+              style={`left: ${fiddleState.gravityFocalX * 100}%; top: ${fiddleState.gravityFocalY * 100}%;`}
+            ></span>
+          </span>
+        </button>
+      </div>
+
+      <RangeNumber
+        label="Focal X"
+        bind:value={fiddleState.gravityFocalX}
+        min={controlLimits.focalPoint.min}
+        max={controlLimits.focalPoint.max}
+        step={controlLimits.focalPoint.step}
+      />
+      <RangeNumber
+        label="Focal Y"
+        bind:value={fiddleState.gravityFocalY}
+        min={controlLimits.focalPoint.min}
+        max={controlLimits.focalPoint.max}
+        step={controlLimits.focalPoint.step}
+      />
+    {/if}
+
+    {#if fiddleState.gravityMode === "offset"}
+      <RangeNumber
+        label="Offset X"
+        bind:value={fiddleState.gravityOffsetX}
+        min={controlLimits.gravityOffset.min}
+        max={controlLimits.gravityOffset.max}
+        step={controlLimits.gravityOffset.step}
+      />
+      <RangeNumber
+        label="Offset Y"
+        bind:value={fiddleState.gravityOffsetY}
+        min={controlLimits.gravityOffset.min}
+        max={controlLimits.gravityOffset.max}
+        step={controlLimits.gravityOffset.step}
+      />
+    {/if}
+
+    {#if fiddleState.gravityMode === "object"}
+      <!-- Object-gravity mode: filter detection to named classes + optional weights.
+           Simple = g:obj:<classes> (filters but no weight bias).
+           Weighted = g:objw:<class>:<weight>... (filters AND weights).
+           Empty selection = bare g:obj (all objects, no filter). -->
+      <Tabs.Root
+        class="obj-submode-tabs"
+        value={fiddleState.objSubMode}
+        onValueChange={(v) => {
+          fiddleState.objSubMode = v as "simple" | "weighted";
+        }}
+      >
+        <Tabs.List class="obj-submode-list">
+          <Tabs.Trigger class="obj-submode-trigger" value="simple">Simple</Tabs.Trigger>
+          <Tabs.Trigger class="obj-submode-trigger" value="weighted">Weighted</Tabs.Trigger>
+        </Tabs.List>
+      </Tabs.Root>
+
+      <div class="field">
+        <span>
+          {fiddleState.gravityMode === "object" && fiddleState.objSubMode === "weighted"
+            ? "Classes + weights"
+            : "Classes"}
+        </span>
+        <!-- Multi-select dropdown: choose individual detection classes.
+             Empty selection = all objects (bare g:obj).
+             In weighted mode "all" is offered as a baseline option. -->
+        <Select.Root
+          type="multiple"
+          value={fiddleState.objSelectedClasses}
+          onValueChange={syncObjClasses}
+        >
+          <Select.Trigger class="obj-class-trigger">
+            {objClassTriggerLabel(fiddleState.objSelectedClasses)}
+            <span class="obj-class-trigger-chevron" aria-hidden="true"></span>
+          </Select.Trigger>
+          <Select.Content class="obj-class-content" sideOffset={4}>
+            <Select.Viewport class="obj-class-viewport">
+              {#if fiddleState.objSubMode === "weighted"}
+                <Select.Item class="obj-class-item" value="all" label="all">
+                  {#snippet children({ selected })}
+                    <span class="obj-class-item-check" aria-hidden="true">
+                      {#if selected}✓{/if}
+                    </span>
+                    all
+                  {/snippet}
+                </Select.Item>
+              {/if}
+              {#each fiddleObjClassesForPicker as cls}
+                <Select.Item class="obj-class-item" value={cls} label={cls}>
+                  {#snippet children({ selected })}
+                    <span class="obj-class-item-check" aria-hidden="true">
+                      {#if selected}✓{/if}
+                    </span>
+                    {cls}
+                  {/snippet}
+                </Select.Item>
+              {/each}
+            </Select.Viewport>
+          </Select.Content>
+        </Select.Root>
+        {#if fiddleState.objSelectedClasses.length === 0}
+          <p class="field-hint">No classes selected — detects all objects.</p>
+        {/if}
+      </div>
+
+      {#if fiddleState.objSubMode === "weighted" && fiddleState.objSelectedClasses.length > 0}
+        {#each fiddleState.objSelectedClasses as cls (cls)}
+          <RangeNumber
+            label={cls === "all" ? "Baseline weight (all)" : `${cls} weight`}
+            value={fiddleState.objWeights[cls] ?? 1}
+            min={0.1}
+            max={10}
+            step={0.1}
+            inputStep="any"
+            onValueChange={(w) => {
+              fiddleState.objWeights = { ...fiddleState.objWeights, [cls]: w };
+            }}
+          />
+        {/each}
+        <p class="field-hint">
+          Weights bias the crop focal point toward a class. Non-uniform weights emit
+          <code>g:objw</code>; uniform weights use the compact <code>g:obj</code> form.
+        </p>
+      {/if}
+    {/if}
+  {/if}
+</section>
+
+<section class="tool-section">
+  <Collapsible.Root class="collapsible-root" bind:open={scaleOptionsOpen}>
+    <Collapsible.Trigger
+      class="accordion-heading"
+      aria-label={scaleOptionsOpen ? "Collapse scale options" : "Expand scale options"}
+    >
+      <div>
+        <h2>Scale options</h2>
+        <p>{resizeExtras || "Off"}</p>
+      </div>
+      <span class="accordion-chevron" aria-hidden="true"></span>
+    </Collapsible.Trigger>
+
+    <Collapsible.Content class="collapsible-content">
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.zoomEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Zoom</span>
+      </label>
+      {#if fiddleState.zoomEnabled}
+        <RangeNumber
+          label="Zoom"
+          bind:value={fiddleState.zoom}
+          min={controlLimits.scale.zoom.min}
+          max={controlLimits.scale.zoom.max}
+          step={controlLimits.scale.zoom.step}
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.dprEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>DPR</span>
+      </label>
+      {#if fiddleState.dprEnabled}
+        <RangeNumber
+          label="DPR"
+          bind:value={fiddleState.dpr}
+          min={controlLimits.scale.dpr.min}
+          max={controlLimits.scale.dpr.max}
+          step={controlLimits.scale.dpr.step}
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.minWidthEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Minimum width</span>
+      </label>
+      {#if fiddleState.minWidthEnabled}
+        <RangeNumber
+          label="Min width"
+          bind:value={fiddleState.minWidth}
+          min={controlLimits.scale.minWidth.min}
+          max={controlLimits.scale.minWidth.max}
+          step={controlLimits.scale.minWidth.step}
+          suffix="px"
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.minHeightEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Minimum height</span>
+      </label>
+      {#if fiddleState.minHeightEnabled}
+        <RangeNumber
+          label="Min height"
+          bind:value={fiddleState.minHeight}
+          min={controlLimits.scale.minHeight.min}
+          max={controlLimits.scale.minHeight.max}
+          step={controlLimits.scale.minHeight.step}
+          suffix="px"
+        />
+      {/if}
+    </Collapsible.Content>
+  </Collapsible.Root>
+</section>
+
+<section class="tool-section">
+  <Collapsible.Root class="collapsible-root" bind:open={orientationOpen}>
+    <Collapsible.Trigger
+      class="accordion-heading"
+      aria-label={orientationOpen ? "Collapse orientation" : "Expand orientation"}
+    >
+      <div>
+        <h2>Orientation</h2>
+        <p>{orientationSummary}</p>
+      </div>
+      <span class="accordion-chevron" aria-hidden="true"></span>
+    </Collapsible.Trigger>
+
+    <Collapsible.Content class="collapsible-content">
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.autoRotateEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Auto rotate from EXIF</span>
+      </label>
+
+      <label class="field">
+        <span>Flip</span>
+        <select bind:value={fiddleState.flip}>
+          <option value="none">none</option>
+          <option value="horizontal">horizontal</option>
+          <option value="vertical">vertical</option>
+          <option value="both">both</option>
+        </select>
+      </label>
+
+      <label class="field">
+        <span>Rotate</span>
+        <select bind:value={fiddleState.rotate}>
+          <option value={0}>none</option>
+          <option value={90}>90°</option>
+          <option value={180}>180°</option>
+          <option value={270}>270°</option>
+        </select>
+      </label>
+    </Collapsible.Content>
+  </Collapsible.Root>
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader title="Trim" summary={trimSummary} bind:checked={fiddleState.trimEnabled} />
+
+  {#if fiddleState.trimEnabled}
+    <RangeNumber
+      label="Threshold"
+      bind:value={fiddleState.trimThreshold}
+      min={0}
+      max={100}
+      step={1}
+    />
+
+    <label class="field">
+      <span>Background</span>
+      <select bind:value={fiddleState.trimBackgroundMode}>
+        <option value="auto">auto (smart detect)</option>
+        <option value="color">color</option>
+      </select>
+    </label>
+
+    {#if fiddleState.trimBackgroundMode === "color"}
+      <label class="field trim-color-field">
+        <span>Color</span>
+        <input class="color-input" type="color" bind:value={fiddleState.trimColor} />
+      </label>
+    {/if}
+
+    <label class="switch-field">
+      <Switch.Root class="switch-root" bind:checked={fiddleState.trimEqualHor}>
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>Equal horizontal</span>
+    </label>
+
+    <label class="switch-field">
+      <Switch.Root class="switch-root" bind:checked={fiddleState.trimEqualVer}>
+        <Switch.Thumb class="switch-thumb" />
+      </Switch.Root>
+      <span>Equal vertical</span>
+    </label>
+  {/if}
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Aspect canvas"
+    summary={aspectCanvasSummary}
+    bind:checked={fiddleState.aspectCanvasEnabled}
+  />
+
+  {#if fiddleState.aspectCanvasEnabled}
+    <label class="field">
+      <span>Gravity</span>
+      <select bind:value={fiddleState.aspectCanvasGravity}>
+        <option value="ce">center</option>
+        <option value="no">north</option>
+        <option value="so">south</option>
+        <option value="ea">east</option>
+        <option value="we">west</option>
+        <option value="noea">north east</option>
+        <option value="nowe">north west</option>
+        <option value="soea">south east</option>
+        <option value="sowe">south west</option>
+      </select>
+    </label>
+  {/if}
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Padding"
+    summary={paddingSummary}
+    bind:checked={fiddleState.paddingEnabled}
+  />
+
+  {#if fiddleState.paddingEnabled}
+    <RangeNumber
+      label="Top"
+      bind:value={fiddleState.paddingTop}
+      min={controlLimits.padding.min}
+      max={controlLimits.padding.max}
+      step={controlLimits.padding.step}
+      suffix="px"
+    />
+    <RangeNumber
+      label="Right"
+      bind:value={fiddleState.paddingRight}
+      min={controlLimits.padding.min}
+      max={controlLimits.padding.max}
+      step={controlLimits.padding.step}
+      suffix="px"
+    />
+    <RangeNumber
+      label="Bottom"
+      bind:value={fiddleState.paddingBottom}
+      min={controlLimits.padding.min}
+      max={controlLimits.padding.max}
+      step={controlLimits.padding.step}
+      suffix="px"
+    />
+    <RangeNumber
+      label="Left"
+      bind:value={fiddleState.paddingLeft}
+      min={controlLimits.padding.min}
+      max={controlLimits.padding.max}
+      step={controlLimits.padding.step}
+      suffix="px"
+    />
+  {/if}
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Background"
+    summary={backgroundSummary}
+    bind:checked={fiddleState.backgroundEnabled}
+  />
+
+  {#if fiddleState.backgroundEnabled}
+    <div class="background-controls">
+      <label class="field background-color-field">
+        <span>Color</span>
+        <input class="color-input" type="color" bind:value={fiddleState.backgroundColor} />
+      </label>
+
+      <div class="background-opacity-field">
+        <RangeNumber
+          label="Opacity"
+          bind:value={fiddleState.backgroundAlpha}
+          min={controlLimits.alpha.min}
+          max={controlLimits.alpha.max}
+          step={controlLimits.alpha.step}
+          inputStep="any"
+        />
+      </div>
+    </div>
+  {/if}
+</section>
+
+<section class="tool-section">
+  <Collapsible.Root class="collapsible-root" bind:open={effectsOpen}>
+    <Collapsible.Trigger
+      class="accordion-heading"
+      aria-label={effectsOpen ? "Collapse effects" : "Expand effects"}
+    >
+      <div>
+        <h2>Effects</h2>
+        <p>{effectsSummary}</p>
+      </div>
+      <span class="accordion-chevron" aria-hidden="true"></span>
+    </Collapsible.Trigger>
+
+    <Collapsible.Content class="collapsible-content">
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.blurEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Blur</span>
+      </label>
+      {#if fiddleState.blurEnabled}
+        <RangeNumber
+          label="Blur sigma"
+          bind:value={fiddleState.blur}
+          min={controlLimits.effects.blur.min}
+          max={controlLimits.effects.blur.max}
+          step={controlLimits.effects.blur.step}
+          inputStep="any"
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.sharpenEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Sharpen</span>
+      </label>
+      {#if fiddleState.sharpenEnabled}
+        <RangeNumber
+          label="Sharpen sigma"
+          bind:value={fiddleState.sharpen}
+          min={controlLimits.effects.sharpen.min}
+          max={controlLimits.effects.sharpen.max}
+          step={controlLimits.effects.sharpen.step}
+          inputStep="any"
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.pixelateEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Pixelate</span>
+      </label>
+      {#if fiddleState.pixelateEnabled}
+        <RangeNumber
+          label="Block size"
+          bind:value={fiddleState.pixelate}
+          min={controlLimits.effects.pixelate.min}
+          max={controlLimits.effects.pixelate.max}
+          step={controlLimits.effects.pixelate.step}
+          suffix="px"
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.monochromeEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Monochrome</span>
+      </label>
+      {#if fiddleState.monochromeEnabled}
+        <div class="monochrome-control-row">
+          <RangeNumber
+            label="Intensity"
+            bind:value={fiddleState.monochromeIntensity}
+            min={controlLimits.effects.intensity.min}
+            max={controlLimits.effects.intensity.max}
+            step={controlLimits.effects.intensity.step}
+            inputStep="any"
+          />
+          <label class="field monochrome-color-field">
+            <span>Color</span>
+            <input class="color-input" type="color" bind:value={fiddleState.monochromeColor} />
+          </label>
+        </div>
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.duotoneEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Duotone</span>
+      </label>
+      {#if fiddleState.duotoneEnabled}
+        <div class="duotone-control-row">
+          <RangeNumber
+            label="Intensity"
+            bind:value={fiddleState.duotoneIntensity}
+            min={controlLimits.effects.intensity.min}
+            max={controlLimits.effects.intensity.max}
+            step={controlLimits.effects.intensity.step}
+            inputStep="any"
+          />
+          <div class="duotone-color-controls">
+            <label class="field">
+              <span>Shadow</span>
+              <input class="color-input" type="color" bind:value={fiddleState.duotoneShadow} />
+            </label>
+            <label class="field">
+              <span>Highlight</span>
+              <input class="color-input" type="color" bind:value={fiddleState.duotoneHighlight} />
+            </label>
+          </div>
+        </div>
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.brightnessEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Brightness</span>
+      </label>
+      {#if fiddleState.brightnessEnabled}
+        <RangeNumber
+          label="Brightness"
+          bind:value={fiddleState.brightness}
+          min={controlLimits.effects.brightness.min}
+          max={controlLimits.effects.brightness.max}
+          step={controlLimits.effects.brightness.step}
+          suffix="%"
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.contrastEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Contrast</span>
+      </label>
+      {#if fiddleState.contrastEnabled}
+        <RangeNumber
+          label="Contrast"
+          bind:value={fiddleState.contrast}
+          min={controlLimits.effects.contrast.min}
+          max={controlLimits.effects.contrast.max}
+          step={controlLimits.effects.contrast.step}
+          suffix="%"
+        />
+      {/if}
+
+      <label class="switch-field">
+        <Switch.Root class="switch-root" bind:checked={fiddleState.saturationEnabled}>
+          <Switch.Thumb class="switch-thumb" />
+        </Switch.Root>
+        <span>Saturation</span>
+      </label>
+      {#if fiddleState.saturationEnabled}
+        <RangeNumber
+          label="Saturation"
+          bind:value={fiddleState.saturation}
+          min={controlLimits.effects.saturation.min}
+          max={controlLimits.effects.saturation.max}
+          step={controlLimits.effects.saturation.step}
+          suffix="%"
+        />
+      {/if}
+    </Collapsible.Content>
+  </Collapsible.Root>
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Format"
+    summary={fiddleState.formatEnabled ? `f:${fiddleState.format}` : "Off"}
+    bind:checked={fiddleState.formatEnabled}
+  />
+
+  {#if fiddleState.formatEnabled}
+    <label class="field">
+      <span>Format</span>
+      <select bind:value={fiddleState.format}>
+        <option value="webp">webp</option>
+        <option value="avif">avif</option>
+        <option value="jpeg">jpeg</option>
+        <option value="png">png</option>
+      </select>
+    </label>
+  {/if}
+</section>
+
+<section class="tool-section">
+  <ToolToggleHeader
+    title="Quality"
+    summary={fiddleState.qualityEnabled ? `q:${fiddleState.quality}` : "Off"}
+    bind:checked={fiddleState.qualityEnabled}
+  />
+
+  {#if fiddleState.qualityEnabled}
+    <RangeNumber
+      label="Quality"
+      bind:value={fiddleState.quality}
+      min={controlLimits.quality.min}
+      max={controlLimits.quality.max}
+      step={controlLimits.quality.step}
+    />
+  {/if}
+</section>
+
+<section class="tool-section">
+  <div class="accordion-heading">
+    <div>
+      <h2>Metadata &amp; color</h2>
+      <p>{metadataSummary}</p>
+    </div>
+  </div>
+
+  <label class="switch-field">
+    <Switch.Root
+      class="switch-root"
+      checked={fiddleState.stripMetadata}
+      onCheckedChange={updateStripMetadata}
+    >
+      <Switch.Thumb class="switch-thumb" />
+    </Switch.Root>
+    <span>Strip metadata (sm)</span>
+  </label>
+
+  <label class="switch-field">
+    <Switch.Root
+      class="switch-root"
+      bind:checked={fiddleState.keepCopyright}
+      disabled={!fiddleState.stripMetadata}
+    >
+      <Switch.Thumb class="switch-thumb" />
+    </Switch.Root>
+    <span class:muted-label={!fiddleState.stripMetadata}>Keep copyright (kcr)</span>
+  </label>
+
+  <label class="switch-field">
+    <Switch.Root class="switch-root" bind:checked={fiddleState.stripColorProfile}>
+      <Switch.Thumb class="switch-thumb" />
+    </Switch.Root>
+    <span>Strip color profile (scp)</span>
+  </label>
+
+  <label class="field">
+    <span>Color profile (cp)</span>
+    <select bind:value={fiddleState.colorProfile}>
+      <option value="none">none</option>
+      <option value="srgb">srgb</option>
+      <option value="display-p3">display-p3</option>
+      <option value="adobe-rgb">adobe-rgb</option>
+    </select>
+  </label>
+
+  <label class="switch-field">
+    <Switch.Root class="switch-root" bind:checked={fiddleState.preserveHdr}>
+      <Switch.Thumb class="switch-thumb" />
+    </Switch.Root>
+    <span>Preserve HDR (ph)</span>
+  </label>
+</section>
+
+<style>
+  .focal-picker-field {
+    color: var(--text-label);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .field-hint {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 16px;
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+  }
+
+  .focal-picker-field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .focal-picker {
+    width: 100%;
+    height: 148px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: repeating-conic-gradient(var(--checker-square) 0 25%, var(--surface-control) 0 50%)
+      50% / 16px 16px;
+    cursor: crosshair;
+    padding: 8px;
+    touch-action: none;
+  }
+
+  .focal-image-surface {
+    position: relative;
+    display: inline-flex;
+    max-width: 100%;
+    max-height: 100%;
+    box-shadow: var(--image-shadow);
+  }
+
+  .focal-image-surface img {
+    display: block;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 130px;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .focal-marker {
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--accent);
+    border-radius: 999px;
+    box-shadow:
+      0 0 0 1px var(--surface-sidebar),
+      0 2px 10px rgb(0 0 0 / 0.38);
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+  }
+
+  .focal-marker::before,
+  .focal-marker::after {
+    position: absolute;
+    inset: 50% auto auto 50%;
+    display: block;
+    background: var(--accent);
+    content: "";
+    transform: translate(-50%, -50%);
+  }
+
+  .focal-marker::before {
+    width: 24px;
+    height: 2px;
+  }
+
+  .focal-marker::after {
+    width: 2px;
+    height: 24px;
+  }
+
+  .field > span {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .background-controls {
+    display: flex;
+    align-items: start;
+    gap: 14px;
+  }
+
+  .background-color-field {
+    flex: 0 0 58px;
+  }
+
+  .background-opacity-field {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .monochrome-control-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 14px;
+  }
+
+  .monochrome-color-field {
+    width: 58px;
+  }
+
+  .duotone-control-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 14px;
+  }
+
+  .duotone-color-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  /* Segmented control (Simple / Weighted sub-mode tabs) */
+  :global(.obj-submode-tabs) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  :global(.obj-submode-list) {
+    display: inline-flex;
+    height: 32px;
+    padding: 3px;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-control-track);
+    gap: 2px;
+  }
+
+  :global(.obj-submode-trigger) {
+    flex: 1;
+    height: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1;
+    padding-inline: 10px;
+    transition:
+      background-color 120ms ease-out,
+      color 120ms ease-out;
+  }
+
+  :global(.obj-submode-trigger[data-state="active"]) {
+    background: var(--surface-control);
+    color: var(--text-heading);
+    box-shadow: 0 0 0 1px var(--border-subtle);
+  }
+
+  :global(.obj-submode-trigger:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+
+  /* Class multi-select dropdown */
+  :global(.obj-class-trigger) {
+    min-width: 0;
+    width: 100%;
+    height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--surface-control);
+    color: var(--text-primary);
+    padding-inline: 12px 10px;
+    font: inherit;
+    font-size: 14px;
+    line-height: 18px;
+    cursor: pointer;
+    text-align: start;
+
+    &:focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+  }
+
+  .obj-class-trigger-chevron {
+    width: 5px;
+    height: 5px;
+    flex-shrink: 0;
+    border-inline-end: 2px solid var(--text-muted);
+    border-block-end: 2px solid var(--text-muted);
+    transform: rotate(45deg) translate(-1px, -1px);
+    margin-inline-end: 4px;
+  }
+
+  :global(.obj-class-trigger[data-state="open"]) .obj-class-trigger-chevron {
+    transform: rotate(-135deg) translate(-1px, -1px);
+  }
+
+  :global(.obj-class-content) {
+    min-width: var(--bits-select-anchor-width, 180px);
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+    background: var(--surface-sidebar);
+    box-shadow: var(--image-shadow);
+    overflow: hidden;
+    z-index: 50;
+  }
+
+  :global(.obj-class-viewport) {
+    padding: 4px;
+  }
+
+  :global(.obj-class-item) {
+    height: 32px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-primary);
+    cursor: pointer;
+    font: inherit;
+    font-size: 13px;
+    padding-inline: 8px;
+    width: 100%;
+    text-align: start;
+
+    &:hover,
+    &[data-highlighted] {
+      background: color-mix(in srgb, var(--accent) 12%, var(--surface-control));
+      color: var(--text-heading);
+    }
+
+    &[data-selected] {
+      color: var(--text-heading);
+      font-weight: 500;
+    }
+  }
+
+  .obj-class-item-check {
+    width: 14px;
+    flex-shrink: 0;
+    color: var(--accent);
+    font-size: 12px;
+    line-height: 1;
+  }
+
+  .color-input {
+    width: 100%;
+    height: 38px;
+    border: 1px solid var(--border-strong);
+    border-radius: 7px;
+    background: var(--surface-control);
+    padding: 4px;
+    cursor: pointer;
+  }
+
+  .muted-label {
+    color: var(--text-muted);
+  }
+
+  .focal-picker:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+</style>

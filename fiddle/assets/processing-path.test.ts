@@ -11,6 +11,7 @@ import {
   defaultFiddleState,
   debounce,
   focalPointFromBounds,
+  gravitySegment,
   imageRequestBytesFromPerformance,
   objGravitySegment,
   objGravitySegmentFromState,
@@ -1678,5 +1679,29 @@ describe("fiddle URL state", () => {
     });
     expect(optionSegments(reset)).toEqual([]);
     expect(fiddlePathForState(reset)).toBe("/plain/local:///images/beach.jpg");
+  });
+});
+
+describe("object-gravity + focal-point segment building", () => {
+  it("builds a focal-point gravity segment", () => {
+    const state = {
+      ...defaultFiddleState,
+      gravityEnabled: true,
+      gravityMode: "focalPoint" as const,
+      gravityFocalX: 0.25,
+      gravityFocalY: 0.75,
+    };
+    expect(gravitySegment(state)).toBe("g:fp:0.25:0.75");
+  });
+
+  it("builds a weighted object segment from selected classes", () => {
+    const state = {
+      ...defaultFiddleState,
+      gravityMode: "object" as const,
+      objSubMode: "weighted" as const,
+      objSelectedClasses: ["dog", "person"],
+      objWeights: { dog: 2, person: 1 },
+    };
+    expect(objGravitySegmentFromState(state)).toBe("g:objw:dog:2:person:1");
   });
 });
