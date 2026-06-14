@@ -34,6 +34,32 @@ rather than trusted HTTP headers. `:max_body_bytes` defaults to `10_000_000`
 bytes. `:max_input_pixels` defaults to `40_000_000` pixels after decode. Override
 both in `ImagePipe.Plug` init options.
 
+ImagePipe bounds source fetches per chunk and per byte, not per total wall-clock.
+`:receive_timeout` (and `:connect_timeout`/`:pool_timeout`) bound the gap between
+streamed chunks, and `:max_body_bytes` bounds total size — but ImagePipe imposes
+no deadline on a whole transfer, nor on how long a slow client may take to drain a
+response. By deliberate decision those two wall-clock bounds belong to the
+deployment's front proxy or CDN — the layer ImagePipe is designed to sit behind:
+
+- A trickling origin (each chunk arriving just under `:receive_timeout`) makes
+  per-chunk progress indefinitely while staying under `:max_body_bytes`, so
+  neither in-library bound stops it — and because the handler is *busy* (not
+  idle) during the fetch, a server-level request/idle timeout (Bandit, Cowboy)
+  does not fire either. A front proxy bounds it: its upstream-response read
+  timeout — nginx `proxy_read_timeout`, Caddy `read_timeout`, an ALB/CDN
+  origin-response timeout — fires while waiting for ImagePipe to emit the first
+  response byte and returns `504`. ImagePipe deliberately does not add a redundant
+  in-library transfer deadline.
+- A slow-reading client that drains a chunked response one TCP window at a time
+  holds the source session open while the producer keeps a suspended encode
+  continuation. With proxy response buffering on (nginx `proxy_buffering on`, the
+  default; equivalently any CDN) the proxy drains ImagePipe quickly into its own
+  buffer and feeds the slow client itself, so ImagePipe finishes and releases the
+  session promptly rather than waiting on the slow reader; the proxy's
+  `send_timeout` bounds the client. Without a proxy, the server's outbound
+  write/idle timeout (Bandit, Cowboy) fires when the producer cannot write because
+  the client is not reading.
+
 Static result limits run after transform execution and before final output
 resolution or encoding. `:max_result_width` and `:max_result_height` default
 to `8_192`. `:max_result_pixels` defaults to `40_000_000`. Result dimensions
