@@ -38,6 +38,27 @@ defmodule ImagePipe.Request.Options do
     :request_id,
     :telemetry_prefix
   ]
+  # Real top-level options read directly by downstream consumers (negotiation,
+  # cache key, capabilities) with their own defaults rather than this schema.
+  # Listed so a near-miss typo of them is caught too.
+  @passthrough_option_keys [:auto_avif, :auto_webp, :output_capabilities]
+
+  # Names a typo is matched against. Not a closed allowlist: the option surface
+  # is deliberately open (parser config namespaces, DI/runtime seams, detector
+  # extension keys), so we only flag an unknown key that is a close edit-distance
+  # match to one of these — closing the silent-typo footgun (e.g. a misspelled
+  # safety limit) without rejecting legitimately-unknown extension keys.
+  @known_option_names Enum.uniq(
+                        @validated_option_keys ++
+                          @source_runtime_option_keys ++
+                          @passthrough_option_keys ++
+                          [:cache, :sources]
+                      )
+  # A name is a likely typo of a known option when it is a near edit-distance
+  # match and a similar length (guards against false positives on keys that
+  # merely share a long prefix, e.g. `max_result_width`/`max_result_height`).
+  @typo_jaro_threshold 0.9
+  @typo_max_length_diff 2
   @options_schema NimbleOptions.new!(
                     parser: [type: :atom, required: true],
                     clock: [type: {:custom, __MODULE__, :validate_clock, []}],
@@ -87,6 +108,7 @@ defmodule ImagePipe.Request.Options do
     |> Cache.validate_config!()
     |> Source.validate_config!()
     |> reject_stale_origin_opts!()
+    |> reject_typo_opts!()
     |> validate_known_opts!()
   end
 
@@ -121,6 +143,42 @@ defmodule ImagePipe.Request.Options do
 
       {:error, %NimbleOptions.ValidationError{} = error} ->
         raise ArgumentError, "invalid ImagePipe options: #{Exception.message(error)}"
+    end
+  end
+
+  defp reject_typo_opts!(opts) do
+    opts
+    |> Keyword.keys()
+    |> Enum.uniq()
+    |> Enum.reject(&(&1 in @known_option_names))
+    |> Enum.each(fn key ->
+      case nearest_known_option(key) do
+        nil ->
+          :ok
+
+        suggestion ->
+          raise ArgumentError,
+                "unknown ImagePipe option #{inspect(key)} — did you mean #{inspect(suggestion)}?"
+      end
+    end)
+
+    opts
+  end
+
+  defp nearest_known_option(key) do
+    key_string = Atom.to_string(key)
+
+    @known_option_names
+    |> Enum.map(fn known -> {known, String.jaro_distance(Atom.to_string(known), key_string)} end)
+    |> Enum.filter(fn {known, distance} ->
+      distance >= @typo_jaro_threshold and
+        abs(String.length(Atom.to_string(known)) - String.length(key_string)) <=
+          @typo_max_length_diff
+    end)
+    |> Enum.max_by(fn {_known, distance} -> distance end, fn -> nil end)
+    |> case do
+      nil -> nil
+      {known, _distance} -> known
     end
   end
 

@@ -50,8 +50,16 @@ defmodule ImagePipe.Source.HTTP do
   @impl Source
   def validate_options(opts) do
     case NimbleOptions.validate(opts, @options_schema) do
-      {:ok, validated} -> {:ok, Keyword.put(validated, :telemetry_kind, :http)}
-      {:error, error} -> {:error, {:invalid_source_config, Exception.message(error)}}
+      {:ok, validated} ->
+        normalized =
+          validated
+          |> Keyword.update!(:allowed_hosts, fn hosts -> Enum.map(hosts, &String.downcase/1) end)
+          |> Keyword.put(:telemetry_kind, :http)
+
+        {:ok, normalized}
+
+      {:error, error} ->
+        {:error, {:invalid_source_config, Exception.message(error)}}
     end
   end
 
