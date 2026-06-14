@@ -1120,18 +1120,10 @@
     border-bottom: 1px solid var(--border-subtle);
   }
 
-  .field,
-  .switch-field,
   .focal-picker-field {
     color: var(--text-label);
     font-size: 13px;
     line-height: 18px;
-  }
-
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
   }
 
   .field-hint {
@@ -1262,28 +1254,6 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
-  }
-
-  select {
-    min-width: 0;
-    width: 100%;
-    height: 38px;
-    border: 1px solid var(--border-strong);
-    border-radius: 7px;
-    background: var(--surface-control);
-    color: var(--text-primary);
-    padding-inline: 12px 34px;
-    font-size: 14px;
-    line-height: 18px;
-    appearance: none;
-    background-image:
-      linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
-      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
-    background-position:
-      calc(100% - 17px) 16px,
-      calc(100% - 12px) 16px;
-    background-size: 5px 5px;
-    background-repeat: no-repeat;
   }
 
   /* Segmented control (Simple / Weighted sub-mode tabs) */
@@ -1432,12 +1402,6 @@
     background: var(--surface-control);
     padding: 4px;
     cursor: pointer;
-  }
-
-  .switch-field {
-    display: flex;
-    align-items: center;
-    gap: 10px;
   }
 
   .muted-label {
