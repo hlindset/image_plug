@@ -48,7 +48,7 @@
     switch (kind) {
       case "max":
         iiifState.size = { kind: "max" };
-        // `^max` is inert until maxWidth/maxHeight/maxArea support lands (#296), so
+        // `^max` is inert until maxWidth/maxHeight/maxArea support lands (#257), so
         // don't emit it — `^` only meaningfully applies to an explicit target size.
         iiifState.upscale = false;
         break;
